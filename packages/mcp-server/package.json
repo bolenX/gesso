@@ -1,0 +1,20 @@
+{
+  "name": "@gesso/mcp-server",
+  "version": "0.0.0",
+  "description": "MCP server exposing the Gesso agent interface.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": { "gesso-mcp": "./dist/bin.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/bin.js"
+  },
+  "dependencies": {
+    "@gesso/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "zod": "^3.25.76"
+  }
+}
