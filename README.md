@@ -37,30 +37,35 @@ skills/              Bundled skills (SKILL.md, recipe.json, checks.md, examples/
 docs/                Technical spec
 ```
 
-## Use Gesso from Claude
+## Install
 
-The repo ships an MCP config (`.mcp.json`), so Claude Code loads Gesso as a tool in any session opened here, with no scripts to run. Claude Code asks you once to approve the `gesso` server. The first start builds Gesso (about a minute); later starts are instant.
-
-```sh
-git clone https://github.com/bolenX/gesso && cd gesso
-claude
-```
-
-Then ask for a design, for example: "Make a 1080×1350 poster that says Hello from Gesso, show me a preview, then export a PSD to out/."
-
-From another folder, or in Claude Desktop, point at the launcher instead. Claude Code:
+Add Gesso to Claude Code with one command. `npx` downloads and starts it; there is nothing to clone or build.
 
 ```sh
-claude mcp add gesso -- sh /path/to/gesso/scripts/gesso-mcp.sh
+claude mcp add gesso -- npx -y gesso-mcp
 ```
 
 Claude Desktop (`claude_desktop_config.json`):
 
 ```json
-{ "mcpServers": { "gesso": { "command": "sh", "args": ["/path/to/gesso/scripts/gesso-mcp.sh"] } } }
+{ "mcpServers": { "gesso": { "command": "npx", "args": ["-y", "gesso-mcp"] } } }
 ```
 
-To host Gesso as a connector, run `node packages/mcp-server/dist/bin.js --http 3333` behind HTTPS and add `https://your-host/mcp` as a custom connector.
+Then ask for a design, for example: "Make a 1080×1350 poster that says Hello from Gesso, show me a preview, then export a PSD to out/." Assets and exports resolve relative to the folder Claude runs in. Requires Node 22 or later.
+
+To host Gesso as a connector, run `npx -y gesso-mcp --http 3333` behind HTTPS and add `https://your-host/mcp` as a custom connector.
+
+Working on Gesso itself? The repo's `.mcp.json` loads your local checkout as the `gesso` server in any Claude Code session opened here.
+
+## Publishing gesso-mcp
+
+```sh
+pnpm install
+node packages/gesso-mcp/build.mjs
+cd packages/gesso-mcp && npm publish
+```
+
+Bump `version` in `packages/gesso-mcp/package.json` before each release.
 
 ## Development
 

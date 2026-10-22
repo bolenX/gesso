@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { WORDMARK_SVG } from "./brand.js";
 
 // The Gesso result card, an MCP App. Hosts that support MCP Apps (claude.ai,
@@ -11,8 +12,11 @@ export const WIDGET_MIME = "text/html;profile=mcp-app";
 
 /** ext-apps ships a self-contained ESM bundle; expose its App class as a global for the inline script. */
 function appBundle(): string {
-  const require = createRequire(import.meta.url);
-  const source = readFileSync(require.resolve("@modelcontextprotocol/ext-apps/app-with-deps"), "utf8");
+  // The published gesso-mcp package vendors the bundle (ext-apps declares the v2 SDK and React as peers).
+  const vendored = fileURLToPath(new URL("../vendor/ext-apps-app.js", import.meta.url));
+  const source = existsSync(vendored)
+    ? readFileSync(vendored, "utf8")
+    : readFileSync(createRequire(import.meta.url).resolve("@modelcontextprotocol/ext-apps/app-with-deps"), "utf8");
   const exportStatement = /export\s*\{([^}]*)\}\s*;?\s*$/.exec(source);
   if (!exportStatement) throw new Error("Unexpected ext-apps bundle format");
   const local = exportStatement[1]!
