@@ -252,6 +252,8 @@ export const Asset = z.object({
   hash: z.string().optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
+  /** Font family name a font asset registers, e.g. "Inter". */
+  family: z.string().optional(),
   description: z.string().optional(),
 });
 export type Asset = z.infer<typeof Asset>;

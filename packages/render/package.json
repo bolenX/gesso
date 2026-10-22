@@ -1,0 +1,26 @@
+{
+  "name": "@gesso/render",
+  "version": "0.0.0",
+  "description": "Gesso evaluator: renders artboards with Skia (CanvasKit).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@gesso/core": "workspace:*",
+    "canvaskit-wasm": "^0.40.0",
+    "sharp": "^0.34.5"
+  }
+}
