@@ -3,3 +3,5 @@ assets/
 vendor/
 LICENSE
 *.tgz
+mcpb/
+*.mcpb

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { mkdirSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -9,8 +10,13 @@ import { createServer, DocStore } from "./index.js";
 // connector) talk to. Documents live in memory for the life of the process.
 const httpFlag = process.argv.indexOf("--http");
 
+// GESSO_WORKDIR is where assets resolve and exports land. The Claude Desktop extension sets it
+// (hosts often start servers in a folder that isn't writable); otherwise it's the current folder.
+const baseDir = process.env.GESSO_WORKDIR || process.cwd();
+mkdirSync(baseDir, { recursive: true });
+
 if (httpFlag === -1) {
-  await createServer().connect(new StdioServerTransport());
+  await createServer({ baseDir }).connect(new StdioServerTransport());
 } else {
   const port = Number(process.argv[httpFlag + 1] ?? process.env.PORT ?? 3333);
   const store = new DocStore();
@@ -21,7 +27,7 @@ if (httpFlag === -1) {
     }
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => void transport.close());
-    await createServer({ store }).connect(transport);
+    await createServer({ store, baseDir }).connect(transport);
     await transport.handleRequest(req, res);
   }).listen(port, () => console.error(`Gesso MCP server on http://localhost:${port}/mcp`));
 }
