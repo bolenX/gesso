@@ -1,18 +1,22 @@
-import type { Doc } from "@gesso/core";
+import { DocHistory, type Doc } from "@gesso/core";
 
-/** In-memory document store. The event log and persistence replace this later. */
+/** In-memory document store, one event log per document. Persistence replaces this later. */
 export class DocStore {
-  private docs = new Map<string, Doc>();
+  private docs = new Map<string, DocHistory>();
   private selections = new Map<string, string[]>();
 
-  put(doc: Doc): void {
-    this.docs.set(doc.id, doc);
+  put(doc: Doc, author: string): void {
+    this.docs.set(doc.id, new DocHistory(doc, author));
+  }
+
+  history(id: string): DocHistory {
+    const history = this.docs.get(id);
+    if (!history) throw new Error(`No document "${id}"`);
+    return history;
   }
 
   get(id: string): Doc {
-    const doc = this.docs.get(id);
-    if (!doc) throw new Error(`No document "${id}"`);
-    return doc;
+    return this.history(id).head;
   }
 
   selection(id: string): string[] {

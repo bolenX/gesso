@@ -4,7 +4,7 @@
 
 Agents create and edit layered compositions as data, and every output opens in Photoshop as a fully editable PSD. The headless core ships first. A human-facing canvas UI follows later as a client of the same API.
 
-> Status: pre-alpha. The document IR, patch format, selectors and outline view exist. The renderer, PSD round-trip and generative broker are not built yet. See [docs/spec-v0.1.md](docs/spec-v0.1.md).
+> Status: pre-alpha. The document IR, selectors, outline view, atomic patches and revision history work. The renderer, PSD round-trip and generative broker are not built yet. See [docs/spec-v0.1.md](docs/spec-v0.1.md).
 
 ## Principles
 
