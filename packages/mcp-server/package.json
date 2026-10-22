@@ -10,7 +10,8 @@
     "gesso-mcp": "./dist/bin.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "assets"
   ],
   "scripts": {
     "build": "tsc -b",

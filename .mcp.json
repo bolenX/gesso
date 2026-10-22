@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gesso": {
+      "command": "sh",
+      "args": ["scripts/gesso-mcp.sh"]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { LOGO_SVG } from "./brand.js";
+import { WORDMARK_SVG } from "./brand.js";
 
 // The Gesso result card, an MCP App. Hosts that support MCP Apps (claude.ai,
 // Claude Desktop) render it inline under Gesso tool calls; other hosts ignore
@@ -36,8 +36,7 @@ body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 ui-sans-s
 .card { padding:14px 16px 12px; display:grid; grid-template-columns:minmax(0, 1fr); gap:12px; }
 #body { display:grid; gap:10px; min-width:0; }
 .head { display:flex; align-items:center; gap:10px; }
-.head svg { width:22px; height:22px; flex:none; }
-.brand { font-weight:700; letter-spacing:-0.01em; }
+.head svg { height:15px; width:auto; flex:none; display:block; }
 .what { color:var(--muted); }
 .rev { margin-left:auto; font:12px ui-monospace, Menlo, monospace; color:var(--muted); }
 .boards { display:flex; gap:10px; overflow-x:auto; padding-bottom:2px; }
@@ -56,7 +55,7 @@ pre { margin:0; padding:10px 12px; border:1px solid var(--rule); border-radius:6
 .foot a { color:inherit; }
 .empty { color:var(--muted); }
 </style></head>
-<body><div class="card" id="card"><div class="head">${LOGO_SVG}<span class="brand">Gesso</span><span class="what" id="what">Working…</span><span class="rev" id="rev"></span></div><div id="body" class="empty">Waiting for the result.</div><div class="foot"><span>Layered images as data · editable PSDs</span><span id="gen"></span></div></div>
+<body><div class="card" id="card"><div class="head">${WORDMARK_SVG.replace("<svg ", '<svg class="mark" ')}<span class="what" id="what">Working…</span><span class="rev" id="rev"></span></div><div id="body" class="empty">Waiting for the result.</div><div class="foot"><span>Layered images as data · editable PSDs</span><span id="gen"></span></div></div>
 <script type="module">
 ${appBundle()}
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
