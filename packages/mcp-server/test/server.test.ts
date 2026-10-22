@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { createServer, TOOL_NAMES } from "../src/index.js";
+import { createServer, FILE_TOOL, TOOL_NAMES } from "../src/index.js";
 import { promo } from "../../core/test/fixtures.js";
 
 async function connect(options: Parameters<typeof createServer>[0] = {}) {
@@ -20,7 +20,8 @@ describe("gesso MCP server", () => {
   it("registers the v0.1 tool surface", async () => {
     const client = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
+    expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES, FILE_TOOL].sort());
+    expect(tools.find((t) => t.name === FILE_TOOL)!._meta).toMatchObject({ ui: { visibility: ["app"] } });
   });
 
   it("presents itself as Gesso with a logo, tool titles and a result card", async () => {
@@ -117,7 +118,17 @@ describe("gesso MCP server", () => {
     expect(psd.isError).toBeFalsy();
     const bytes = await readFile(join(baseDir, "out", "promo-01.psd"));
     expect(bytes.subarray(0, 4).toString()).toBe("8BPS");
-  });
+
+    // The export card lists the PSD, a flat PNG per artboard and the manifest, each downloadable.
+    const card = (psd.structuredContent as { gesso: { files: Array<{ name: string; kind: string; path: string; bytes: number; thumb?: string }> } }).gesso;
+    expect(card.files.map((f) => [f.name, f.kind])).toEqual([["promo-01.psd", "PSD"], ["post-4x5.png", "PNG"], ["manifest.json", "JSON"]]);
+    expect(card.files[0]!.thumb).toBeTruthy();
+    expect(card.files[0]!.bytes).toBe(bytes.length);
+    const download = await client.callTool({ name: FILE_TOOL, arguments: { path: card.files[0]!.path } });
+    expect(Buffer.from((download.structuredContent as { blob: string }).blob, "base64").equals(bytes)).toBe(true);
+    const refused = await client.callTool({ name: FILE_TOOL, arguments: { path: "/etc/hostname" } });
+    expect(refused.isError).toBe(true);
+  }, 30_000);
 
   it("reports unimplemented tools as errors", async () => {
     const client = await connect();

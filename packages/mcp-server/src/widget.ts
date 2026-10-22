@@ -3,6 +3,9 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { WORDMARK_SVG } from "./brand.js";
 
+/** App-only tool the card calls to fetch an exported file for download. */
+export const FILE_TOOL = "gesso_file";
+
 // The Gesso result card, an MCP App. Hosts that support MCP Apps (claude.ai,
 // Claude Desktop) render it inline under Gesso tool calls; other hosts ignore
 // it and show the text result. It reads the tool result's structuredContent.
@@ -52,7 +55,19 @@ body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 ui-sans-s
 .chip { font:12px ui-monospace, Menlo, monospace; padding:3px 8px; border:1px solid var(--rule); border-radius:999px; }
 .chip.on { border-color:var(--blue); color:var(--blue); }
 pre { margin:0; padding:10px 12px; border:1px solid var(--rule); border-radius:6px; font:12px/1.5 ui-monospace, Menlo, monospace; overflow-x:auto; max-height:220px; }
-.files { display:grid; gap:4px; font:12px ui-monospace, Menlo, monospace; }
+.files { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; }
+.file { display:grid; grid-template-columns:minmax(0, 1fr); grid-template-rows:auto auto; border:1px solid var(--rule); border-radius:10px; overflow:hidden; min-width:0; }
+.file .thumb { aspect-ratio:4/3; overflow:hidden; display:grid; place-items:center; padding:8px; border-bottom:1px solid var(--rule); background:conic-gradient(var(--check-b) 25%, var(--check-a) 0 50%, var(--check-b) 0 75%, var(--check-a) 0) 0 0/12px 12px; }
+.file .thumb img { width:100%; height:100%; object-fit:contain; display:block; min-height:0; }
+.file .thumb .badge { font:700 15px/1 ui-monospace, Menlo, monospace; letter-spacing:0.04em; padding:9px 11px; border-radius:6px; background:var(--bg); border:1.5px solid var(--fg); }
+.file .meta { padding:8px 10px 10px; display:grid; gap:6px; min-width:0; }
+.file .name { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file .info { color:var(--muted); font:11px ui-monospace, Menlo, monospace; }
+.file button { width:100%; font:600 12px/1 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; padding:7px 10px; border-radius:6px; border:0; cursor:pointer; background:var(--orange); color:#111110; }
+.file button.ghost { background:transparent; color:var(--fg); border:1px solid var(--rule); }
+.file button:disabled { opacity:0.6; cursor:default; }
+.file button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.ready { font-weight:600; }
 .warn { font-size:12px; padding:4px 8px; border-left:3px solid var(--yellow); }
 .what b { color:var(--orange); font-weight:600; }
 .foot { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; border-top:1px solid var(--rule); padding-top:8px; }
@@ -87,15 +102,52 @@ function show(data) {
     body.append(boards);
   }
   if (data.files?.length) {
+    body.append(el("div", "ready", data.files.length + (data.files.length === 1 ? " file ready" : " files ready")));
     const files = el("div", "files");
-    for (const f of data.files) files.append(el("span", null, "↳ " + f));
+    for (const f of data.files) files.append(fileCard(f));
     body.append(files);
   }
   if (data.outline) body.append(el("pre", null, data.outline));
   for (const w of data.warnings ?? []) body.append(el("div", "warn", "Warning: " + w));
 }
 globalThis.gessoShow = show; // lets a test page render the card without a host
-const app = new globalThis.GessoApp({ name: "Gesso", version: "0.1.0" });
+const size = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(0) + " KB" : (n / 1048576).toFixed(1) + " MB";
+function fileCard(f) {
+  const card = el("div", "file"), thumb = el("div", "thumb"), meta = el("div", "meta");
+  if (f.thumb) { const img = el("img"); img.src = "data:image/png;base64," + f.thumb; img.alt = ""; thumb.append(img); }
+  else thumb.append(el("span", "badge", f.kind));
+  const name = el("div", "name", f.name); name.title = f.path;
+  meta.append(name, el("div", "info", f.kind + " · " + size(f.bytes)));
+  const caps = app.getHostCapabilities?.() ?? {};
+  const button = el("button");
+  if (caps.downloadFile && caps.serverTools) {
+    button.textContent = "Download";
+    button.onclick = async () => {
+      button.disabled = true; button.textContent = "Preparing…";
+      try {
+        const res = await app.callServerTool({ name: "${FILE_TOOL}", arguments: { path: f.path } });
+        const file = res.structuredContent;
+        if (res.isError || !file) throw new Error(res.content?.[0]?.text ?? "Download failed");
+        const out = await app.downloadFile({ contents: [{ type: "resource", resource: { uri: "file:///" + encodeURIComponent(f.name), mimeType: file.mimeType, blob: file.blob } }] });
+        button.textContent = out?.isError ? "Download" : "Downloaded";
+      } catch (err) {
+        button.textContent = "Try again";
+        console.error(err);
+      } finally { button.disabled = false; }
+    };
+  } else {
+    // Hosts without downloads: the file is already on disk, so offer its path.
+    button.className = "ghost"; button.textContent = "Copy path";
+    button.onclick = async () => {
+      try { await navigator.clipboard.writeText(f.path); button.textContent = "Copied"; }
+      catch { name.textContent = f.path; name.style.whiteSpace = "normal"; button.textContent = "Path shown"; }
+    };
+  }
+  meta.append(button);
+  card.append(thumb, meta);
+  return card;
+}
+const app = new globalThis.GessoApp({ name: "Gesso", version: "0.2.0" });
 app.ontoolresult = (result) => { if (result?.structuredContent?.gesso) show(result.structuredContent.gesso); };
 await app.connect();
 </script></body></html>`;
