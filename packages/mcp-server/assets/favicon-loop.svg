@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Gesso">
+  <style>
+    /* Loop: light sheen sweeps across the tile → G wipes out left-to-right like a primer stroke → wipes back in. */
+    .wipe  { animation: gesso-wipe 4s infinite both; }
+    .sheen { animation: gesso-sheen 4s infinite both; }
+    @keyframes gesso-wipe {
+      0%, 48%  { transform: translateX(0); animation-timing-function: cubic-bezier(.6,0,.8,.4); }
+      62%      { transform: translateX(84px); }
+      62.01%   { transform: translateX(-84px); animation-timing-function: cubic-bezier(.16,1,.3,1); }
+      84%, 100% { transform: translateX(0); }
+    }
+    @keyframes gesso-sheen {
+      0%, 8%   { transform: translateX(-40px) skewX(-20deg); animation-timing-function: cubic-bezier(.45,0,.25,1); }
+      36%, 100% { transform: translateX(96px) skewX(-20deg); }
+    }
+    @media (prefers-reduced-motion: reduce) { .wipe, .sheen { animation: none; } .sheen { opacity: 0; } }
+  </style>
+  <defs>
+    <path id="gesso-g" transform="translate(0 1168) scale(.1 -.1)" d="M4665 11623 c-792 -48 -1442 -269 -2152 -729 -1119 -726 -1944 -1941 -2312 -3406 -214 -849 -252 -1585 -130 -2503 33 -254 152 -772 245 -1071 118 -381 337 -894 524 -1229 199 -357 416 -675 633 -930 222 -260 279 -323 391 -427 578 -542 1196 -900 1861 -1081 1139 -310 2381 -107 3110 508 195 165 312 295 425 474 273 434 408 912 438 1551 6 114 10 145 21 145 15 0 58 -97 146 -330 57 -151 166 -418 293 -720 85 -203 316 -769 491 -1205 120 -300 126 -312 140 -290 19 29 14 6351 -4 6378 l-16 22 -2239 0 c-2022 0 -2240 -2 -2254 -16 -23 -22 -24 -634 -2 -657 10 -10 60 -18 158 -26 895 -75 1578 -420 2059 -1041 578 -746 819 -1573 625 -2143 -143 -417 -543 -645 -979 -556 -589 120 -1193 684 -1894 1769 -230 357 -270 423 -477 791 -251 450 -661 1311 -819 1724 -252 661 -352 1006 -444 1535 -28 163 -26 590 4 716 117 493 396 745 827 747 198 1 330 -32 546 -136 571 -275 1273 -1061 1816 -2031 61 -109 -7 -121 669 114 527 183 626 217 1690 574 869 292 941 315 953 299 10 -14 12 -788 12 -4061 -1 -3106 1 -4047 11 -4058 19 -23 5571 -21 5590 3 12 13 14 268 14 1570 0 1527 0 1555 -19 1569 -17 12 -193 14 -1176 14 -1232 0 -1244 0 -1450 51 -398 99 -669 269 -865 544 -159 222 -222 437 -213 718 20 582 446 1075 1068 1234 225 57 204 56 1375 60 991 3 1081 5 1093 20 9 13 12 95 12 328 0 289 -1 313 -18 328 -17 16 -125 17 -1342 17 -1493 0 -1441 -2 -1725 77 -680 191 -1151 735 -1122 1293 16 297 118 505 329 674 138 111 272 168 488 209 l115 21 1714 3 c1236 1 1717 5 1725 13 17 17 18 2313 2 2336 -11 15 -222 16 -2795 18 -2024 2 -2786 -1 -2797 -9 -14 -9 -15 -174 -15 -1440 1 -886 -3 -1436 -9 -1445 -14 -22 -33 1 -58 71 -11 30 -65 147 -120 260 -537 1097 -1281 1878 -2250 2363 -576 288 -1293 438 -1917 399z"/>
+    <clipPath id="gesso-g-box"><rect width="899" height="1168"/></clipPath>
+    <clipPath id="gesso-tile"><rect width="64" height="64" rx="14"/></clipPath>
+    <linearGradient id="gesso-feather" x1="0" x2="1">
+      <stop offset="0" stop-color="#000"/><stop offset=".14" stop-color="#fff"/>
+      <stop offset=".86" stop-color="#fff"/><stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="gesso-shine" x1="0" x2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="gesso-reveal" maskUnits="userSpaceOnUse" x="-100" y="-20" width="264" height="104">
+      <rect class="wipe" x="-12" y="-10" width="88" height="84" fill="url(#gesso-feather)"/>
+    </mask>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#111110"/>
+  <g mask="url(#gesso-reveal)">
+    <g transform="translate(12.2 6.3) scale(.044)" clip-path="url(#gesso-g-box)">
+      <use href="#gesso-g" fill="#EDE8DC"/>
+    </g>
+  </g>
+  <g clip-path="url(#gesso-tile)">
+    <rect class="sheen" x="0" y="-8" width="22" height="80" fill="url(#gesso-shine)"/>
+  </g>
+</svg>
