@@ -33,7 +33,8 @@ export function widgetHtml(): string {
 @media (prefers-color-scheme: dark) { :root { --bg:#16181e; --fg:#e9ebf1; --muted:#9aa0b2; --rule:#2a2e39; --orange:#FF6430; --blue:#6582FF; --yellow:#FFC21A; --check-a:#1b1e26; --check-b:#232731; } }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
-.card { padding:14px 16px 12px; display:grid; gap:12px; }
+.card { padding:14px 16px 12px; display:grid; grid-template-columns:minmax(0, 1fr); gap:12px; }
+#body { display:grid; gap:10px; min-width:0; }
 .head { display:flex; align-items:center; gap:10px; }
 .head svg { width:22px; height:22px; flex:none; }
 .brand { font-weight:700; letter-spacing:-0.01em; }
