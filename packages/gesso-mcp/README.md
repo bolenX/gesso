@@ -16,7 +16,7 @@ Claude Desktop (`claude_desktop_config.json`):
 { "mcpServers": { "gesso": { "command": "npx", "args": ["-y", "gesso-mcp"] } } }
 ```
 
-Requires Node 22 or later. Assets and exports resolve relative to the folder the agent runs in.
+Requires Node 22 or later. Assets and exports resolve relative to the folder the agent runs in, or to `GESSO_WORKDIR` when it's set.
 
 Run it as a hosted connector with `npx -y gesso-mcp --http 3333`, then add `https://your-host/mcp` as a custom connector.
 
