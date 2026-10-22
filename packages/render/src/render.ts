@@ -26,6 +26,20 @@ export type RenderOptions = { scale?: number; loader?: AssetLoader };
 export type Rendered = { artboard: string; width: number; height: number; pixels: Uint8Array; warnings: string[] };
 export type EncodeFormat = "png" | "jpeg" | "webp";
 
+/** One layer rendered on its own, for encoders such as PSD that store layers separately. */
+export type LayerPart = {
+  id: string;
+  /** Resolved box in artboard pixels. */
+  box: Box;
+  /** Content plus smart filters, without mask, opacity or blend. Absent for groups and adjustments. */
+  pixels?: Uint8Array;
+  /** Mask coverage, one byte per pixel. */
+  mask?: Uint8Array;
+  /** Font size after shrink-to-fit, for text layers. */
+  fontSize?: number;
+};
+export type LayerParts = { width: number; height: number; parts: Map<string, LayerPart>; warnings: string[] };
+
 const BLEND: Record<BlendMode, keyof CanvasKit["BlendMode"]> = {
   normal: "SrcOver",
   multiply: "Multiply",
@@ -61,6 +75,19 @@ export async function renderDoc(doc: Doc, options: RenderOptions = {}): Promise<
   const results: Rendered[] = [];
   for (const artboard of doc.artboards) results.push(await renderArtboard(doc, artboard.id, options));
   return results;
+}
+
+/** Renders every layer of an artboard separately, at scale 1. */
+export async function renderLayerParts(doc: Doc, artboardId: string, options: Omit<RenderOptions, "scale"> = {}): Promise<LayerParts> {
+  const artboard = doc.artboards.find((a) => a.id === artboardId);
+  if (!artboard) throw new Error(`No artboard "${artboardId}"`);
+  const ck = await loadCanvasKit();
+  const resources = await loadResources(ck, doc, [artboard], options.loader ?? defaultAssetLoader());
+  try {
+    return new Compositor(ck, resources, 1).parts(artboard);
+  } finally {
+    resources.dispose();
+  }
 }
 
 /** Encodes rendered pixels. Sharp handles encoding so every format shares one path. */
@@ -140,6 +167,7 @@ class Compositor {
   private height = 0;
   private warnings: string[] = [];
   private byId = new Map<string, Layer>();
+  private fittedSizes = new Map<string, number>();
 
   constructor(
     private ck: CanvasKit,
@@ -161,6 +189,36 @@ class Compositor {
     const pixels = this.readPixels(target);
     target.delete();
     return { artboard: artboard.id, width: this.width, height: this.height, pixels, warnings: this.warnings };
+  }
+
+  parts(artboard: Artboard): LayerParts {
+    this.width = Math.max(1, Math.round(artboard.frame.w));
+    this.height = Math.max(1, Math.round(artboard.frame.h));
+    this.index(artboard.layers);
+    const parts = new Map<string, LayerPart>();
+    const visit = (layers: Layer[], parent: Box) => {
+      for (const layer of layers) {
+        const part: LayerPart = { id: layer.id, box: resolveFrame(layer.frame, parent) };
+        if (layer.type !== "group" && layer.type !== "adjustment") {
+          const s = this.surface();
+          part.box = this.drawContent(layer, parent, s);
+          let image = s.makeImageSnapshot();
+          s.delete();
+          for (const filter of layer.filters ?? []) {
+            if (filter.kind === "gaussian-blur") image = this.blur(image, filter.radius);
+          }
+          part.pixels = image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array;
+          image.delete();
+          const fitted = this.fittedSizes.get(layer.id);
+          if (fitted !== undefined) part.fontSize = fitted;
+        }
+        if (layer.mask) part.mask = this.readImageAlpha(this.maskImage(layer.mask, part.box, parent));
+        parts.set(layer.id, part);
+        if (layer.type === "group") visit(layer.children, part.box);
+      }
+    };
+    visit(artboard.layers, { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h });
+    return { width: this.width, height: this.height, parts, warnings: this.warnings };
   }
 
   private index(layers: Layer[]): void {
@@ -340,6 +398,7 @@ class Compositor {
 
     this.drawScaled(canvas, (c) => c.drawParagraph(para, box.x, box.y));
     para.delete();
+    this.fittedSizes.set(layer.id, size);
     return box;
   }
 

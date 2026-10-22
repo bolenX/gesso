@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, isConflict, outline, Patch, select, semanticErrors } from "@gesso/core";
-import { encode, renderArtboard, renderDoc, defaultAssetLoader, type AssetLoader } from "@gesso/render";
+import { encode, renderArtboard, renderDoc, defaultAssetLoader, type AssetLoader, type EncodeFormat } from "@gesso/render";
+import { writePsd } from "@gesso/psd";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -179,12 +180,13 @@ export function createServer({
   server.registerTool(
     "canvas_export",
     {
-      description: "Export every artboard as an image file plus a manifest.json. PSD export is not available yet.",
+      description:
+        "Export every artboard as an image file, or the whole document as one layered PSD with artboards, plus a manifest.json.",
       inputSchema: {
         doc: docId,
         outDir: z.string().describe("Directory to write into, relative to the server's base directory"),
-        format: z.enum(["png", "jpeg", "webp"]).default("png"),
-        scale: z.number().positive().max(4).default(1),
+        format: z.enum(["png", "jpeg", "webp", "psd"]).default("png"),
+        scale: z.number().positive().max(4).default(1).describe("Ignored for PSD, which is always full size"),
       },
     },
     async ({ doc, outDir, format, scale }) =>
@@ -192,11 +194,17 @@ export function createServer({
         const d = store.get(doc);
         const dir = resolve(baseDir, outDir);
         await mkdir(dir, { recursive: true });
-        const ext = format === "jpeg" ? "jpg" : format;
         const files = [];
-        for (const r of await renderDoc(d, { scale, loader })) {
+        if (format === "psd") {
+          const { bytes, warnings } = await writePsd(d, { loader });
+          const path = resolve(dir, `${d.id}.psd`);
+          await writeFile(path, bytes);
+          files.push({ artboards: d.artboards.map((a) => a.id), path, warnings });
+        }
+        const ext = format === "jpeg" ? "jpg" : format;
+        for (const r of format === "psd" ? [] : await renderDoc(d, { scale, loader })) {
           const path = resolve(dir, `${r.artboard}.${ext}`);
-          await writeFile(path, await encode(r, format));
+          await writeFile(path, await encode(r, format as EncodeFormat));
           files.push({ artboard: r.artboard, path, width: r.width, height: r.height, warnings: r.warnings });
         }
         const manifest = { doc: d.id, revision: d.revision, exportedAt: new Date().toISOString(), format, scale, files };

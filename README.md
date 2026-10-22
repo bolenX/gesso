@@ -4,7 +4,7 @@
 
 Agents create and edit layered compositions as data, and every output opens in Photoshop as a fully editable PSD. The headless core ships first. A human-facing canvas UI follows later as a client of the same API.
 
-> Status: pre-alpha. The document IR, atomic patches, revision history and the renderer (PNG/JPEG/WebP via Skia) work. PSD round-trip and the generative broker are not built yet. See [docs/spec-v0.1.md](docs/spec-v0.1.md).
+> Status: pre-alpha. The document IR, atomic patches, revision history, the renderer (PNG/JPEG/WebP via Skia) and layered PSD export work. PSD import and the generative broker are not built yet. See [docs/spec-v0.1.md](docs/spec-v0.1.md).
 
 ## Principles
 
@@ -30,6 +30,7 @@ Agents create and edit layered compositions as data, and every output opens in P
 ```
 packages/core        @gesso/core: Zod schemas for the IR, patches, selectors, outline view
 packages/render      @gesso/render: evaluator (Skia via CanvasKit, Sharp for decode and encode)
+packages/psd         @gesso/psd: PSD encoder (ag-psd): artboards, live text, shape and adjustment layers
 packages/mcp-server  @gesso/mcp-server: MCP tool surface (canvas_*, artboard_*, asset_*, gen_*)
 skills/              Bundled skills (SKILL.md, recipe.json, checks.md, examples/)
 docs/                Technical spec

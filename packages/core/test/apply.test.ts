@@ -79,6 +79,19 @@ describe("applyOps", () => {
     expect(promo).toEqual(before);
   });
 
+  it("allows the same layer IDs on different artboards and scopes edits", () => {
+    const doc = structuredClone(promo);
+    doc.artboards.push({ ...structuredClone(doc.artboards[0]!), id: "story-9x16", frame: { x: 1200, y: 0, w: 1080, h: 1920 } });
+    expect(() => applyOps(doc, [{ op: "remove", target: "#headline" }])).toThrow(/many/);
+    const { doc: next } = applyOps(doc, [
+      { op: "set", target: "story-9x16 #headline", path: "content", value: "Story" },
+      { op: "move", target: "story-9x16 #headline", to: "bottom" },
+      { op: "remove", target: "story-9x16 #backdrop" },
+    ]);
+    expect(layerIds(next)).toEqual(["backdrop", "card", "card-photo", "headline"]);
+    expect(next.artboards[1]!.layers.map((l) => l.id)).toEqual(["headline", "card", "card-photo"]);
+  });
+
   it("is atomic: a later failing op discards earlier ones", () => {
     expect(() =>
       applyOps(promo, [
