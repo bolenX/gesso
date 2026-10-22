@@ -1,9 +1,13 @@
 name: Publish gesso-mcp
 
-# Runs when a gesso-mcp-v* tag is pushed, or by hand from the Actions tab.
+# Runs when a change to the package (usually a version bump) lands on main,
+# when a gesso-mcp-v* tag is pushed, or by hand from the Actions tab. Versions
+# already on npm are skipped, so merges that don't bump the version do nothing.
 # Needs an npm token with publish rights in the NPM_TOKEN repository secret.
 on:
   push:
+    branches: [main]
+    paths: ["packages/gesso-mcp/package.json", ".github/workflows/publish.yml"]
     tags: ["gesso-mcp-v*"]
   workflow_dispatch:
 
