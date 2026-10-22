@@ -254,6 +254,8 @@ export const Asset = z.object({
   height: z.number().int().positive().optional(),
   /** Font family name a font asset registers, e.g. "Inter". */
   family: z.string().optional(),
+  /** PostScript name Photoshop uses to find the font, e.g. "Inter-Bold". */
+  postscriptName: z.string().optional(),
   description: z.string().optional(),
 });
 export type Asset = z.infer<typeof Asset>;

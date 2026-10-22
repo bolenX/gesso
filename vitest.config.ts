@@ -6,6 +6,7 @@ export default defineConfig({
     // Test against workspace sources, not built output.
     alias: {
       "@gesso/core": fileURLToPath(new URL("./packages/core/src/index.ts", import.meta.url)),
+      "@gesso/psd": fileURLToPath(new URL("./packages/psd/src/index.ts", import.meta.url)),
       "@gesso/render": fileURLToPath(new URL("./packages/render/src/index.ts", import.meta.url)),
     },
   },
