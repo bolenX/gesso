@@ -13,7 +13,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # for npm provenance and Trusted Publishing
 
 jobs:
   publish:
@@ -41,6 +41,7 @@ jobs:
       - name: Publish
         if: steps.check.outputs.skip != 'true'
         working-directory: packages/gesso-mcp
-        run: npm publish --provenance --access public
+        # Provenance needs a public repository; add --provenance once bolenX/gesso is public.
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
