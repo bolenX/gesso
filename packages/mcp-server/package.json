@@ -10,7 +10,8 @@
     "gesso-mcp": "./dist/bin.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "assets"
   ],
   "scripts": {
     "build": "tsc -b",
@@ -20,6 +21,7 @@
     "@gesso/core": "workspace:*",
     "@gesso/psd": "workspace:*",
     "@gesso/render": "workspace:*",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
     "@modelcontextprotocol/sdk": "^1.20.0",
     "zod": "^3.25.76"
   },

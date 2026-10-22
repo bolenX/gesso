@@ -201,16 +201,23 @@ export function semanticErrors(doc: Doc): string[] {
         errors.push(`mask on "${layer.id}" uses missing asset "${layer.mask.asset}"`);
       }
       if (layer.mask?.kind === "luminance-of") lumaRefs.push([layer.id, layer.mask.layer]);
+      if (layer.type === "smart" && !doc.symbols?.[layer.symbol]) {
+        errors.push(`layer "${layer.id}" places missing symbol "${layer.symbol}"`);
+      }
       if (layer.type === "group") checkLayers(layer.children, `group "${layer.id}"`);
     });
   };
-  // Layer IDs are unique within an artboard; artboards adapted from one design share them.
-  for (const artboard of doc.artboards) {
+  // Layer IDs are unique within an artboard (or symbol); artboards adapted from one design share them.
+  const scopes = [
+    ...doc.artboards.map((a) => ({ layers: a.layers, where: `artboard "${a.id}"` })),
+    ...Object.values(doc.symbols ?? {}).map((s) => ({ layers: s.layers, where: `symbol "${s.id}"` })),
+  ];
+  for (const { layers, where } of scopes) {
     seen = new Set();
     lumaRefs = [];
-    checkLayers(artboard.layers, `artboard "${artboard.id}"`);
+    checkLayers(layers, where);
     for (const [id, ref] of lumaRefs) {
-      if (!seen.has(ref)) errors.push(`mask on "${id}" in "${artboard.id}" refers to missing layer "${ref}"`);
+      if (!seen.has(ref)) errors.push(`mask on "${id}" in ${where} refers to missing layer "${ref}"`);
     }
   }
   return errors;

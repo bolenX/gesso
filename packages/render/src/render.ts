@@ -7,6 +7,8 @@ import type {
   Mask,
   Paint as GessoPaint,
   Shape,
+  SmartLayer,
+  SmartObject,
   TextLayer,
 } from "@gesso/core";
 import type { CanvasKit, Canvas, Image, Paint, Paragraph, Surface, TypefaceFontProvider } from "canvaskit-wasm";
@@ -15,6 +17,7 @@ import { applyAdjustment } from "./adjust.js";
 import { defaultAssetLoader, type AssetLoader } from "./assets.js";
 import { loadCanvasKit } from "./canvaskit.js";
 import { resolveFrame, type Box } from "./layout.js";
+import { rectToQuad } from "./perspective.js";
 
 // The evaluator. Composites each group bottom up, following docs/spec-v0.1.md,
 // "Compositing order within a group": content, smart filters, mask, then clip
@@ -37,6 +40,8 @@ export type LayerPart = {
   mask?: Uint8Array;
   /** Font size after shrink-to-fit, for text layers. */
   fontSize?: number;
+  /** Corner pin in artboard pixels (TL, TR, BR, BL), for smart layers. */
+  quad?: Array<[number, number]>;
 };
 export type LayerParts = { width: number; height: number; parts: Map<string, LayerPart>; warnings: string[] };
 
@@ -65,7 +70,7 @@ export async function renderArtboard(doc: Doc, artboardId: string, options: Rend
   const ck = await loadCanvasKit();
   const resources = await loadResources(ck, doc, [artboard], options.loader ?? defaultAssetLoader());
   try {
-    return new Compositor(ck, resources, options.scale ?? 1).render(artboard);
+    return new Compositor(ck, resources, options.scale ?? 1, doc.symbols ?? {}).render(artboard);
   } finally {
     resources.dispose();
   }
@@ -84,17 +89,18 @@ export async function renderLayerParts(doc: Doc, artboardId: string, options: Om
   const ck = await loadCanvasKit();
   const resources = await loadResources(ck, doc, [artboard], options.loader ?? defaultAssetLoader());
   try {
-    return new Compositor(ck, resources, 1).parts(artboard);
+    return new Compositor(ck, resources, 1, doc.symbols ?? {}).parts(artboard);
   } finally {
     resources.dispose();
   }
 }
 
 /** Encodes rendered pixels. Sharp handles encoding so every format shares one path. */
-export async function encode(rendered: Rendered, format: EncodeFormat = "png", quality = 90): Promise<Buffer> {
-  const image = sharp(Buffer.from(rendered.pixels), {
+export async function encode(rendered: Rendered, format: EncodeFormat = "png", quality = 90, xmp?: string): Promise<Buffer> {
+  let image = sharp(Buffer.from(rendered.pixels), {
     raw: { width: rendered.width, height: rendered.height, channels: 4 },
   });
+  if (xmp) image = image.withXmp(xmp);
   if (format === "jpeg") return image.flatten({ background: "#ffffff" }).jpeg({ quality }).toBuffer();
   if (format === "webp") return image.webp({ quality }).toBuffer();
   return image.png().toBuffer();
@@ -114,6 +120,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
       if (layer.type === "image") used.add(layer.asset);
       if (layer.mask?.kind === "raster") used.add(layer.mask.asset);
       if (layer.type === "group") visit(layer.children);
+      if (layer.type === "smart" && doc.symbols?.[layer.symbol]) visit(doc.symbols[layer.symbol]!.layers);
     }
   };
   for (const artboard of artboards) visit(artboard.layers);
@@ -165,7 +172,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
 class Compositor {
   private width = 0;
   private height = 0;
-  private warnings: string[] = [];
+  warnings: string[] = [];
   private byId = new Map<string, Layer>();
   private fittedSizes = new Map<string, number>();
 
@@ -173,6 +180,7 @@ class Compositor {
     private ck: CanvasKit,
     private res: Resources,
     private scale: number,
+    private symbols: Record<string, SmartObject>,
   ) {}
 
   render(artboard: Artboard): Rendered {
@@ -211,6 +219,12 @@ class Compositor {
           image.delete();
           const fitted = this.fittedSizes.get(layer.id);
           if (fitted !== undefined) part.fontSize = fitted;
+          if (layer.type === "smart") {
+            const b = part.box;
+            part.quad = layer.quad
+              ? layer.quad.map(([x, y]) => [parent.x + x, parent.y + y] as [number, number])
+              : [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
+          }
         }
         if (layer.mask) part.mask = this.readImageAlpha(this.maskImage(layer.mask, part.box, parent));
         parts.set(layer.id, part);
@@ -340,7 +354,59 @@ class Compositor {
       }
       case "adjustment":
         return resolveFrame(layer.frame, parent);
+      case "smart":
+        return this.drawSmart(layer, parent, canvas);
     }
+  }
+
+  /** Renders the symbol on its own surface, then places it: corner-pinned by quad, or filling the frame. */
+  private drawSmart(layer: SmartLayer, parent: Box, canvas: Canvas): Box {
+    const symbol = this.symbols[layer.symbol];
+    if (!symbol) throw new Error(`Layer "${layer.id}" places missing symbol "${layer.symbol}"`);
+    const [w, h] = symbol.size;
+    const sub = new Compositor(this.ck, this.res, this.scale, this.symbols);
+    const rendered = sub.renderSymbol(symbol);
+    this.warnings.push(...sub.warnings.map((m) => `symbol "${symbol.id}": ${m}`));
+    const image = this.ck.MakeImage(this.info(this.ck.AlphaType.Unpremul, rendered.width, rendered.height), rendered.pixels, rendered.width * 4)!;
+
+    const quad = layer.quad?.map(([x, y]) => [parent.x + x, parent.y + y] as [number, number]) as
+      | [[number, number], [number, number], [number, number], [number, number]]
+      | undefined;
+    const box = quad ? quadBounds(quad) : resolveFrame(layer.frame, parent, { aspect: w / h });
+    const target = quad ?? [
+      [box.x, box.y],
+      [box.x + box.w, box.y],
+      [box.x + box.w, box.y + box.h],
+      [box.x, box.y + box.h],
+    ];
+    const matrix = rectToQuad(rendered.width, rendered.height, target as [[number, number], [number, number], [number, number], [number, number]]);
+    this.drawScaled(canvas, (c) => {
+      c.save();
+      c.concat(matrix);
+      const p = new this.ck.Paint();
+      p.setAntiAlias(true);
+      const rect = this.ck.XYWHRect(0, 0, rendered.width, rendered.height);
+      c.drawImageRectOptions(image, rect, rect, this.ck.FilterMode.Linear, this.ck.MipmapMode.Linear, p);
+      p.delete();
+      c.restore();
+    });
+    image.delete();
+    return box;
+  }
+
+  renderSymbol(symbol: SmartObject): Rendered {
+    this.width = Math.max(1, Math.round(symbol.size[0] * this.scale));
+    this.height = Math.max(1, Math.round(symbol.size[1] * this.scale));
+    this.index(symbol.layers);
+    const target = this.surface();
+    const box = { x: 0, y: 0, w: symbol.size[0], h: symbol.size[1] };
+    if (symbol.background) {
+      this.drawScaled(target.getCanvas(), (c) => c.drawRect(this.ck.XYWHRect(0, 0, box.w, box.h), this.paint(symbol.background!, box)));
+    }
+    this.composite(symbol.layers, box, target);
+    const pixels = this.readPixels(target);
+    target.delete();
+    return { artboard: symbol.id, width: this.width, height: this.height, pixels, warnings: this.warnings };
   }
 
   private drawImageLayer(layer: ImageLayer, parent: Box, canvas: Canvas): Box {
@@ -584,9 +650,9 @@ class Compositor {
     return s;
   }
 
-  private info(alphaType: CanvasKit["AlphaType"]["Unpremul"]) {
+  private info(alphaType: CanvasKit["AlphaType"]["Unpremul"], width = this.width, height = this.height) {
     const { ck } = this;
-    return { width: this.width, height: this.height, colorType: ck.ColorType.RGBA_8888, alphaType, colorSpace: ck.ColorSpace.SRGB };
+    return { width, height, colorType: ck.ColorType.RGBA_8888, alphaType, colorSpace: ck.ColorSpace.SRGB };
   }
 
   private readPixels(s: Surface): Uint8Array {
@@ -603,4 +669,12 @@ class Compositor {
     for (let i = 0; i < alpha.length; i++) alpha[i] = pixels[i * 4 + 3]!;
     return alpha;
   }
+}
+
+function quadBounds(quad: Array<[number, number]>): Box {
+  const xs = quad.map((p) => p[0]);
+  const ys = quad.map((p) => p[1]);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }

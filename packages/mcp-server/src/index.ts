@@ -1,12 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { Doc, isConflict, outline, Patch, select, semanticErrors } from "@gesso/core";
+import { Doc, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, outline, Patch, select, semanticErrors, xmpPacket } from "@gesso/core";
 import { encode, renderArtboard, renderDoc, defaultAssetLoader, type AssetLoader, type EncodeFormat } from "@gesso/render";
 import { writePsd } from "@gesso/psd";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
+import { ICONS, TOOL_TITLES } from "./brand.js";
 import { DocStore } from "./store.js";
+import { WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
 
 export { DocStore };
 
@@ -41,6 +43,23 @@ async function guard(run: () => CallToolResult | Promise<CallToolResult>): Promi
   }
 }
 
+/** What the Gesso result card shows. Hosts without MCP Apps ignore it. */
+type CardData = {
+  kind: "create" | "patch" | "render" | "export";
+  doc: string;
+  revision: number;
+  changed?: string[];
+  warnings?: string[];
+  outline?: string;
+  previews?: Array<{ artboard: string; width: number; height: number; png: string }>;
+  files?: string[];
+};
+
+const withCard = (result: CallToolResult, card: CardData): CallToolResult => ({
+  ...result,
+  structuredContent: { gesso: { ...card, generator: GENERATOR } },
+});
+
 const notImplemented = (tool: string) => async (): Promise<CallToolResult> => ({
   isError: true,
   content: [{ type: "text", text: `${tool} is not implemented yet` }],
@@ -60,10 +79,39 @@ export function createServer({
   baseDir = process.cwd(),
   loader = defaultAssetLoader(baseDir),
 }: ServerOptions = {}): McpServer {
-  const server = new McpServer({ name: "gesso", version: "0.0.0" });
+  const server = new McpServer(
+    { name: "gesso", title: "Gesso", version: GESSO_VERSION, websiteUrl: GESSO_URL, icons: ICONS },
+    {
+      instructions: [
+        "Gesso builds layered images as data and exports PSDs that stay editable in Photoshop.",
+        "Read documents with canvas_outline, change them only with canvas_patch, and check your work with canvas_render before finishing.",
+        `When you hand over files made with these tools, say they were made with Gesso (${GESSO_URL}).`,
+      ].join(" "),
+    },
+  );
   const docId = z.string().describe("Document ID");
 
-  server.registerTool(
+  server.registerResource(
+    "gesso-result",
+    WIDGET_URI,
+    { title: "Gesso result", description: "Inline card for Gesso results", mimeType: WIDGET_MIME },
+    async () => ({ contents: [{ uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtml(), _meta: { ui: { prefersBorder: true } } }] }),
+  );
+
+  // Every tool gets a human title; the tools that produce something also open the result card.
+  const CARD_TOOLS = new Set(["canvas_create", "canvas_patch", "canvas_render", "canvas_export"]);
+  const register: typeof server.registerTool = (name, config, cb) =>
+    server.registerTool(
+      name,
+      {
+        title: TOOL_TITLES[name] ?? name,
+        ...config,
+        ...(CARD_TOOLS.has(name) ? { _meta: { ui: { resourceUri: WIDGET_URI }, "ui/resourceUri": WIDGET_URI } } : {}),
+      },
+      cb,
+    );
+
+  register(
     "canvas_create",
     {
       description: "Create a document from a full spec. Returns the outline.",
@@ -75,11 +123,12 @@ export function createServer({
       const problems = semanticErrors(parsed.data);
       if (problems.length > 0) return error(problems.join("; "));
       store.put(parsed.data, author);
-      return text(outline(parsed.data));
+      const tree = outline(parsed.data);
+      return withCard(text(tree), { kind: "create", doc: parsed.data.id, revision: parsed.data.revision, outline: tree });
     },
   );
 
-  server.registerTool(
+  register(
     "canvas_outline",
     {
       description: "Compact tree of artboards and layers. The default read.",
@@ -88,7 +137,7 @@ export function createServer({
     async ({ doc }) => guard(() => text(outline(store.get(doc)))),
   );
 
-  server.registerTool(
+  register(
     "canvas_get",
     {
       description: "Full JSON for the layers matching the given selectors.",
@@ -101,7 +150,7 @@ export function createServer({
       }),
   );
 
-  server.registerTool(
+  register(
     "canvas_selection",
     {
       description: "Read the current selection, or set it by passing layer IDs.",
@@ -115,14 +164,14 @@ export function createServer({
       }),
   );
 
-  server.registerTool(
+  register(
     "canvas_patch",
     {
       description: "Apply atomic, ID-addressed operations against a baseRevision.",
       inputSchema: Patch.shape,
     },
     async (args) =>
-      guard(() => {
+      guard(async () => {
         const patch = Patch.parse(args);
         const history = store.history(patch.doc);
         const result = history.apply(patch, author, { selection: store.selection(patch.doc) });
@@ -133,11 +182,23 @@ export function createServer({
           };
         }
         if (patch.dryRun) return json({ ...result, dryRun: true });
-        return json({ ...result, outline: outline(history.head) });
+        const tree = outline(history.head);
+        const card: CardData = { kind: "patch", doc: patch.doc, revision: result.revision, changed: result.changed, warnings: result.warnings, outline: tree };
+        const response = json({ ...result, outline: tree });
+        if (patch.returnPreview) {
+          const rendered = await renderDoc(history.head, { scale: patch.returnPreview, loader });
+          card.previews = [];
+          for (const r of rendered) {
+            const png = (await encode(r, "png")).toString("base64");
+            card.previews.push({ artboard: r.artboard, width: r.width, height: r.height, png });
+            response.content.push({ type: "image", mimeType: "image/png", data: png });
+          }
+        }
+        return withCard(response, card);
       }),
   );
 
-  server.registerTool(
+  register(
     "canvas_history",
     {
       description: "List revisions, or revert to an earlier one (recorded as a new revision).",
@@ -154,7 +215,7 @@ export function createServer({
       }),
   );
 
-  server.registerTool(
+  register(
     "canvas_render",
     {
       description: "Render artboards to preview images. Use a small scale (default 0.5) to save tokens.",
@@ -169,15 +230,18 @@ export function createServer({
         const d = store.get(doc);
         const rendered = artboard ? [await renderArtboard(d, artboard, { scale, loader })] : await renderDoc(d, { scale, loader });
         const content: CallToolResult["content"] = [];
+        const previews: NonNullable<CardData["previews"]> = [];
         for (const r of rendered) {
+          const png = (await encode(r, "png")).toString("base64");
           content.push({ type: "text", text: `${r.artboard} ${r.width}×${r.height}${r.warnings.map((w) => `\nwarning: ${w}`).join("")}` });
-          content.push({ type: "image", mimeType: "image/png", data: (await encode(r, "png")).toString("base64") });
+          content.push({ type: "image", mimeType: "image/png", data: png });
+          previews.push({ artboard: r.artboard, width: r.width, height: r.height, png });
         }
-        return { content };
+        return withCard({ content }, { kind: "render", doc, revision: d.revision, previews, warnings: rendered.flatMap((r) => r.warnings) });
       }),
   );
 
-  server.registerTool(
+  register(
     "canvas_export",
     {
       description:
@@ -204,12 +268,18 @@ export function createServer({
         const ext = format === "jpeg" ? "jpg" : format;
         for (const r of format === "psd" ? [] : await renderDoc(d, { scale, loader })) {
           const path = resolve(dir, `${r.artboard}.${ext}`);
-          await writeFile(path, await encode(r, format as EncodeFormat));
+          await writeFile(path, await encode(r, format as EncodeFormat, 90, xmpPacket(d.id, d.revision)));
           files.push({ artboard: r.artboard, path, width: r.width, height: r.height, warnings: r.warnings });
         }
-        const manifest = { doc: d.id, revision: d.revision, exportedAt: new Date().toISOString(), format, scale, files };
+        const manifest = { generator: GENERATOR, doc: d.id, revision: d.revision, exportedAt: new Date().toISOString(), format, scale, files };
         await writeFile(resolve(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
-        return json(manifest);
+        return withCard(json(manifest), {
+          kind: "export",
+          doc: d.id,
+          revision: d.revision,
+          files: [...files.map((f) => f.path), resolve(dir, "manifest.json")],
+          warnings: files.flatMap((f) => f.warnings),
+        });
       }),
   );
 
@@ -219,7 +289,7 @@ export function createServer({
     ["gen_prepare", "Build a provider-neutral generative job spec."],
   ];
   for (const [name, description] of stubs) {
-    server.registerTool(
+    register(
       name,
       { description, inputSchema: { doc: docId, args: z.record(z.unknown()).optional() } },
       notImplemented(name),

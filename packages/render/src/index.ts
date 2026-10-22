@@ -12,3 +12,4 @@ export {
 export { defaultAssetLoader, type AssetLoader } from "./assets.js";
 export { resolveFrame, type Box } from "./layout.js";
 export { applyAdjustment, curveLut } from "./adjust.js";
+export { rectToQuad, project, type Point } from "./perspective.js";

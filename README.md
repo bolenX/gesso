@@ -1,4 +1,5 @@
-# Gesso
+<p><img src="packages/mcp-server/assets/logo.svg" alt="Gesso" width="280"></p>
+
 
 **A headless, agent-first image engine: "Remotion for Photoshop".**
 
@@ -35,6 +36,31 @@ packages/mcp-server  @gesso/mcp-server: MCP tool surface (canvas_*, artboard_*, 
 skills/              Bundled skills (SKILL.md, recipe.json, checks.md, examples/)
 docs/                Technical spec
 ```
+
+## Use Gesso from Claude
+
+The repo ships an MCP config (`.mcp.json`), so Claude Code loads Gesso as a tool in any session opened here, with no scripts to run. Claude Code asks you once to approve the `gesso` server. The first start builds Gesso (about a minute); later starts are instant.
+
+```sh
+git clone https://github.com/bolenX/gesso && cd gesso
+claude
+```
+
+Then ask for a design, for example: "Make a 1080×1350 poster that says Hello from Gesso, show me a preview, then export a PSD to out/."
+
+From another folder, or in Claude Desktop, point at the launcher instead. Claude Code:
+
+```sh
+claude mcp add gesso -- sh /path/to/gesso/scripts/gesso-mcp.sh
+```
+
+Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{ "mcpServers": { "gesso": { "command": "sh", "args": ["/path/to/gesso/scripts/gesso-mcp.sh"] } } }
+```
+
+To host Gesso as a connector, run `node packages/mcp-server/dist/bin.js --http 3333` behind HTTPS and add `https://your-host/mcp` as a custom connector.
 
 ## Development
 

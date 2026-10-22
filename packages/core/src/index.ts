@@ -5,3 +5,4 @@ export { outline } from "./outline.js";
 export { select, type Match } from "./select.js";
 export { applyOps, locate, PatchError, semanticErrors, type Applied, type ApplyOptions } from "./apply.js";
 export { DocHistory, isConflict, type Conflict, type Revision } from "./history.js";
+export { GENERATOR, GESSO_URL, GESSO_VERSION, xmpPacket } from "./brand.js";

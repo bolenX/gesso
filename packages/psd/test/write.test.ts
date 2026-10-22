@@ -115,6 +115,34 @@ describe("writePsd", () => {
   });
 });
 
+it("embeds smart layers as smart objects with their corner pin", async () => {
+  const doc: Doc = {
+    id: "mock",
+    revision: 1,
+    assets: {},
+    symbols: { ui: { id: "ui", name: "Screen design", size: [40, 20], background: "#2D3BF0", layers: [] } },
+    artboards: [
+      {
+        id: "scene",
+        name: "Scene",
+        frame: { x: 0, y: 0, w: 100, h: 100 },
+        layers: [{ id: "screen", name: "Screen", type: "smart", symbol: "ui", frame: { x: 0, y: 0, w: 100, h: 100 }, quad: [[20, 10], [90, 30], [90, 70], [20, 90]] }],
+      },
+    ],
+  };
+  const psd = readPsd((await writePsd(doc)).bytes, { useImageData: true });
+  const screen = psd.children![0]!.children![0]!;
+  expect(screen.name).toBe("Screen");
+  expect(screen.placedLayer).toMatchObject({ type: "raster", width: 40, height: 20 });
+  expect(screen.placedLayer!.transform).toEqual([20, 10, 90, 30, 90, 70, 20, 90]);
+  expect(psd.linkedFiles).toHaveLength(1);
+  expect(psd.linkedFiles![0]).toMatchObject({ id: screen.placedLayer!.id, name: "Screen design.psd" });
+  const inner = readPsd(psd.linkedFiles![0]!.data!, { useImageData: true });
+  expect([inner.width, inner.height]).toEqual([40, 20]);
+  expect(inner.artboards).toBeUndefined();
+  expect(psd.imageResources?.xmpMetadata).toContain('xmp:CreatorTool="Gesso');
+});
+
 describe("shapeKnots", () => {
   it("builds clockwise ellipse knots with kappa handles", () => {
     const knots = shapeKnots({ kind: "ellipse" }, { x: 0, y: 0, w: 100, h: 100 })!;
