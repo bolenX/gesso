@@ -1,0 +1,42 @@
+name: Publish gesso-mcp
+
+# Runs when a gesso-mcp-v* tag is pushed, or by hand from the Actions tab.
+# Needs an npm token with publish rights in the NPM_TOKEN repository secret.
+on:
+  push:
+    tags: ["gesso-mcp-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: node packages/gesso-mcp/build.mjs
+      - name: Skip if this version is already on npm
+        id: check
+        working-directory: packages/gesso-mcp
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "gesso-mcp@$version" version >/dev/null 2>&1; then
+            echo "gesso-mcp@$version is already published"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish
+        if: steps.check.outputs.skip != 'true'
+        working-directory: packages/gesso-mcp
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

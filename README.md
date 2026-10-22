@@ -59,13 +59,7 @@ Working on Gesso itself? The repo's `.mcp.json` loads your local checkout as the
 
 ## Publishing gesso-mcp
 
-```sh
-pnpm install
-node packages/gesso-mcp/build.mjs
-cd packages/gesso-mcp && npm publish
-```
-
-Bump `version` in `packages/gesso-mcp/package.json` before each release.
+GitHub publishes it: bump `version` in `packages/gesso-mcp/package.json`, then push a matching tag, for example `git tag gesso-mcp-v0.1.1 && git push origin gesso-mcp-v0.1.1`. The workflow also runs by hand from the Actions tab. It needs an npm token with publish rights in the `NPM_TOKEN` repository secret, and it skips versions that are already published.
 
 ## Development
 
