@@ -1,0 +1,5 @@
+dist/
+assets/
+vendor/
+LICENSE
+*.tgz

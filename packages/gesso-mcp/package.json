@@ -1,0 +1,23 @@
+{
+  "name": "gesso-mcp",
+  "version": "0.1.0",
+  "description": "Gesso MCP server: AI agents build layered images as data and export PSDs that stay editable in Photoshop.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": { "gesso-mcp": "dist/bin.mjs" },
+  "files": ["dist", "assets", "vendor", "README.md", "LICENSE"],
+  "engines": { "node": ">=22" },
+  "keywords": ["mcp", "model-context-protocol", "photoshop", "psd", "image", "agent", "claude"],
+  "repository": { "type": "git", "url": "git+https://github.com/bolenX/gesso.git", "directory": "packages/gesso-mcp" },
+  "homepage": "https://github.com/bolenX/gesso",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ag-psd": "28.5.1",
+    "canvaskit-wasm": "0.40.0",
+    "sharp": "0.34.5",
+    "zod": "3.25.76"
+  }
+}
