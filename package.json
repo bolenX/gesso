@@ -9,8 +9,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -b packages/core packages/mcp-server",
-    "typecheck": "tsc -b packages/core packages/mcp-server",
+    "build": "tsc -b packages/core packages/render packages/mcp-server",
+    "typecheck": "tsc -b packages/core packages/render packages/mcp-server",
     "lint": "eslint .",
     "test": "vitest run"
   },

@@ -1,6 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, isConflict, outline, Patch, select, semanticErrors } from "@gesso/core";
+import { encode, renderArtboard, renderDoc, defaultAssetLoader, type AssetLoader } from "@gesso/render";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { z } from "zod";
 import { DocStore } from "./store.js";
 
@@ -42,9 +45,20 @@ const notImplemented = (tool: string) => async (): Promise<CallToolResult> => ({
   content: [{ type: "text", text: `${tool} is not implemented yet` }],
 });
 
-export type ServerOptions = { store?: DocStore; author?: string };
+export type ServerOptions = {
+  store?: DocStore;
+  author?: string;
+  /** Where relative asset paths and export directories resolve. */
+  baseDir?: string;
+  loader?: AssetLoader;
+};
 
-export function createServer({ store = new DocStore(), author = "agent" }: ServerOptions = {}): McpServer {
+export function createServer({
+  store = new DocStore(),
+  author = "agent",
+  baseDir = process.cwd(),
+  loader = defaultAssetLoader(baseDir),
+}: ServerOptions = {}): McpServer {
   const server = new McpServer({ name: "gesso", version: "0.0.0" });
   const docId = z.string().describe("Document ID");
 
@@ -139,10 +153,60 @@ export function createServer({ store = new DocStore(), author = "agent" }: Serve
       }),
   );
 
+  server.registerTool(
+    "canvas_render",
+    {
+      description: "Render artboards to preview images. Use a small scale (default 0.5) to save tokens.",
+      inputSchema: {
+        doc: docId,
+        artboard: z.string().optional().describe("Artboard ID; omit to render every artboard"),
+        scale: z.number().positive().max(2).default(0.5),
+      },
+    },
+    async ({ doc, artboard, scale }) =>
+      guard(async () => {
+        const d = store.get(doc);
+        const rendered = artboard ? [await renderArtboard(d, artboard, { scale, loader })] : await renderDoc(d, { scale, loader });
+        const content: CallToolResult["content"] = [];
+        for (const r of rendered) {
+          content.push({ type: "text", text: `${r.artboard} ${r.width}×${r.height}${r.warnings.map((w) => `\nwarning: ${w}`).join("")}` });
+          content.push({ type: "image", mimeType: "image/png", data: (await encode(r, "png")).toString("base64") });
+        }
+        return { content };
+      }),
+  );
+
+  server.registerTool(
+    "canvas_export",
+    {
+      description: "Export every artboard as an image file plus a manifest.json. PSD export is not available yet.",
+      inputSchema: {
+        doc: docId,
+        outDir: z.string().describe("Directory to write into, relative to the server's base directory"),
+        format: z.enum(["png", "jpeg", "webp"]).default("png"),
+        scale: z.number().positive().max(4).default(1),
+      },
+    },
+    async ({ doc, outDir, format, scale }) =>
+      guard(async () => {
+        const d = store.get(doc);
+        const dir = resolve(baseDir, outDir);
+        await mkdir(dir, { recursive: true });
+        const ext = format === "jpeg" ? "jpg" : format;
+        const files = [];
+        for (const r of await renderDoc(d, { scale, loader })) {
+          const path = resolve(dir, `${r.artboard}.${ext}`);
+          await writeFile(path, await encode(r, format));
+          files.push({ artboard: r.artboard, path, width: r.width, height: r.height, warnings: r.warnings });
+        }
+        const manifest = { doc: d.id, revision: d.revision, exportedAt: new Date().toISOString(), format, scale, files };
+        await writeFile(resolve(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
+        return json(manifest);
+      }),
+  );
+
   const stubs: Array<[string, string]> = [
-    ["canvas_render", "Preview render at a scale, with an optional region or annotated mode."],
     ["artboard_create", "New artboard from a preset or size, or duplicate one with reflow."],
-    ["canvas_export", "Export PNG per artboard, PSD, and the manifest."],
     ["asset_import", "Import an asset from a URL or path."],
     ["gen_prepare", "Build a provider-neutral generative job spec."],
   ];

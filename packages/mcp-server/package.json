@@ -6,15 +6,23 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": { "gesso-mcp": "./dist/bin.js" },
-  "files": ["dist"],
+  "bin": {
+    "gesso-mcp": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
     "start": "node dist/bin.js"
   },
   "dependencies": {
     "@gesso/core": "workspace:*",
+    "@gesso/render": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.20.0",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.5"
   }
 }

@@ -1,12 +1,16 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { createServer, TOOL_NAMES } from "../src/index.js";
 import { promo } from "../../core/test/fixtures.js";
 
-async function connect() {
+async function connect(options: Parameters<typeof createServer>[0] = {}) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await createServer().connect(serverTransport);
+  await createServer(options).connect(serverTransport);
   const client = new Client({ name: "test", version: "0.0.0" });
   await client.connect(clientTransport);
   return client;
@@ -71,9 +75,30 @@ describe("gesso MCP server", () => {
     expect((result.content as Array<{ text: string }>)[0]!.text).toContain("matches no layers");
   });
 
+  it("renders previews and exports files with a manifest", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "gesso-"));
+    await sharp({ create: { width: 30, height: 40, channels: 3, background: "#c08040" } }).png().toFile(join(baseDir, "portrait.png"));
+    const doc = structuredClone(promo);
+    doc.assets.portrait!.uri = "portrait.png";
+    const client = await connect({ baseDir });
+    await client.callTool({ name: "canvas_create", arguments: { doc } });
+
+    const preview = await client.callTool({ name: "canvas_render", arguments: { doc: "promo-01", scale: 0.1 } });
+    const [label, image] = preview.content as [{ text: string }, { type: string; data: string }];
+    expect(label.text).toMatch(/^post-4x5 108×135/);
+    expect(image.type).toBe("image");
+    expect((await sharp(Buffer.from(image.data, "base64")).metadata()).width).toBe(108);
+
+    const exported = await client.callTool({ name: "canvas_export", arguments: { doc: "promo-01", outDir: "out", format: "jpeg" } });
+    expect(exported.isError).toBeFalsy();
+    const manifest = JSON.parse(await readFile(join(baseDir, "out", "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({ doc: "promo-01", revision: 12, format: "jpeg" });
+    expect((await sharp(join(baseDir, "out", "post-4x5.jpg")).metadata()).height).toBe(1350);
+  });
+
   it("reports unimplemented tools as errors", async () => {
     const client = await connect();
-    const result = await client.callTool({ name: "canvas_render", arguments: { doc: "promo-01" } });
+    const result = await client.callTool({ name: "gen_prepare", arguments: { doc: "promo-01" } });
     expect(result.isError).toBe(true);
   });
 });
