@@ -62,9 +62,9 @@ function applyOp(doc: Doc, op: Op, selection: string[]): string[] {
     }
     case "remove": {
       const matches = resolve(doc, op.target, selection, op.many);
-      for (const { layer } of matches) {
+      for (const { artboard, layer } of matches) {
         assertUnlocked(layer);
-        const loc = locate(doc, layer.id)!;
+        const loc = locate(doc, layer.id, artboard)!;
         loc.siblings.splice(loc.index, 1);
       }
       return matches.map((m) => m.layer.id);
@@ -76,17 +76,17 @@ function applyOp(doc: Doc, op: Op, selection: string[]): string[] {
         throw new PatchError(`invalid layer at ${issue.path.join(".") || "layer"}: ${issue.message}`);
       }
       const layer = parsed.data;
+      const { artboard, siblings, index } = insertionPoint(doc, op, selection);
       for (const id of layerIds([layer])) {
-        if (findLayer(doc, id)) throw new PatchError(`a layer with id "${id}" already exists`);
+        if (locate(doc, id, artboard)) throw new PatchError(`a layer with id "${id}" already exists in "${artboard}"`);
       }
-      const { siblings, index } = insertionPoint(doc, op, selection);
       siblings.splice(index, 0, layer);
       return [layer.id];
     }
     case "move": {
-      const [{ layer }] = resolve(doc, op.target, selection, false) as [Match];
+      const [{ artboard, layer }] = resolve(doc, op.target, selection, false) as [Match];
       assertUnlocked(layer);
-      const from = locate(doc, layer.id)!;
+      const from = locate(doc, layer.id, artboard)!;
       if (typeof op.to === "string") {
         const last = from.siblings.length - 1;
         const to =
@@ -95,13 +95,13 @@ function applyOp(doc: Doc, op: Op, selection: string[]): string[] {
         from.siblings.splice(to, 0, layer);
       } else {
         const ref = "after" in op.to ? op.to.after : op.to.before;
-        const [{ layer: anchor }] = resolve(doc, ref, selection, false) as [Match];
+        const [{ artboard: anchorBoard, layer: anchor }] = resolve(doc, ref, selection, false) as [Match];
         if (anchor.id === layer.id) throw new PatchError("cannot move a layer relative to itself");
         if (layer.type === "group" && layerIds(layer.children).includes(anchor.id)) {
           throw new PatchError(`cannot move group "${layer.id}" inside itself`);
         }
         from.siblings.splice(from.index, 1);
-        const to = locate(doc, anchor.id)!;
+        const to = locate(doc, anchor.id, anchorBoard)!;
         to.siblings.splice("after" in op.to ? to.index + 1 : to.index, 0, layer);
       }
       return [layer.id];
@@ -123,15 +123,15 @@ function insertionPoint(doc: Doc, op: Extract<Op, { op: "insert" }>, selection: 
     // "into" accepts an artboard ID as well as a group.
     const { artboard, term } = parseSelector(op.into);
     const board = artboard === undefined && term.kind === "id" ? doc.artboards.find((a) => a.id === term.value) : undefined;
-    if (board) return { siblings: board.layers, index: board.layers.length };
-    const [{ layer }] = resolve(doc, op.into, selection, false) as [Match];
+    if (board) return { artboard: board.id, siblings: board.layers, index: board.layers.length };
+    const [{ artboard: into, layer }] = resolve(doc, op.into, selection, false) as [Match];
     if (layer.type !== "group") throw new PatchError(`"${op.into}" is not a group or artboard`);
-    return { siblings: layer.children, index: layer.children.length };
+    return { artboard: into, siblings: layer.children, index: layer.children.length };
   }
   const ref = (op.after ?? op.before)!;
-  const [{ layer }] = resolve(doc, ref, selection, false) as [Match];
-  const loc = locate(doc, layer.id)!;
-  return { siblings: loc.siblings, index: op.after !== undefined ? loc.index + 1 : loc.index };
+  const [{ artboard, layer }] = resolve(doc, ref, selection, false) as [Match];
+  const loc = locate(doc, layer.id, artboard)!;
+  return { artboard, siblings: loc.siblings, index: op.after !== undefined ? loc.index + 1 : loc.index };
 }
 
 function assertUnlocked(layer: Layer): void {
@@ -156,8 +156,10 @@ function setPath(target: Record<string, unknown>, path: string, value: unknown):
 
 type Location = { artboard: Artboard; siblings: Layer[]; index: number };
 
-export function locate(doc: Doc, id: string): Location | undefined {
+/** Finds a layer by ID, optionally within one artboard. IDs are unique per artboard, not per document. */
+export function locate(doc: Doc, id: string, artboardId?: string): Location | undefined {
   for (const artboard of doc.artboards) {
+    if (artboardId !== undefined && artboard.id !== artboardId) continue;
     const found = locateIn(artboard.layers, id);
     if (found) return { artboard, ...found };
   }
@@ -176,11 +178,6 @@ function locateIn(layers: Layer[], id: string): { siblings: Layer[]; index: numb
   return undefined;
 }
 
-function findLayer(doc: Doc, id: string): Layer | undefined {
-  const loc = locate(doc, id);
-  return loc?.siblings[loc.index];
-}
-
 function layerIds(layers: Layer[]): string[] {
   return layers.flatMap((l) => [l.id, ...(l.type === "group" ? layerIds(l.children) : [])]);
 }
@@ -188,11 +185,11 @@ function layerIds(layers: Layer[]): string[] {
 /** Semantic checks the schema can't express. */
 export function semanticErrors(doc: Doc): string[] {
   const errors: string[] = [];
-  const seen = new Set<string>();
-  const lumaRefs: Array<[string, string]> = [];
+  let seen = new Set<string>();
+  let lumaRefs: Array<[string, string]> = [];
   const checkLayers = (layers: Layer[], where: string) => {
     layers.forEach((layer, i) => {
-      if (seen.has(layer.id)) errors.push(`duplicate layer id "${layer.id}"`);
+      if (seen.has(layer.id)) errors.push(`duplicate layer id "${layer.id}" in ${where}`);
       seen.add(layer.id);
       if (layer.clip && (i === 0 || layers.slice(0, i).every((l) => l.clip))) {
         errors.push(`layer "${layer.id}" clips but has no base layer below it in ${where}`);
@@ -207,9 +204,14 @@ export function semanticErrors(doc: Doc): string[] {
       if (layer.type === "group") checkLayers(layer.children, `group "${layer.id}"`);
     });
   };
-  for (const artboard of doc.artboards) checkLayers(artboard.layers, `artboard "${artboard.id}"`);
-  for (const [id, ref] of lumaRefs) {
-    if (!seen.has(ref)) errors.push(`mask on "${id}" refers to missing layer "${ref}"`);
+  // Layer IDs are unique within an artboard; artboards adapted from one design share them.
+  for (const artboard of doc.artboards) {
+    seen = new Set();
+    lumaRefs = [];
+    checkLayers(artboard.layers, `artboard "${artboard.id}"`);
+    for (const [id, ref] of lumaRefs) {
+      if (!seen.has(ref)) errors.push(`mask on "${id}" in "${artboard.id}" refers to missing layer "${ref}"`);
+    }
   }
   return errors;
 }
