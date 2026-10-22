@@ -7,11 +7,14 @@ import { fileURLToPath } from "node:url";
 
 const asset = (name: string) => readFileSync(fileURLToPath(new URL(`../assets/${name}`, import.meta.url)), "utf8");
 
-/** The G tile: Gesso's icon wherever a host shows one. */
-export const FAVICON_SVG = asset("favicon.svg");
+/**
+ * The G tile, animated: a sheen sweeps the tile, then the G wipes out and back like a primer stroke.
+ * Its resting frame is the plain tile, so hosts that rasterize icons, and reduced motion, show the static logo.
+ */
+export const FAVICON_SVG = asset("favicon-loop.svg");
 
-/** The GESSO wordmark. It fills with currentColor, so it follows the theme it sits in. */
-export const WORDMARK_SVG = asset("logo.svg");
+/** The GESSO wordmark, animated: letters lift out and rise back in. Fills with currentColor to follow the theme. */
+export const WORDMARK_SVG = asset("logo-loop.svg");
 
 export const LOGO_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(FAVICON_SVG).toString("base64")}`;
 
