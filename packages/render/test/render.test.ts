@@ -202,3 +202,25 @@ describe("renderArtboard", () => {
     expect((await renderArtboard(fitted, "a")).warnings).toEqual([]);
   });
 });
+
+describe("smart layers", () => {
+  const symbolDoc = (quad?: [number, number][]): Doc => ({
+    ...docWith([
+      { id: "screen", name: "Screen", type: "smart", symbol: "ui", frame: { x: 0, y: 0, w: 100, h: 100 }, ...(quad ? { quad: quad as never } : {}) } as Layer,
+    ]),
+    symbols: { ui: { id: "ui", name: "UI", size: [40, 20], background: "#00FF00", layers: [rect("half", "#FF0000", { x: 0, y: 0, w: 20, h: 20 })] } },
+  });
+
+  it("renders the symbol into its frame", async () => {
+    const out = await renderArtboard(symbolDoc(), "a");
+    expect(px(out.pixels, 100, 25, 50)).toEqual([255, 0, 0, 255]);
+    expect(px(out.pixels, 100, 75, 50)).toEqual([0, 255, 0, 255]);
+  });
+
+  it("corner-pins the symbol in perspective", async () => {
+    const out = await renderArtboard(symbolDoc([[20, 10], [90, 30], [90, 70], [20, 90]]), "a");
+    expect(px(out.pixels, 100, 30, 50)).toEqual([255, 0, 0, 255]);
+    expect(px(out.pixels, 100, 85, 50)[1]).toBe(255);
+    expect(px(out.pixels, 100, 10, 50)[3]).toBe(0);
+  });
+});

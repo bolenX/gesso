@@ -1,4 +1,5 @@
-import type { AdjustmentLayer, Artboard, BlendMode, Doc, Layer, Shape, TextLayer } from "@gesso/core";
+import { createHash } from "node:crypto";
+import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, type Doc, type Layer, type Shape, type TextLayer } from "@gesso/core";
 import { renderArtboard, renderLayerParts, type AssetLoader, type Box, type LayerPart } from "@gesso/render";
 import {
   writePsdUint8Array,
@@ -6,15 +7,23 @@ import {
   type BezierKnot,
   type BlendMode as PsdBlendMode,
   type Layer as PsdLayer,
+  type LinkedFile,
   type Psd,
 } from "ag-psd";
 
 // PSD encoder. Writes both forms the spec asks for: parametric data (artboards,
 // live text, adjustment layers, shape layers with vector masks) and Gesso's own
 // rendered pixels, so the file looks right before Photoshop re-renders text.
-// Smart filters are baked into layer pixels until smart objects land in v0.2.
+// Smart layers become embedded smart objects: each symbol is written as its own
+// PSD inside the file and placed with its corner pin, so double-clicking it in
+// Photoshop opens the symbol with its live layers. Smart filters are baked into
+// layer pixels for now.
 
-export type PsdOptions = { loader?: AssetLoader };
+export type PsdOptions = {
+  loader?: AssetLoader;
+  /** Wrap each Gesso artboard in a PSD artboard (default). Off writes one plain canvas. */
+  artboards?: boolean;
+};
 export type PsdResult = { bytes: Uint8Array; warnings: string[] };
 
 export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdResult> {
@@ -24,6 +33,35 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
   const composite = new Uint8Array(width * height * 4);
   const warnings: string[] = [];
   const children: PsdLayer[] = [];
+  const asArtboards = options.artboards ?? true;
+  if (!asArtboards && doc.artboards.length !== 1) throw new Error("A PSD without artboards holds exactly one artboard");
+
+  // Each placed symbol is written once as an embedded PSD.
+  const linkedFiles: LinkedFile[] = [];
+  const symbolFiles = new Map<string, string>();
+  for (const symbolId of placedSymbols(doc)) {
+    const symbol = doc.symbols![symbolId]!;
+    const inner: Doc = {
+      id: symbol.id,
+      revision: doc.revision,
+      assets: doc.assets,
+      ...(doc.symbols ? { symbols: doc.symbols } : {}),
+      artboards: [
+        {
+          id: symbol.id,
+          name: symbol.name,
+          frame: { x: 0, y: 0, w: symbol.size[0], h: symbol.size[1] },
+          ...(symbol.background ? { background: symbol.background } : {}),
+          layers: symbol.layers,
+        },
+      ],
+    };
+    const result = await writePsd(inner, { ...options, artboards: false });
+    warnings.push(...result.warnings.map((w) => `symbol "${symbol.id}": ${w}`));
+    const id = guid(`symbol:${symbol.id}`);
+    symbolFiles.set(symbol.id, id);
+    linkedFiles.push({ id, name: `${symbol.name}.psd`, type: "8BPS", creator: "8BIM", data: result.bytes });
+  }
 
   for (const artboard of doc.artboards) {
     const ox = Math.round(artboard.frame.x - bounds.left);
@@ -33,9 +71,13 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
 
     const { parts, width: artboardWidth, warnings: w } = await renderLayerParts(doc, artboard.id, options.loader ? { loader: options.loader } : {});
     warnings.push(...w.map((msg) => `${artboard.id}: ${msg}`));
-    const ctx: Ctx = { doc, parts, ox, oy, width: artboardWidth, warnings };
+    const ctx: Ctx = { doc, parts, ox, oy, width: artboardWidth, warnings, symbolFiles, artboard: artboard.id };
     const layers = artboard.layers.map((layer) => toPsdLayer(layer, ctx));
     if (artboard.background) layers.unshift(backgroundLayer(artboard, ox, oy));
+    if (!asArtboards) {
+      children.push(...layers);
+      continue;
+    }
     children.push({
       name: artboard.name,
       opened: true,
@@ -51,7 +93,9 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
     width,
     height,
     imageData: { width, height, data: composite },
-    artboards: { count: doc.artboards.length },
+    ...(asArtboards ? { artboards: { count: doc.artboards.length } } : {}),
+    ...(linkedFiles.length ? { linkedFiles } : {}),
+    imageResources: { xmpMetadata: xmpPacket(doc.id, doc.revision) },
     children,
   };
   if (doc.unknown?.length) warnings.push("opaque PSD blocks are not written yet; they were dropped");
@@ -60,7 +104,16 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
 }
 
 /** Per-artboard state. Part pixels are artboard-sized; ox/oy place them in the document. */
-type Ctx = { doc: Doc; parts: Map<string, LayerPart>; ox: number; oy: number; width: number; warnings: string[] };
+type Ctx = {
+  doc: Doc;
+  parts: Map<string, LayerPart>;
+  ox: number;
+  oy: number;
+  width: number;
+  warnings: string[];
+  symbolFiles: Map<string, string>;
+  artboard: string;
+};
 
 function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
   const part = ctx.parts.get(layer.id)!;
@@ -101,7 +154,44 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
     case "image":
       Object.assign(out, pixelData(part, ctx));
       return out;
+    case "smart": {
+      Object.assign(out, pixelData(part, ctx));
+      const [w, h] = ctx.doc.symbols![layer.symbol]!.size;
+      const transform = part.quad!.flatMap(([x, y]) => [x + ctx.ox, y + ctx.oy]);
+      out.placedLayer = {
+        id: ctx.symbolFiles.get(layer.symbol)!,
+        placed: guid(`placed:${ctx.artboard}:${layer.id}`),
+        type: "raster",
+        transform,
+        nonAffineTransform: transform,
+        width: w,
+        height: h,
+      };
+      return out;
+    }
   }
+}
+
+/** Symbols placed anywhere in the document, including inside other symbols. */
+function placedSymbols(doc: Doc): string[] {
+  const found = new Set<string>();
+  const visit = (layers: Layer[]) => {
+    for (const layer of layers) {
+      if (layer.type === "group") visit(layer.children);
+      if (layer.type === "smart" && !found.has(layer.symbol) && doc.symbols?.[layer.symbol]) {
+        found.add(layer.symbol);
+        visit(doc.symbols[layer.symbol]!.layers);
+      }
+    }
+  };
+  for (const artboard of doc.artboards) visit(artboard.layers);
+  return [...found];
+}
+
+/** Deterministic GUIDs, so the same document always writes the same file. */
+function guid(seed: string): string {
+  const h = createHash("md5").update(seed).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
 function backgroundLayer(artboard: Artboard, ox: number, oy: number): PsdLayer {

@@ -225,7 +225,21 @@ export const AdjustmentLayer = LayerBase.extend({
   adjustment: Adjustment,
 });
 
+const Point = z.tuple([z.number(), z.number()]);
+
+/**
+ * A placed smart object: an instance of a document-level symbol. With a quad it is
+ * corner-pinned in perspective (top-left, top-right, bottom-right, bottom-left, in
+ * parent coordinates), which is how device mockups hold their screen designs.
+ */
+export const SmartLayer = LayerBase.extend({
+  type: z.literal("smart"),
+  symbol: Id,
+  quad: z.tuple([Point, Point, Point, Point]).optional(),
+});
+
 export type ImageLayer = z.infer<typeof ImageLayer>;
+export type SmartLayer = z.infer<typeof SmartLayer>;
 export type ShapeLayer = z.infer<typeof ShapeLayer>;
 export type TextLayer = z.infer<typeof TextLayer>;
 export type AdjustmentLayer = z.infer<typeof AdjustmentLayer>;
@@ -234,7 +248,7 @@ export type GroupLayer = z.infer<typeof LayerBase> & {
   isolation?: "pass-through" | "isolate";
   children: Layer[];
 };
-export type Layer = ImageLayer | ShapeLayer | TextLayer | AdjustmentLayer | GroupLayer;
+export type Layer = ImageLayer | ShapeLayer | TextLayer | AdjustmentLayer | GroupLayer | SmartLayer;
 
 export const GroupLayer: z.ZodType<GroupLayer> = LayerBase.extend({
   type: z.literal("group"),
@@ -243,7 +257,7 @@ export const GroupLayer: z.ZodType<GroupLayer> = LayerBase.extend({
 });
 
 export const Layer: z.ZodType<Layer> = z.lazy(() =>
-  z.union([ImageLayer, ShapeLayer, TextLayer, AdjustmentLayer, GroupLayer]),
+  z.union([ImageLayer, ShapeLayer, TextLayer, AdjustmentLayer, GroupLayer, SmartLayer]),
 );
 
 export const Asset = z.object({
@@ -282,8 +296,10 @@ export const SmartObject = z.object({
   id: Id,
   name: z.string(),
   size: z.tuple([z.number().positive(), z.number().positive()]),
+  background: Paint.optional(),
   layers: z.array(Layer),
 });
+export type SmartObject = z.infer<typeof SmartObject>;
 
 export const Doc = z.object({
   id: Id,

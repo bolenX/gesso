@@ -92,7 +92,8 @@ describe("gesso MCP server", () => {
     const exported = await client.callTool({ name: "canvas_export", arguments: { doc: "promo-01", outDir: "out", format: "jpeg" } });
     expect(exported.isError).toBeFalsy();
     const manifest = JSON.parse(await readFile(join(baseDir, "out", "manifest.json"), "utf8"));
-    expect(manifest).toMatchObject({ doc: "promo-01", revision: 12, format: "jpeg" });
+    expect(manifest).toMatchObject({ generator: expect.stringMatching(/^Gesso /), doc: "promo-01", revision: 12, format: "jpeg" });
+    expect(((await sharp(join(baseDir, "out", "post-4x5.jpg")).metadata()).xmp ?? Buffer.alloc(0)).toString()).toContain("Gesso");
     expect((await sharp(join(baseDir, "out", "post-4x5.jpg")).metadata()).height).toBe(1350);
 
     const psd = await client.callTool({ name: "canvas_export", arguments: { doc: "promo-01", outDir: "out", format: "psd" } });
