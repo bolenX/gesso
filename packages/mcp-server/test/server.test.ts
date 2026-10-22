@@ -23,6 +23,23 @@ describe("gesso MCP server", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
   });
 
+  it("presents itself as Gesso with a logo, tool titles and a result card", async () => {
+    const client = await connect();
+    expect(client.getServerVersion()).toMatchObject({ name: "gesso", title: "Gesso", websiteUrl: expect.stringContaining("gesso") });
+    expect(client.getServerVersion()?.icons?.[0]?.src).toMatch(/^data:image\/svg\+xml;base64,/);
+    const { tools } = await client.listTools();
+    const render = tools.find((t) => t.name === "canvas_render")!;
+    expect(render.title).toBe("Render preview");
+    expect(render._meta).toMatchObject({ ui: { resourceUri: "ui://gesso/result.html" } });
+    expect(tools.find((t) => t.name === "canvas_outline")!._meta).toBeUndefined();
+    const { contents } = await client.readResource({ uri: "ui://gesso/result.html" });
+    expect(contents[0]).toMatchObject({ mimeType: "text/html;profile=mcp-app" });
+    expect((contents[0] as { text: string }).text).toContain("globalThis.GessoApp");
+
+    const created = await client.callTool({ name: "canvas_create", arguments: { doc: promo } });
+    expect(created.structuredContent).toMatchObject({ gesso: { kind: "create", doc: "promo-01", revision: 12, generator: expect.stringMatching(/^Gesso /) } });
+  });
+
   it("creates a document and reads it back", async () => {
     const client = await connect();
     const created = await client.callTool({ name: "canvas_create", arguments: { doc: promo } });
