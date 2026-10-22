@@ -3,12 +3,15 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, outline, Patch, select, semanticErrors, xmpPacket } from "@gesso/core";
 import { encode, renderArtboard, renderDoc, defaultAssetLoader, type AssetLoader, type EncodeFormat } from "@gesso/render";
 import { writePsd } from "@gesso/psd";
-import { mkdir, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { basename, extname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ICONS, TOOL_TITLES } from "./brand.js";
 import { DocStore } from "./store.js";
-import { WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
+import { FILE_TOOL, WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
+
+export { FILE_TOOL };
 
 export { DocStore };
 
@@ -52,8 +55,20 @@ type CardData = {
   warnings?: string[];
   outline?: string;
   previews?: Array<{ artboard: string; width: number; height: number; png: string }>;
-  files?: string[];
+  files?: CardFile[];
 };
+
+/** One deliverable on the export card. Thumbnails are small PNGs; the file itself is fetched on download. */
+type CardFile = { name: string; path: string; kind: string; mimeType: string; bytes: number; thumb?: string };
+
+const MIME: Record<string, string> = {
+  ".psd": "image/vnd.adobe.photoshop",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".webp": "image/webp",
+  ".json": "application/json",
+};
+
 
 const withCard = (result: CallToolResult, card: CardData): CallToolResult => ({
   ...result,
@@ -99,6 +114,9 @@ export function createServer({
   );
 
   // Every tool gets a human title; the tools that produce something also open the result card.
+  // Files this server exported; the download tool serves only these.
+  const exported = new Set<string>();
+
   const CARD_TOOLS = new Set(["canvas_create", "canvas_patch", "canvas_render", "canvas_export"]);
   const register: typeof server.registerTool = (name, config, cb) =>
     server.registerTool(
@@ -251,35 +269,84 @@ export function createServer({
         outDir: z.string().describe("Directory to write into, relative to the server's base directory"),
         format: z.enum(["png", "jpeg", "webp", "psd"]).default("png"),
         scale: z.number().positive().max(4).default(1).describe("Ignored for PSD, which is always full size"),
+        images: z.boolean().default(true).describe("With format psd, also write a flat PNG of each artboard"),
       },
     },
-    async ({ doc, outDir, format, scale }) =>
+    async ({ doc, outDir, format, scale, images }) =>
       guard(async () => {
         const d = store.get(doc);
         const dir = resolve(baseDir, outDir);
         await mkdir(dir, { recursive: true });
+        const xmp = xmpPacket(d.id, d.revision);
         const files = [];
+        // Small thumbnails for the card, one per artboard.
+        const thumbs = new Map<string, string>();
+        for (const a of d.artboards) {
+          const t = await renderArtboard(d, a.id, { scale: Math.min(1, 320 / Math.max(a.frame.w, a.frame.h)), loader });
+          thumbs.set(a.id, (await encode(t, "png")).toString("base64"));
+        }
         if (format === "psd") {
           const { bytes, warnings } = await writePsd(d, { loader });
           const path = resolve(dir, `${d.id}.psd`);
           await writeFile(path, bytes);
           files.push({ artboards: d.artboards.map((a) => a.id), path, warnings });
         }
-        const ext = format === "jpeg" ? "jpg" : format;
-        for (const r of format === "psd" ? [] : await renderDoc(d, { scale, loader })) {
-          const path = resolve(dir, `${r.artboard}.${ext}`);
-          await writeFile(path, await encode(r, format as EncodeFormat, 90, xmpPacket(d.id, d.revision)));
-          files.push({ artboard: r.artboard, path, width: r.width, height: r.height, warnings: r.warnings });
+        // A PSD export also writes a flat PNG of each artboard unless images is false.
+        const imageFormat = format === "psd" ? (images ? "png" : undefined) : format;
+        if (imageFormat) {
+          const ext = imageFormat === "jpeg" ? "jpg" : imageFormat;
+          for (const r of await renderDoc(d, { scale: format === "psd" ? 1 : scale, loader })) {
+            const path = resolve(dir, `${r.artboard}.${ext}`);
+            await writeFile(path, await encode(r, imageFormat as EncodeFormat, 90, xmp));
+            files.push({ artboard: r.artboard, path, width: r.width, height: r.height, warnings: r.warnings });
+          }
         }
+        const manifestPath = resolve(dir, "manifest.json");
         const manifest = { generator: GENERATOR, doc: d.id, revision: d.revision, exportedAt: new Date().toISOString(), format, scale, files };
-        await writeFile(resolve(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
+        await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+        const cardFiles: CardFile[] = [];
+        for (const f of [...files, { path: manifestPath }]) {
+          exported.add(f.path);
+          const ext = extname(f.path).toLowerCase();
+          const thumb = "artboard" in f ? thumbs.get(f.artboard as string) : ext === ".psd" ? thumbs.get(d.artboards[0]!.id) : undefined;
+          cardFiles.push({
+            name: basename(f.path),
+            path: f.path,
+            kind: ext.slice(1).toUpperCase().replace("JPG", "JPEG"),
+            mimeType: MIME[ext] ?? "application/octet-stream",
+            bytes: (await stat(f.path)).size,
+            ...(thumb ? { thumb } : {}),
+          });
+        }
         return withCard(json(manifest), {
           kind: "export",
           doc: d.id,
           revision: d.revision,
-          files: [...files.map((f) => f.path), resolve(dir, "manifest.json")],
-          warnings: files.flatMap((f) => f.warnings),
+          files: cardFiles,
+          warnings: files.flatMap((f) => ("warnings" in f ? f.warnings : [])),
         });
+      }),
+  );
+
+  server.registerTool(
+    FILE_TOOL,
+    {
+      title: "Download file",
+      description: "Returns a file this Gesso server exported, for the result card's download buttons.",
+      inputSchema: { path: z.string() },
+      _meta: { ui: { visibility: ["app"] } },
+    },
+    async ({ path }) =>
+      guard(async () => {
+        if (!exported.has(path)) return error("Only files exported in this session can be downloaded");
+        const ext = extname(path).toLowerCase();
+        const mimeType = MIME[ext] ?? "application/octet-stream";
+        const blob = (await readFile(path)).toString("base64");
+        return {
+          content: [{ type: "resource", resource: { uri: pathToFileURL(path).href, mimeType, blob } }],
+          structuredContent: { name: basename(path), mimeType, blob },
+        };
       }),
   );
 
