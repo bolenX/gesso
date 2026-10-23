@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
+import { homedir } from "node:os";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer, DocStore } from "./index.js";
@@ -12,7 +13,9 @@ const httpFlag = process.argv.indexOf("--http");
 
 // GESSO_WORKDIR is where assets resolve and exports land. The Claude Desktop extension sets it
 // (hosts often start servers in a folder that isn't writable); otherwise it's the current folder.
-const baseDir = process.env.GESSO_WORKDIR || process.cwd();
+// A leading "~" is expanded, since configs often say "~/Documents/Gesso" and the shell isn't there to do it.
+const workdir = process.env.GESSO_WORKDIR?.trim();
+const baseDir = workdir ? workdir.replace(/^~(?=$|[\\/])/, homedir()) : process.cwd();
 mkdirSync(baseDir, { recursive: true });
 
 if (httpFlag === -1) {
