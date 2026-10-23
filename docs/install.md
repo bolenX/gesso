@@ -1,127 +1,191 @@
 # Install Gesso
 
-Gesso is an MCP server. Once it's connected, Claude can build layered designs, show you previews, and export PNG, JPEG, WebP or PSD files that stay editable in Photoshop.
+Gesso is an MCP server. Once it's connected to your agent, the agent can build layered designs, show you previews, and export PNG, JPEG, WebP or PSD files that stay editable in Photoshop.
 
-Pick the app you use:
+Pick the agent you use:
 
-| App | How | Time |
+| Agent | How | Status |
 | --- | --- | --- |
-| Claude Desktop | Install the extension | 1 minute |
-| Claude Code | One terminal command | 1 minute |
-| Claude Desktop, manual setup | Edit the config file | 3 minutes |
-| claude.ai on the web | Custom connector | Not available yet |
+| Claude Desktop | Install the extension | Ready |
+| Claude Code | One terminal command | Ready |
+| Cursor | Add to `mcp.json` | Ready |
+| VS Code (Copilot agent mode) | One terminal command | Ready |
+| Gemini CLI | Add to `settings.json` | Ready |
+| Hermes Agent | Add to `config.yaml` | Ready |
+| claude.ai on the web | Custom connector | Coming soon |
+| ChatGPT | Developer-mode app | Coming soon |
+
+Every route except the Claude Desktop extension runs Gesso with `npx`, so it needs **Node 22 or later** (`node -v` to check; get it from [nodejs.org](https://nodejs.org)).
+
+## Your Gesso folder
+
+Gesso reads the images and fonts you give it from one folder, and saves its exports there. The configs below use `~/Documents/Gesso`, set with `GESSO_WORKDIR`; Gesso creates the folder if it doesn't exist. Change the path to use a different folder. Without `GESSO_WORKDIR`, Gesso uses the folder the agent started in.
 
 ## Claude Desktop (recommended)
 
 1. Download **`gesso-<version>.mcpb`**, the Gesso extension.
 2. Double-click the file. Claude Desktop opens an install screen with the Gesso icon.
-3. Click **Install**.
-4. Choose your **Gesso folder**. The default is `~/Documents/Gesso`. Gesso reads the images and fonts you give it from this folder, and saves its exports here.
-5. Open the tools menu in a chat. **Gesso** is in the list with a toggle; make sure it's on.
+3. Click **Install**, then choose your Gesso folder (default `~/Documents/Gesso`).
+4. Open the tools menu in a chat. **Gesso** is in the list with a toggle; make sure it's on.
 
-Manage or remove it later under **Settings › Extensions**.
+Manage or remove it under **Settings › Extensions**. The extension includes everything it needs, with no Node or terminal required.
 
-The extension includes everything it needs. You don't need Node or a terminal.
+Prefer editing the config instead? Open **Settings › Developer › Edit Config**, add the entry below to `claude_desktop_config.json`, then quit Claude Desktop completely (⌘Q on a Mac) and reopen it:
+
+```json
+{
+  "mcpServers": {
+    "gesso": {
+      "command": "npx",
+      "args": ["-y", "gesso-mcp"],
+      "env": { "GESSO_WORKDIR": "~/Documents/Gesso" }
+    }
+  }
+}
+```
+
+If the file already lists servers, add the `"gesso"` entry next to them.
 
 ## Claude Code
-
-Requires Node 22 or later (`node -v` to check).
 
 ```sh
 claude mcp add gesso -- npx -y gesso-mcp
 ```
 
-Start `claude` in the folder you want to work in. Gesso reads assets from that folder and writes exports into it. Run `/mcp` to confirm **gesso** shows as connected.
+Gesso uses the folder you start `claude` in. Run `/mcp` to confirm **gesso** shows as connected.
 
-## Claude Desktop, manual setup
+## Cursor
 
-Use this if you'd rather not install the extension. Requires Node 22 or later.
+Add Gesso to `~/.cursor/mcp.json` (all projects), or `.cursor/mcp.json` in one project:
 
-1. In Claude Desktop, open **Settings › Developer › Edit Config**.
-2. Add Gesso to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "gesso": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "gesso-mcp"],
+      "env": { "GESSO_WORKDIR": "~/Documents/Gesso" }
+    }
+  }
+}
+```
 
-   ```json
-   {
-     "mcpServers": {
-       "gesso": {
-         "command": "npx",
-         "args": ["-y", "gesso-mcp"],
-         "env": { "GESSO_WORKDIR": "/Users/you/Documents/Gesso" }
-       }
-     }
-   }
-   ```
+Then check **Cursor Settings › MCP**: **gesso** should be listed and enabled.
 
-   Replace the `GESSO_WORKDIR` path with the folder you want Gesso to use. If the file already lists other servers, add the `"gesso"` entry next to them.
-3. Quit Claude Desktop completely (⌘Q on a Mac) and open it again.
+## VS Code (Copilot agent mode)
 
-## claude.ai on the web
+```sh
+code --add-mcp '{"name":"gesso","type":"stdio","command":"npx","args":["-y","gesso-mcp"],"env":{"GESSO_WORKDIR":"~/Documents/Gesso"}}'
+```
 
-Not available yet. A web connector needs Gesso running on a public server. `npx -y gesso-mcp --http 3333` starts Gesso as a web server; behind HTTPS, add `https://your-host/mcp` under **Settings › Connectors › Add custom connector**. A hosted Gesso can't read files on your computer, so using your own images there waits on the planned `asset_import` tool.
+This adds Gesso to your VS Code user profile. Open Copilot Chat in **Agent** mode; Gesso's tools appear in the tools picker. You can also run **MCP: Add Server** from the Command Palette, choose **Command (stdio)** and enter `npx -y gesso-mcp`.
+
+## Gemini CLI
+
+Add Gesso to `~/.gemini/settings.json` (all projects), or `.gemini/settings.json` in one project:
+
+```json
+{
+  "mcpServers": {
+    "gesso": {
+      "command": "npx",
+      "args": ["-y", "gesso-mcp"],
+      "env": { "GESSO_WORKDIR": "~/Documents/Gesso" }
+    }
+  }
+}
+```
+
+Start `gemini` and run `/mcp` to see Gesso's tools.
+
+## Hermes Agent
+
+Add Gesso to the `mcp_servers` block in `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  gesso:
+    command: "npx"
+    args: ["-y", "gesso-mcp"]
+    env:
+      GESSO_WORKDIR: "~/Documents/Gesso"
+```
+
+Start `hermes chat`. If Hermes is already running, run `/reload-mcp`. Gesso's tools appear as `mcp_gesso_<tool>`.
+
+## claude.ai and ChatGPT (coming soon)
+
+Both connect only to MCP servers on the public internet over HTTPS, so they need a hosted Gesso. `npx -y gesso-mcp --http 3333` starts Gesso as a web server at `/mcp`; once it's hosted:
+
+- **claude.ai:** **Settings › Connectors › Add custom connector** with `https://your-host/mcp`.
+- **ChatGPT:** turn on **Settings › Apps › Advanced settings › Developer mode**, then **Create app** with `https://your-host/mcp`. Developer mode is limited to some ChatGPT plans.
+
+A hosted Gesso can't read files on your computer, so using your own images there waits on the planned `asset_import` tool.
 
 ## Try it
 
-Ask Claude:
+Ask your agent:
 
 > Make a 1080×1350 poster that says "Hello from Gesso", show me a preview, then export a PSD.
 
-You'll see Gesso's cards in the chat as it works: the document outline, the layers it changed, a preview, and finally your files with download buttons. (Claude Code shows the same steps as text.)
+In agents that support MCP Apps, such as Claude Desktop, you'll see Gesso's cards as it works: the document outline, the layers it changed, a preview, and finally your files with download buttons. Other agents show the same steps as text, and the files land in your Gesso folder.
 
-Text needs a font file. Put the font in your Gesso folder, or ask Claude to use one already installed on your computer.
+Text needs a font file. Put the font in your Gesso folder, or ask the agent to use one already installed on your computer.
 
 ## Troubleshooting
 
-- **Gesso isn't in the tools list.** Restart Claude Desktop. For the manual setup, check **Settings › Developer**, which shows each server's status and any error.
-- **"node: command not found" or a version error** (Claude Code and manual setup). Install the current Node from [nodejs.org](https://nodejs.org).
-- **Exports aren't where you expected.** Claude Desktop saves into your Gesso folder; Claude Code saves into the folder you started `claude` in.
+- **Gesso doesn't show up.** Restart the agent after changing its config. Check that the JSON or YAML is valid: a missing comma breaks the whole file.
+- **"node: command not found" or a version error.** Install Node 22 or later from [nodejs.org](https://nodejs.org), then restart the agent.
+- **Exports aren't where you expected.** They go to `GESSO_WORKDIR` when it's set (the Claude Desktop extension always sets it), otherwise to the folder the agent started in.
 
 ## Update
 
-- **Extension:** download the new `.mcpb` and double-click it.
-- **Claude Code and manual setup:** `npx -y gesso-mcp` fetches the latest version each time Gesso starts. Restart the app, or reconnect with `/mcp`.
+- **Claude Desktop extension:** download the new `.mcpb` and double-click it.
+- **Everything else:** `npx -y gesso-mcp` fetches the latest version when Gesso starts. Restart the agent, or reconnect Gesso from its MCP menu.
 
 ---
 
 ## For the landing page
 
-Copy for an **Install** or **Get started** section. It's written to match the guide above, so the page and the docs say the same thing.
+Copy for the **Install** or **Get started** section, matching the guide above. The logos are in [`brand/agents/`](../brand/agents/): 24×24 SVGs that fill with `currentColor`.
 
 ### Section copy
 
-**Heading:** Connect Gesso to Claude
+**Heading:** Connect Gesso to your agent
 
-**Intro:** Gesso runs inside Claude. Install it once, then ask for a design.
+**Intro:** Gesso runs inside the AI tools you already use. Install it once, then ask for a design.
 
-**Tab 1: Claude Desktop**
-- Label: Recommended
-- Steps: 1. Download the extension. 2. Double-click it. 3. Choose a folder for your files.
-- Button: **Download for Claude Desktop** (links to the `.mcpb` file)
-- Small print: macOS and Windows. Nothing else to install.
+**Tabs**, in this order. Each tab shows its logo before the name.
 
-**Tab 2: Claude Code**
-- Command, with a copy button: `claude mcp add gesso -- npx -y gesso-mcp`
-- Small print: Requires Node 22 or later.
+| Tab | Logo | Badge | Content |
+| --- | --- | --- | --- |
+| Claude Desktop | `claude.svg` | Recommended | Steps: 1. Download the extension. 2. Double-click it. 3. Choose a folder for your files (default `~/Documents/Gesso`). Button: **Download for Claude Desktop**. Small print: macOS and Windows. Nothing else to install. |
+| Claude Code | `claude-code.svg` | | Command with a copy button: `claude mcp add gesso -- npx -y gesso-mcp` |
+| Cursor | `cursor.svg` | | The `mcp.json` block from the Cursor section, with a copy button. Line: Add to `~/.cursor/mcp.json`. |
+| VS Code | `vscode.svg` | | The `code --add-mcp …` command, with a copy button. Line: Then use Copilot Chat in Agent mode. |
+| Gemini CLI | `gemini.svg` | | The `settings.json` block, with a copy button. Line: Add to `~/.gemini/settings.json`. |
+| Hermes | `hermes.svg` | | The `config.yaml` block, with a copy button. Line: Add to `~/.hermes/config.yaml`, then `/reload-mcp`. |
+| claude.ai | `claude.svg` | Coming soon | Line: Web connector support is in progress. |
+| ChatGPT | `chatgpt.svg` | Coming soon | Line: ChatGPT app support is in progress. |
 
-**Tab 3: Manual config**
-- The JSON block from "Claude Desktop, manual setup" above, with a copy button.
+**Under the tabs, for every route except the Desktop extension:** Requires Node 22 or later.
 
-**Tab 4: claude.ai**
-- Status badge: Coming soon
-- Line: Web connector support is in progress.
+**After the tabs:** "Then ask: *Make a 1080×1350 poster that says Hello from Gesso, show me a preview, then export a PSD.*" with a **Full install guide** link to this file.
 
-**After the tabs:** "Then ask Claude: *Make a 1080×1350 poster that says Hello from Gesso, show me a preview, then export a PSD.*" with a link to the full install guide (this file).
+With eight tabs, let the tab row scroll sideways on phones rather than wrapping.
 
 ### Facts to keep accurate
 
-- npm package: `gesso-mcp` (current version 0.3.1). Install command: `claude mcp add gesso -- npx -y gesso-mcp`.
-- Extension file: `gesso-<version>.mcpb`, about 55 MB, built with `node packages/gesso-mcp/build-mcpb.mjs`. It includes macOS (Apple silicon and Intel), Windows and Linux support.
-- Default Gesso folder: `~/Documents/Gesso`.
-- Node 22 or later for the npm route only.
-- claude.ai web connector: not available yet. Don't say it's supported.
+- npm package: `gesso-mcp`. Every config runs `npx -y gesso-mcp`.
+- Extension file: `gesso-<version>.mcpb`, about 55 MB, built with `node packages/gesso-mcp/build-mcpb.mjs`. Includes macOS (Apple silicon and Intel), Windows and Linux support.
+- Default Gesso folder: `~/Documents/Gesso`, set with `GESSO_WORKDIR`.
+- claude.ai and ChatGPT: not available yet. Don't say they're supported.
+- `vscode.svg`, `chatgpt.svg` and `hermes.svg` are placeholders. Replace them with the official files from the brand pages listed in `brand/agents/README.md` before launch.
 
 ### Hosting the extension download
 
 The `.mcpb` file is too large to commit to the repo. Host it in one of these places and link the Download button to it:
 
-- **GitHub Releases** (recommended): attach the file to a release; the link `https://github.com/bolenX/gesso/releases/latest/download/gesso-<version>.mcpb` then always points to the latest. While the repository is private, only people with access can download it, so make the repo public before launch.
-- **The site's own hosting**: put the file next to the landing page, outside the git repository.
+- **GitHub Releases** (recommended): attach the file to a release; `https://github.com/bolenX/gesso/releases/latest/download/gesso-<version>.mcpb` then always points to the latest. While the repository is private, only people with access can download it, so make the repo public before launch.
+- **The site's own hosting:** put the file next to the landing page, outside the git repository.
