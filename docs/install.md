@@ -148,7 +148,7 @@ Text needs a font file. Put the font in your Gesso folder, or ask the agent to u
 
 ## For the landing page
 
-Copy for the **Install** or **Get started** section, matching the guide above. The logos are in [`brand/agents/`](../brand/agents/), from Lobe Icons and Iconify: use the colour file where there is one, otherwise the mono file, inlined so it follows the text colour.
+Copy for the **Install** or **Get started** section, matching the guide above. The logos are in [`brand/agents/`](../brand/agents/), from Lobe Icons, Iconify and Devicon: colour and mono icons for every agent, plus wordmarks. Use the colour icon where there is one, otherwise the mono icon, inlined so it follows the text colour.
 
 ### Section copy
 
@@ -162,7 +162,7 @@ Copy for the **Install** or **Get started** section, matching the guide above. T
 | --- | --- | --- | --- |
 | Claude Desktop | `color/claude.svg` | Recommended | Steps: 1. Download the extension. 2. Double-click it. 3. Choose a folder for your files (default `~/Documents/Gesso`). Button: **Download for Claude Desktop**. Small print: macOS and Windows. Nothing else to install. |
 | Claude Code | `color/claude-code.svg` | | Command with a copy button: `claude mcp add gesso -- npx -y gesso-mcp` |
-| Cursor | `mono/cursor.svg` | | The `mcp.json` block from the Cursor section, with a copy button. Line: Add to `~/.cursor/mcp.json`. |
+| Cursor | `color/cursor.svg` (mono on dark) | | The `mcp.json` block from the Cursor section, with a copy button. Line: Add to `~/.cursor/mcp.json`. |
 | VS Code | `color/vscode.svg` | | The `code --add-mcp …` command, with a copy button. Line: Then use Copilot Chat in Agent mode. |
 | Gemini CLI | `color/gemini-cli.svg` | | The `settings.json` block, with a copy button. Line: Add to `~/.gemini/settings.json`. |
 | Hermes | `mono/hermes.svg` | | The `config.yaml` block, with a copy button. Line: Add to `~/.hermes/config.yaml`, then `/reload-mcp`. |
@@ -181,7 +181,7 @@ With eight tabs, let the tab row scroll sideways on phones rather than wrapping.
 - Extension file: `gesso-<version>.mcpb`, about 55 MB, built with `node packages/gesso-mcp/build-mcpb.mjs`. Includes macOS (Apple silicon and Intel), Windows and Linux support.
 - Default Gesso folder: `~/Documents/Gesso`, set with `GESSO_WORKDIR`.
 - claude.ai and ChatGPT: not available yet. Don't say they're supported.
-- Logos are the official marks from Lobe Icons and Iconify (see `brand/agents/README.md`). Don't redraw or recolour them.
+- Logos are the official marks from Lobe Icons, Iconify and Devicon (see `brand/agents/README.md`). Don't redraw or recolour them.
 
 ### Hosting the extension download
 
