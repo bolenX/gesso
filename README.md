@@ -39,6 +39,8 @@ docs/                Technical spec
 
 ## Install
 
+Full guide, including Claude Desktop, troubleshooting and landing-page copy: [docs/install.md](docs/install.md).
+
 Add Gesso to Claude Code with one command. `npx` downloads and starts it; there is nothing to clone or build.
 
 ```sh
