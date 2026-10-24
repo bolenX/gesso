@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { Doc, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, outline, Patch, select, semanticErrors, xmpPacket } from "@gesso/core";
+import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, select, semanticErrors, xmpPacket } from "@gesso/core";
 import { encode, renderArtboard, renderDoc, defaultAssetLoader, type AssetLoader, type EncodeFormat } from "@gesso/render";
 import { writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -8,6 +8,7 @@ import { basename, extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ICONS, TOOL_TITLES } from "./brand.js";
+import { DOC_FORMAT } from "./format.js";
 import { DocStore } from "./store.js";
 import { FILE_TOOL, WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
 
@@ -132,14 +133,29 @@ export function createServer({
   register(
     "canvas_create",
     {
-      description: "Create a document from a full spec. Returns the outline.",
-      inputSchema: { doc: z.unknown().describe("A complete Gesso document") },
+      description: DOC_FORMAT,
+      inputSchema: {
+        doc: z
+          .object({
+            id: z.string().describe('Short document ID, e.g. "spring-poster"'),
+            revision: z.number().int().optional().describe("Defaults to 0"),
+            assets: z.record(z.object({}).passthrough()).optional().describe("Images and fonts by ID"),
+            symbols: z.record(z.object({}).passthrough()).optional().describe("Smart-object contents by ID"),
+            artboards: z.array(z.object({}).passthrough()).describe("Artboards, each with id, name, frame and layers"),
+          })
+          .passthrough()
+          .describe("The full document; see the tool description for the format"),
+      },
     },
     async ({ doc }) => {
-      const parsed = Doc.safeParse(doc);
-      if (!parsed.success) return error(parsed.error.message);
+      const input = normalizeDoc(doc);
+      const parsed = Doc.safeParse(input);
+      if (!parsed.success) {
+        const issues = docIssues(input);
+        return error(`The document isn't valid yet. Fix these and call canvas_create again:\n- ${(issues.length ? issues : [parsed.error.issues[0]!.message]).join("\n- ")}`);
+      }
       const problems = semanticErrors(parsed.data);
-      if (problems.length > 0) return error(problems.join("; "));
+      if (problems.length > 0) return error(`The document isn't valid yet:\n- ${problems.join("\n- ")}`);
       store.put(parsed.data, author);
       const tree = outline(parsed.data);
       return withCard(text(tree), { kind: "create", doc: parsed.data.id, revision: parsed.data.revision, outline: tree });

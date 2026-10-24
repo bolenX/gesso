@@ -1,3 +1,4 @@
+import { layerIssues, normalizeLayer } from "./explain.js";
 import { Doc, type Artboard, type Layer } from "./schema.js";
 import { Layer as LayerSchema } from "./schema.js";
 import type { Op, Patch } from "./patch.js";
@@ -70,11 +71,8 @@ function applyOp(doc: Doc, op: Op, selection: string[]): string[] {
       return matches.map((m) => m.layer.id);
     }
     case "insert": {
-      const parsed = LayerSchema.safeParse(op.layer);
-      if (!parsed.success) {
-        const issue = parsed.error.issues[0]!;
-        throw new PatchError(`invalid layer at ${issue.path.join(".") || "layer"}: ${issue.message}`);
-      }
+      const parsed = LayerSchema.safeParse(normalizeLayer(op.layer));
+      if (!parsed.success) throw new PatchError(layerIssues(normalizeLayer(op.layer), "layer").join("; "));
       const layer = parsed.data;
       const { artboard, siblings, index } = insertionPoint(doc, op, selection);
       for (const id of layerIds([layer])) {
