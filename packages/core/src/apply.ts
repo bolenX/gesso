@@ -81,6 +81,12 @@ function applyOp(doc: Doc, op: Op, selection: string[]): string[] {
       siblings.splice(index, 0, layer);
       return [layer.id];
     }
+    case "asset": {
+      if (op.asset) doc.assets[op.id] = op.asset;
+      else if (!(op.id in doc.assets)) throw new PatchError(`there is no asset "${op.id}" to remove`);
+      else delete doc.assets[op.id];
+      return [];
+    }
     case "move": {
       const [{ artboard, layer }] = resolve(doc, op.target, selection, false) as [Match];
       assertUnlocked(layer);

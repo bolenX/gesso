@@ -7,7 +7,7 @@ Documents are saved in the Gesso folder (.gesso/<id>.json) after every change an
 Format (JSON). Layers are listed bottom to top; IDs are short and meaningful ("headline", not "layer1").
 {
   "id": "spring-poster",
-  "assets": {                       // files the layers use, by ID. Paths are relative to the Gesso folder.
+  "assets": {                       // files the layers use, by ID. Paths are relative to the Gesso folder. Later, asset_import adds more.
     "photo": { "uri": "photo.jpg", "kind": "image" },
     "bold":  { "uri": "/System/Library/Fonts/Supplemental/Arial Bold.ttf", "kind": "font", "family": "Arial Bold", "postscriptName": "Arial-BoldMT" }
   },

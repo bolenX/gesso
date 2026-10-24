@@ -123,7 +123,7 @@ Both connect only to MCP servers on the public internet over HTTPS, so they need
 - **claude.ai:** **Settings › Connectors › Add custom connector** with `https://your-host/mcp`.
 - **ChatGPT:** turn on **Settings › Apps › Advanced settings › Developer mode**, then **Create app** with `https://your-host/mcp`. Developer mode is limited to some ChatGPT plans.
 
-A hosted Gesso can't read files on your computer, so using your own images there waits on the planned `asset_import` tool.
+A hosted Gesso can't read files on your computer. The agent can still bring in your images and fonts from a URL, or pass them in directly, with `asset_import`.
 
 ## Try it
 

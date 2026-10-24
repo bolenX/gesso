@@ -156,3 +156,13 @@ describe("DocHistory persistence", () => {
     expect(() => DocHistory.fromJSON({ hello: 1 })).toThrow(/not a saved Gesso document/);
   });
 });
+
+describe("asset op", () => {
+  it("adds assets and refuses to remove ones in use", () => {
+    const added = applyOps(promo, [{ op: "asset", id: "logo", asset: { uri: "logo.png", kind: "image" } }]);
+    expect(added.doc.assets.logo).toEqual({ uri: "logo.png", kind: "image" });
+    expect(applyOps(added.doc, [{ op: "asset", id: "logo", asset: null }]).doc.assets.logo).toBeUndefined();
+    const used = Object.keys(promo.assets).find((id) => promo.assets[id]!.kind === "image")!;
+    expect(() => applyOps(promo, [{ op: "asset", id: used, asset: null }])).toThrow(/missing asset/);
+  });
+});
