@@ -41,6 +41,21 @@ describe("gesso MCP server", () => {
     expect(created.structuredContent).toMatchObject({ gesso: { kind: "create", doc: "promo-01", revision: 12, generator: expect.stringMatching(/^Gesso /) } });
   });
 
+  it("documents the format and returns readable errors for a bad document", async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    const create = tools.find((t) => t.name === "canvas_create")!;
+    expect(create.description).toContain('"type": "text", "content"');
+    expect((create.inputSchema.properties as { doc: { type: string } }).doc.type).toBe("object");
+
+    const bad = await client.callTool({ name: "canvas_create", arguments: { doc: { id: "x", artboards: [{ id: "a", width: 10, height: 10, layers: [{ id: "t", type: "text" }] }] } } });
+    expect(bad.isError).toBe(true);
+    const message = (bad.content as Array<{ text: string }>)[0]!.text;
+    expect(message).toMatch(/^The document isn't valid yet/);
+    expect(message).toContain('layers[0] "t" (text).content: required');
+    expect(message).not.toContain("unionErrors");
+  });
+
   it("creates a document and reads it back", async () => {
     const client = await connect();
     const created = await client.callTool({ name: "canvas_create", arguments: { doc: promo } });
