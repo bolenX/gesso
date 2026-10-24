@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, PRESETS, presetList, reflowArtboard, select, semanticErrors, xmpPacket } from "@gesso/core";
-import { encode, renderArtboard, renderDoc, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type EncodeFormat, type InstalledFont } from "@gesso/render";
+import { encode, renderArtboard, renderDoc, writeSvg, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type EncodeFormat, type InstalledFont } from "@gesso/render";
 import { importPsd, writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
@@ -84,6 +84,7 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".webp": "image/webp",
+  ".svg": "image/svg+xml",
   ".json": "application/json",
 };
 
@@ -549,13 +550,13 @@ export function createServer({
     "canvas_export",
     {
       description:
-        "Export every artboard as an image file, or the whole document as one layered PSD with artboards, plus a manifest.json.",
+        "Export every artboard as an image file, the whole document as one layered PSD with artboards, or each artboard as an editable SVG (vector shapes and real text; effects SVG can't express are embedded as images), plus a manifest.json.",
       inputSchema: {
         doc: docId,
         outDir: z.string().describe("Directory to write into, relative to the server's base directory"),
-        format: z.enum(["png", "jpeg", "webp", "psd"]).default("png"),
+        format: z.enum(["png", "jpeg", "webp", "psd", "svg"]).default("png"),
         scale: z.number().positive().max(4).default(1).describe("Ignored for PSD, which is always full size"),
-        images: z.boolean().default(true).describe("With format psd, also write a flat PNG of each artboard"),
+        images: z.boolean().default(true).describe("With format psd or svg, also write a flat PNG of each artboard"),
       },
     },
     async ({ doc, outDir, format, scale, images }, extra) =>
@@ -599,11 +600,19 @@ export function createServer({
       }),
   );
 
-  async function runExport(d: Doc, dir: string, format: "png" | "jpeg" | "webp" | "psd", scale: number, images: boolean): Promise<CallToolResult> {
+  async function runExport(d: Doc, dir: string, format: "png" | "jpeg" | "webp" | "psd" | "svg", scale: number, images: boolean): Promise<CallToolResult> {
     await mkdir(dir, { recursive: true });
     const xmp = xmpPacket(d.id, d.revision);
     const files = [];
     let flats: Awaited<ReturnType<typeof renderDoc>> | undefined;
+    if (format === "svg") {
+      for (const artboard of d.artboards) {
+        const { svg, warnings } = await writeSvg(d, artboard.id, { loader });
+        const path = resolve(dir, `${artboard.id}.svg`);
+        await writeFile(path, svg);
+        files.push({ artboard: artboard.id, path, width: artboard.frame.w, height: artboard.frame.h, warnings });
+      }
+    }
     if (format === "psd") {
       const result = await writePsd(d, { loader });
       const path = resolve(dir, `${d.id}.psd`);
@@ -611,8 +620,8 @@ export function createServer({
       files.push({ artboards: d.artboards.map((a) => a.id), path, warnings: result.warnings });
       flats = result.flats;
     }
-    // A PSD export also writes a flat PNG of each artboard unless images is false.
-    const imageFormat = format === "psd" ? (images ? "png" : undefined) : format;
+    // PSD and SVG exports also write a flat PNG of each artboard unless images is false.
+    const imageFormat = format === "psd" || format === "svg" ? (images ? "png" : undefined) : format;
     if (imageFormat) {
       const ext = imageFormat === "jpeg" ? "jpg" : imageFormat;
       for (const r of flats ?? (await renderDoc(d, { scale, loader }))) {
