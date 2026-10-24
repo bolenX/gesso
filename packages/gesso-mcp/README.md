@@ -22,6 +22,6 @@ Run it as a hosted connector with `npx -y gesso-mcp --http 3333`, then add `http
 
 ## Tools
 
-`canvas_create`, `canvas_outline`, `canvas_get`, `canvas_selection`, `canvas_patch`, `canvas_history`, `canvas_render`, `canvas_export` (PNG, JPEG, WebP, PSD). `artboard_create`, `asset_import` and `gen_prepare` are planned.
+`canvas_list`, `canvas_create`, `canvas_outline`, `canvas_get`, `canvas_selection`, `canvas_patch`, `canvas_history`, `canvas_render`, `canvas_export` (PNG, JPEG, WebP, PSD), `font_list`, `asset_import`. `artboard_create` and `gen_prepare` are planned.
 
 Apache-2.0.
