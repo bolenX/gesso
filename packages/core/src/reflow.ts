@@ -84,7 +84,13 @@ function axis(start: number, length: number, from: number, to: number, s: number
 /** Scales the pixel values inside a layer: type, strokes, corner radii, blur. */
 function scaleContent(layer: Layer, s: number): void {
   if (s === 1) return;
-  if (layer.filters) layer.filters = layer.filters.map((f) => ({ ...f, radius: f.radius * s }));
+  if (layer.filters) {
+    layer.filters = layer.filters.map((f) => {
+      if (f.kind === "gaussian-blur") return { ...f, radius: f.radius * s };
+      if (f.kind === "glass") return { ...f, size: f.size * s, amount: f.amount * s };
+      return { ...f, distance: f.distance * s };
+    });
+  }
   if (layer.mask && "feather" in layer.mask && layer.mask.feather) layer.mask = { ...layer.mask, feather: layer.mask.feather * s };
   if (layer.type === "text") {
     layer.style = { ...layer.style, size: round(layer.style.size * s), ...(layer.style.leading ? { leading: round(layer.style.leading * s) } : {}) };

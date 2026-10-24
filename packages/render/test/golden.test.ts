@@ -67,6 +67,15 @@ const scenes: Record<string, Layer[]> = {
     { id: "map", name: "map", type: "adjustment", adjustment: { kind: "gradient-map", stops: [{ offset: 0, color: "#000000" }, { offset: 0.35, color: "#2A0B6E" }, { offset: 0.65, color: "#2F4DF2" }, { offset: 1, color: "#39D8FF" }] }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
     { id: "grade", name: "grade", type: "adjustment", blend: "soft-light", opacity: 0.6, adjustment: { kind: "gradient-map", stops: [{ offset: 0, color: "#FF4F1A" }, { offset: 1, color: "#FFC21A" }] }, frame: { x: 0, y: 75, w: 200, h: 75 }, mask: { kind: "vector", shape: { kind: "rect" } } } as Layer,
   ],
+  distortions: [
+    { id: "ribbed", name: "ribbed", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 100, h: 150 }, filters: [{ kind: "glass", size: 12, amount: 14 }] } as Layer,
+    { id: "base", name: "base", type: "image", asset: "photo", fit: "cover", frame: { x: 100, y: 0, w: 100, h: 150 } } as Layer,
+    {
+      id: "swept", name: "swept", type: "image", asset: "photo", fit: "cover", frame: { x: 100, y: 0, w: 100, h: 150 },
+      filters: [{ kind: "path-blur", path: [[0, 0.8], [0.5, 0.5], [1, 0.2]], distance: 40 }],
+      mask: { kind: "vector", shape: { kind: "ellipse" }, frame: { x: 30, y: 50, w: 40, h: 50 }, feather: 6, invert: true },
+    } as Layer,
+  ],
   adjustments: [
     { id: "photo", name: "photo", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
     { id: "warm", name: "warm", type: "adjustment", adjustment: { kind: "hue-saturation", hue: 25, saturation: -40, lightness: 0 }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,

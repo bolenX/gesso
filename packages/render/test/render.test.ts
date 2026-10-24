@@ -56,6 +56,30 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it("smears along a motion blur's direction only", async () => {
+    const dot = rect("dot", "#FFFFFF", { x: 45, y: 45, w: 10, h: 10 }, { filters: [{ kind: "motion-blur", angle: 0, distance: 40 }] });
+    const out = await renderArtboard(docWith([rect("bg", "#000000", { x: 0, y: 0, w: 100, h: 100 }), dot]), "a");
+    expect(px(out.pixels, 100, 30, 50)[0]).toBeGreaterThan(30);
+    expect(px(out.pixels, 100, 50, 30)[0]).toBeLessThan(5);
+  });
+
+  it("shifts each rib of a glass filter", async () => {
+    const stripes = rect("left", "#FF0000", { x: 0, y: 0, w: 45, h: 100 });
+    const glass = { id: "g", name: "g", type: "group", frame: { x: 0, y: 0, w: 100, h: 100 }, isolation: "isolate", filters: [{ kind: "glass", size: 20, amount: 20 }], children: [stripes, rect("right", "#0000FF", { x: 45, y: 0, w: 55, h: 100 })] } as Layer;
+    const out = await renderArtboard(docWith([glass]), "a");
+    // The rib over the red/blue edge (40..60) shows a magnified slice: x = 46, blue in the
+    // original, samples x = 43, so it turns red.
+    expect(px(out.pixels, 100, 46, 50)).toEqual([255, 0, 0, 255]);
+    expect(px(out.pixels, 100, 10, 50)).toEqual([255, 0, 0, 255]);
+  });
+
+  it("places and inverts vector masks", async () => {
+    const hole = rect("cover", "#000000", { x: 0, y: 0, w: 100, h: 100 }, { mask: { kind: "vector", shape: { kind: "ellipse" }, frame: { x: 30, y: 30, w: 40, h: 40 }, invert: true } });
+    const out = await renderArtboard(docWith([hole]), "a");
+    expect(px(out.pixels, 100, 50, 50)[3]).toBe(0);
+    expect(px(out.pixels, 100, 5, 5)).toEqual([0, 0, 0, 255]);
+  });
+
   it("recolours by brightness with a gradient map, also in a blend mode", async () => {
     const map = (extra: object = {}) =>
       ({ id: "map", name: "map", type: "adjustment", adjustment: { kind: "gradient-map", stops: [{ offset: 0, color: "#0000FF" }, { offset: 1, color: "#FF0000" }] }, frame: { x: 0, y: 0, w: 100, h: 100 }, ...extra }) as Layer;
