@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, select, semanticErrors, xmpPacket } from "@gesso/core";
-import { encode, renderArtboard, renderDoc, defaultAssetLoader, type AssetLoader, type EncodeFormat } from "@gesso/render";
+import { encode, renderArtboard, renderDoc, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type EncodeFormat, type InstalledFont } from "@gesso/render";
 import { writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
@@ -28,6 +28,7 @@ export const TOOL_NAMES = [
   "canvas_render",
   "artboard_create",
   "canvas_export",
+  "font_list",
   "asset_import",
   "canvas_history",
   "gen_prepare",
@@ -144,6 +145,55 @@ export function createServer({
       guard(() => {
         const docs = store.list();
         return docs.length ? json(docs) : text("No documents yet. Start one with canvas_create.");
+      }),
+  );
+
+  // Scanned once per server, on first use: system folders change rarely, and a scan takes a moment.
+  let fonts: Promise<InstalledFont[]> | undefined;
+  const installedFonts = () =>
+    (fonts ??= Promise.all([scanFonts([baseDir], 2), scanFonts(systemFontDirs())]).then(([own, system]) => [...own, ...system]));
+
+  register(
+    "font_list",
+    {
+      description:
+        "Find fonts on this computer and in the Gesso folder. Without a query, lists the font families. With one, lists matching faces, each with the asset entry to put in doc.assets (then use its family as style.font).",
+      inputSchema: {
+        query: z.string().optional().describe('Words to match in the family, style or PostScript name, e.g. "inter bold" or "serif"'),
+        limit: z.number().int().positive().max(200).optional().describe("Most faces to list; default 30"),
+      },
+    },
+    async ({ query, limit = 30 }) =>
+      guard(async () => {
+        const all = await installedFonts();
+        if (!all.length) return text("No fonts found. Put .ttf or .otf files in the Gesso folder.");
+        if (!query?.trim()) {
+          const families = new Map<string, Set<string>>();
+          for (const f of all) (families.get(f.family) ?? families.set(f.family, new Set()).get(f.family)!).add(f.style);
+          const lines = [...families].sort(([a], [b]) => a.localeCompare(b)).map(([family, styles]) => `${family}: ${[...styles].join(", ")}`);
+          return text(`${families.size} families. Call font_list with a query to get asset entries.\n${lines.join("\n")}`);
+        }
+        const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+        const matches = all.filter((f) => {
+          const hay = `${f.family} ${f.style} ${f.fullName} ${f.postscriptName ?? ""}`.toLowerCase();
+          return words.every((w) => hay.includes(w));
+        });
+        if (!matches.length) return text(`No fonts match "${query}". Call font_list without a query to see every family.`);
+        const faces = matches.slice(0, limit).map((f) => ({
+          family: f.family,
+          style: f.style,
+          weight: f.weight,
+          ...(f.italic ? { italic: true } : {}),
+          asset: {
+            uri: fontUri(f.path, baseDir),
+            kind: "font",
+            family: f.fullName,
+            ...(f.postscriptName ? { postscriptName: f.postscriptName } : {}),
+            ...(f.face ? { face: f.face } : {}),
+          },
+        }));
+        const more = matches.length > faces.length ? `\n${matches.length - faces.length} more; narrow the query or raise limit.` : "";
+        return text(JSON.stringify(faces, null, 2) + more);
       }),
   );
 

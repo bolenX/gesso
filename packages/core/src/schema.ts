@@ -274,6 +274,8 @@ export const Asset = z.object({
   family: z.string().optional(),
   /** PostScript name Photoshop uses to find the font, e.g. "Inter-Bold". */
   postscriptName: z.string().optional(),
+  /** Which face to use from a .ttc/.otc font collection; 0 when left out. */
+  face: z.number().int().nonnegative().optional(),
   description: z.string().optional(),
 });
 export type Asset = z.infer<typeof Asset>;
