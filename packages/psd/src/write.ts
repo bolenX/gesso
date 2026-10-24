@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, type Doc, type Layer, type Shape, type TextLayer } from "@gesso/core";
+import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, type Doc, type Effect, type Layer, type Paint, type Shape, type TextLayer } from "@gesso/core";
 import { compose, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type LayerPart } from "@gesso/render";
 import {
   writePsdUint8Array,
@@ -7,8 +7,10 @@ import {
   type BezierKnot,
   type BlendMode as PsdBlendMode,
   type Layer as PsdLayer,
+  type LayerEffectsInfo,
   type LinkedFile,
   type Psd,
+  type VectorContent,
 } from "ag-psd";
 
 // PSD encoder. Writes both forms the spec asks for: parametric data (artboards,
@@ -126,6 +128,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
   };
   if (layer.meta?.locked) out.protected = { transparency: true, composite: true, position: true };
   if (part.mask) out.mask = maskData(part.mask, ctx);
+  if (layer.effects?.length) out.effects = psdEffects(layer.effects);
 
   switch (layer.type) {
     case "group":
@@ -144,11 +147,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       return out;
     case "shape": {
       Object.assign(out, pixelData(part, ctx));
-      const knots = shapeKnots(layer.shape, part.box)?.map((k) => ({ ...k, points: placePoints(k.points, part.matrix, ctx) }));
-      if (knots && typeof layer.fill === "string" && !layer.stroke) {
-        out.vectorFill = { type: "color", color: rgb(layer.fill) };
-        out.vectorMask = { paths: [{ open: false, knots, fillRule: "non-zero" }] };
-      }
+      Object.assign(out, vectorShape(layer, part, ctx));
       return out;
     }
     case "image":
@@ -311,6 +310,98 @@ export function shapeKnots(shape: Shape, b: Box): BezierKnot[] | undefined {
   return undefined; // SVG paths are written as pixels for now
 }
 
+/**
+ * A live shape layer: the outline as a vector mask, with fill and stroke as editable content.
+ * Shapes Photoshop can't hold as one (semi-transparent colours, neither fill nor stroke) stay pixels.
+ */
+function vectorShape(layer: Extract<Layer, { type: "shape" }>, part: LayerPart, ctx: Ctx): Partial<PsdLayer> {
+  const turn = part.matrix ? (Math.atan2(part.matrix[1], part.matrix[0]) * 180) / Math.PI : 0;
+  const fill = layer.fill === undefined ? undefined : vectorContent(layer.fill, turn);
+  const stroke = layer.stroke ? vectorContent(layer.stroke.paint, turn) : undefined;
+  if (fill === null || stroke === null || (!fill && !stroke)) return {};
+  const outlines = part.paths
+    ? part.paths.map((p) => ({ open: !p.closed, knots: pathKnots(p.points, p.closed) }))
+    : [{ open: false, knots: shapeKnots(layer.shape, part.box) ?? [] }];
+  const paths = outlines
+    .filter((p) => p.knots.length > 1)
+    .map((p) => ({ open: p.open, fillRule: "non-zero" as const, knots: p.knots.map((k) => ({ ...k, points: placePoints(k.points, part.matrix, ctx) })) }));
+  if (!paths.length) return {};
+  return {
+    vectorFill: fill ?? stroke!,
+    vectorMask: { paths },
+    ...(layer.stroke
+      ? {
+          vectorStroke: {
+            strokeEnabled: true,
+            fillEnabled: fill !== undefined,
+            lineWidth: { units: "Pixels" as const, value: layer.stroke.width },
+            lineAlignment: "center" as const,
+            content: stroke!,
+          },
+        }
+      : {}),
+  };
+}
+
+/** Gesso effects as Photoshop layer styles, with the same defaults the renderer uses. Spread (choke) is a percentage Photoshop stores as a plain number. */
+function psdEffects(effects: Effect[]): LayerEffectsInfo {
+  const px = (value: number) => ({ units: "Pixels" as const, value });
+  const on = { present: true, showInDialog: true, enabled: true };
+  const info: LayerEffectsInfo = {};
+  for (const e of effects) {
+    if (e.kind === "drop-shadow") {
+      (info.dropShadow ??= []).push({
+        ...on,
+        color: rgb(e.color ?? "#000000"),
+        opacity: e.opacity ?? 0.35,
+        angle: e.angle ?? 120,
+        useGlobalLight: false,
+        distance: px(e.distance ?? 10),
+        size: px(e.size ?? 10),
+        choke: px(Math.round((e.spread ?? 0) * 100)),
+        blendMode: "multiply",
+      });
+    } else if (e.kind === "outer-glow") {
+      info.outerGlow = { ...on, color: rgb(e.color ?? "#FFFFFF"), opacity: e.opacity ?? 0.75, size: px(e.size ?? 20), choke: px(Math.round((e.spread ?? 0) * 100)), blendMode: "screen" };
+    } else if (e.kind === "stroke") {
+      (info.stroke ??= []).push({ ...on, size: px(e.width), position: e.position ?? "outside", fillType: "color", color: rgb(e.color), opacity: e.opacity ?? 1, blendMode: "normal" });
+    } else {
+      (info.solidFill ??= []).push({ ...on, color: rgb(e.color), opacity: e.opacity ?? 1, blendMode: "normal" });
+    }
+  }
+  return info;
+}
+
+/** Photoshop fill content for a paint, or null when it can't be expressed (a translucent flat colour). */
+function vectorContent(paint: Paint, turn: number): VectorContent | null {
+  if (typeof paint === "string") return alpha(paint) < 1 ? null : { type: "color", color: rgb(paint) };
+  return {
+    type: "solid",
+    name: "Gesso gradient",
+    style: paint.kind === "linear-gradient" ? "linear" : "radial",
+    ...(paint.kind === "linear-gradient" ? { angle: paint.angle - turn } : {}),
+    scale: 100,
+    colorStops: paint.stops.map((s) => ({ color: rgb(s.color), location: s.offset, midpoint: 0.5 })),
+    opacityStops: paint.stops.map((s) => ({ opacity: alpha(s.color), location: s.offset, midpoint: 0.5 })),
+  };
+}
+
+/** Cubic subpath points [x0, y0, c1, c2, end, …] as Photoshop knots: [in-handle, anchor, out-handle]. */
+export function pathKnots(points: number[], closed: boolean): BezierKnot[] {
+  const anchors = [{ x: points[0]!, y: points[1]!, in: [points[0]!, points[1]!], out: [points[0]!, points[1]!] }];
+  for (let i = 2; i + 5 < points.length; i += 6) {
+    anchors[anchors.length - 1]!.out = [points[i]!, points[i + 1]!];
+    anchors.push({ x: points[i + 4]!, y: points[i + 5]!, in: [points[i + 2]!, points[i + 3]!], out: [points[i + 4]!, points[i + 5]!] });
+  }
+  const first = anchors[0]!;
+  const last = anchors[anchors.length - 1]!;
+  if (closed && anchors.length > 1 && Math.hypot(last.x - first.x, last.y - first.y) < 0.01) {
+    first.in = last.in;
+    anchors.pop();
+  }
+  return anchors.map((a) => ({ linked: false, points: [a.in[0]!, a.in[1]!, a.x, a.y, a.out[0]!, a.out[1]!] }));
+}
+
 /** Artboard points, rotated with the layer and placed in document coordinates. */
 function placePoints(points: number[], matrix: Affine | undefined, ctx: Ctx): number[] {
   const out: number[] = [];
@@ -338,6 +429,10 @@ function offset(box: Box, ctx: Ctx): Box {
 function hex(color: string): [number, number, number] {
   const n = color.slice(1);
   return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16)];
+}
+
+function alpha(color: string): number {
+  return color.length === 9 ? parseInt(color.slice(7, 9), 16) / 255 : 1;
 }
 
 function rgb(color: string) {

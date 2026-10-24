@@ -3,7 +3,7 @@ import type { Doc } from "@gesso/core";
 import { readPsd, type Layer as PsdLayer } from "ag-psd";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { shapeKnots, writePsd } from "../src/index.js";
+import { pathKnots, shapeKnots, writePsd } from "../src/index.js";
 
 const FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 
@@ -189,4 +189,79 @@ it("keeps rotated text and shapes live", async () => {
     // The box's top-left corner, turned 30° around the box centre (50, 50).
     expect([+e.toFixed(1), +f.toFixed(1)]).toEqual([29.0, 26.3]);
   }
+});
+
+it("writes paths, strokes and gradients as live shape layers", async () => {
+  const doc: Doc = {
+    id: "vec",
+    revision: 1,
+    assets: {},
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 200, h: 100 },
+        layers: [
+          { id: "tri", name: "Tri", type: "shape", shape: { kind: "path", d: "M 0 40 L 20 0 L 40 40 Z" }, fill: "#FF4F1A", frame: { x: 10, y: 10, w: 40, h: 40 } },
+          { id: "ring", name: "Ring", type: "shape", shape: { kind: "ellipse" }, stroke: { paint: "#2440E6", width: 6 }, frame: { x: 60, y: 10, w: 40, h: 40 } },
+          {
+            id: "grad",
+            name: "Grad",
+            type: "shape",
+            shape: { kind: "rect", radius: 6 },
+            fill: { kind: "linear-gradient", angle: 0, stops: [{ offset: 0, color: "#FFC21A" }, { offset: 1, color: "#FF4F1A80" }] },
+            frame: { x: 110, y: 10, w: 80, h: 40 },
+          },
+          { id: "arc", name: "Arc", type: "shape", shape: { kind: "path", d: "M 0 20 A 20 20 0 0 1 40 20" }, stroke: { paint: "#111110", width: 2 }, frame: { x: 10, y: 60, w: 40, h: 30 } },
+          { id: "glass", name: "Glass", type: "shape", shape: { kind: "rect" }, fill: "#FFFFFF80", frame: { x: 60, y: 60, w: 40, h: 30 } },
+        ],
+      },
+    ],
+  };
+  const psd = readPsd((await writePsd(doc)).bytes, { useImageData: true });
+  const [tri, ring, grad, arc, glass] = psd.children![0]!.children!;
+  const anchors = (l: PsdLayer) => l.vectorMask!.paths.flatMap((p) => p.knots.map((k) => k.points.slice(2, 4).map((v) => Math.round(v))));
+  expect(anchors(tri!)).toEqual([[10, 50], [30, 10], [50, 50]]);
+  expect(tri!.vectorFill).toMatchObject({ type: "color", color: { r: 255, g: 79, b: 26 } });
+  expect(ring!.vectorStroke).toMatchObject({ strokeEnabled: true, fillEnabled: false, lineWidth: { value: 6 } });
+  expect(grad!.vectorFill).toMatchObject({ type: "solid", style: "linear" });
+  expect((grad!.vectorFill as { opacityStops: Array<{ opacity: number }> }).opacityStops[1]!.opacity).toBeCloseTo(0.5, 1);
+  expect(arc!.vectorMask!.paths[0]!.open).toBe(true);
+  expect(anchors(arc!).at(-1)).toEqual([50, 80]);
+  expect(glass!.vectorMask).toBeUndefined();
+});
+
+it("turns path cubics into Photoshop knots", () => {
+  // A closed triangle whose last segment returns to the start: the duplicate end anchor folds into the first.
+  const knots = pathKnots([0, 0, 0, 0, 10, 0, 10, 0, 10, 0, 10, 10, 10, 10, 8, 8, 2, 2, 0, 0], true);
+  expect(knots.map((k) => k.points.slice(2, 4))).toEqual([[0, 0], [10, 0], [10, 10]]);
+  expect(knots[0]!.points.slice(0, 2)).toEqual([2, 2]);
+});
+
+it("exports effects as live layer styles", async () => {
+  const doc: Doc = {
+    id: "fx",
+    revision: 1,
+    assets: {},
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 100, h: 100 },
+        layers: [
+          {
+            id: "card", name: "Card", type: "shape", shape: { kind: "rect" }, fill: "#FFFFFF", frame: { x: 20, y: 20, w: 60, h: 60 },
+            effects: [{ kind: "drop-shadow", distance: 12, size: 20, spread: 0.1 }, { kind: "stroke", color: "#FF4F1A", width: 3, position: "inside" }, { kind: "outer-glow" }, { kind: "color-overlay", color: "#2440E6", opacity: 0.5 }],
+          },
+        ],
+      },
+    ],
+  };
+  const card = readPsd((await writePsd(doc)).bytes, { useImageData: true }).children![0]!.children![0]!;
+  expect(card.effects?.dropShadow?.[0]).toMatchObject({ enabled: true, angle: 120, distance: { value: 12 }, size: { value: 20 }, opacity: 0.35 });
+  expect(card.effects?.stroke?.[0]).toMatchObject({ position: "inside", size: { value: 3 }, color: { r: 255, g: 79, b: 26 } });
+  expect(card.effects?.outerGlow).toMatchObject({ enabled: true, size: { value: 20 } });
+  expect(card.effects?.solidFill?.[0]).toMatchObject({ opacity: 0.5 });
+  // Pixels hold the content only; Photoshop draws the effects itself.
+  expect([card.left, card.top, card.right, card.bottom]).toEqual([20, 20, 80, 80]);
 });

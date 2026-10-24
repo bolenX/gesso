@@ -48,6 +48,11 @@ export type LayerPart = {
   fontSize?: number;
   /** Corner pin in artboard pixels (TL, TR, BR, BL), for smart layers. Includes any rotation. */
   quad?: Array<[number, number]>;
+  /**
+   * For SVG path shapes: each subpath as cubic segments in artboard pixels, before rotation:
+   * [x0, y0, c1x, c1y, c2x, c2y, x1, y1, …], with `closed` per subpath.
+   */
+  paths?: Array<{ points: number[]; closed: boolean }>;
   /** Rotation and flips from this layer and its groups, in artboard pixels. Absent when there are none. */
   matrix?: Affine;
 };
@@ -263,6 +268,7 @@ class Compositor {
               : [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
           }
         }
+        if (layer.type === "shape" && layer.shape.kind === "path") part.paths = this.cubicPaths(layer.shape.d, part.box);
         part.matrix = compose(inherited, layerTransform(layer, part.box));
         if (part.quad && part.matrix) part.quad = part.quad.map(([x, y]) => transformPoint(part.matrix, x, y));
         if (layer.mask) part.mask = this.readImageAlpha(this.maskImage(layer.mask, part.box, parent));
@@ -272,6 +278,47 @@ class Compositor {
     };
     visit(artboard.layers, { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h }, undefined);
     return { width: this.width, height: this.height, parts, warnings: this.warnings };
+  }
+
+  /** An SVG path as cubic Bézier subpaths placed in the box, for vector output. Arcs come through as conics and are converted. */
+  private cubicPaths(d: string, box: Box): Array<{ points: number[]; closed: boolean }> {
+    const path = this.ck.Path.MakeFromSVGString(d);
+    if (!path) return [];
+    path.offset(box.x, box.y);
+    const cmds = path.toCmds();
+    path.delete();
+    const out: Array<{ points: number[]; closed: boolean }> = [];
+    let current: { points: number[]; closed: boolean } | undefined;
+    let [x, y] = [0, 0];
+    const cubic = (c1x: number, c1y: number, c2x: number, c2y: number, ex: number, ey: number) => {
+      current!.points.push(c1x, c1y, c2x, c2y, ex, ey);
+      [x, y] = [ex, ey];
+    };
+    for (let i = 0; i < cmds.length; ) {
+      const verb = cmds[i++]!;
+      const n = (k: number) => cmds[i + k]!;
+      if (verb === this.ck.MOVE_VERB) {
+        current = { points: [n(0), n(1)], closed: false };
+        out.push(current);
+        [x, y] = [n(0), n(1)];
+        i += 2;
+      } else if (verb === this.ck.LINE_VERB) {
+        cubic(x, y, n(0), n(1), n(0), n(1));
+        i += 2;
+      } else if (verb === this.ck.QUAD_VERB || verb === this.ck.CONIC_VERB) {
+        // A quadratic is a conic with weight 1; k = 4w / (3(1 + w)) gives the cubic handles.
+        const w = verb === this.ck.CONIC_VERB ? n(4) : 1;
+        const k = (4 * w) / (3 * (1 + w));
+        cubic(x + (n(0) - x) * k, y + (n(1) - y) * k, n(2) + (n(0) - n(2)) * k, n(3) + (n(1) - n(3)) * k, n(2), n(3));
+        i += verb === this.ck.CONIC_VERB ? 5 : 4;
+      } else if (verb === this.ck.CUBIC_VERB) {
+        cubic(n(0), n(1), n(2), n(3), n(4), n(5));
+        i += 6;
+      } else if (verb === this.ck.CLOSE_VERB && current) {
+        current.closed = true;
+      }
+    }
+    return out.filter((p) => p.points.length > 2);
   }
 
   /** A layer's pixels, drawn on a surface only as big as what it draws. */
@@ -350,14 +397,20 @@ class Compositor {
       if (clipped.length === 0 && this.drawDirect(base, parent, target)) continue;
 
       const content = this.renderLayer(base, parent);
+      // Shadows and glows follow the styled shape, strokes included, as in Photoshop.
+      const styled = base.effects?.length ? this.withEffectsAbove(content, base) : content;
+      if (base.effects?.length) this.drawEffectsBelow(target, styled, base);
       if (clipped.length === 0) {
-        this.drawImage(target, content, base.blend, base.opacity);
+        this.drawImage(target, styled, base.blend, base.opacity);
+        if (styled !== content) styled.delete();
         content.delete();
         continue;
       }
 
+      // Clipped layers clip to the base's own pixels, not to its effects.
       const group = this.surface();
-      group.getCanvas().drawImage(content, 0, 0);
+      group.getCanvas().drawImage(styled, 0, 0);
+      if (styled !== content) styled.delete();
       for (const layer of clipped) {
         if (layer.visible === false) continue;
         if (layer.type === "adjustment") {
@@ -389,6 +442,7 @@ class Compositor {
       (group.blend ?? "normal") === "normal" &&
       !group.mask &&
       !group.filters?.length &&
+      !group.effects?.length &&
       !layerTransform(group, { x: 0, y: 0, w: 0, h: 0 })
     );
   }
@@ -399,7 +453,9 @@ class Compositor {
    * documents many times faster. Returns false when the layer needs the full path.
    */
   private drawDirect(layer: Layer, parent: Box, target: Surface): boolean {
-    if (layer.type === "group" || layer.type === "adjustment" || layer.mask || layer.filters?.length || layer.rotation || layer.flip) return false;
+    if (layer.type === "group" || layer.type === "adjustment" || layer.mask || layer.filters?.length || layer.effects?.length || layer.rotation || layer.flip) {
+      return false;
+    }
     const recorder = new this.ck.PictureRecorder();
     const limit = 1e6;
     this.drawUntransformed(layer, parent, target, recorder.beginRecording(this.ck.LTRBRect(-limit, -limit, limit, limit), true));
@@ -421,6 +477,82 @@ class Compositor {
     }
     picture.delete();
     return true;
+  }
+
+  /** Drop shadows, outer glows and outside strokes, drawn onto target beneath the layer. */
+  private drawEffectsBelow(target: Surface, content: Image, layer: Layer): void {
+    const { ck } = this;
+    const k = this.scale;
+    const opacity = layer.opacity ?? 1;
+    for (const effect of layer.effects ?? []) {
+      if (effect.kind !== "drop-shadow" && effect.kind !== "outer-glow") continue;
+      const size = (effect.size ?? (effect.kind === "drop-shadow" ? 10 : 20)) * k;
+      const spread = effect.spread ?? 0;
+      const color = this.color(effect.color ?? (effect.kind === "drop-shadow" ? "#000000" : "#FFFFFF"));
+      const angle = (((effect.kind === "drop-shadow" ? effect.angle : undefined) ?? 120) * Math.PI) / 180;
+      const distance = (effect.kind === "drop-shadow" ? (effect.distance ?? 10) : 0) * k;
+      // Spread grows the shape solidly before the remaining size blurs, like Photoshop's spread/choke.
+      const grow = spread > 0 ? ck.ImageFilter.MakeDilate(size * spread, size * spread, null) : null;
+      const sigma = (size * (1 - spread)) / 2;
+      const filter = ck.ImageFilter.MakeDropShadowOnly(-Math.cos(angle) * distance, Math.sin(angle) * distance, sigma, sigma, color, grow);
+      const p = new ck.Paint();
+      p.setImageFilter(filter);
+      p.setAlphaf((effect.opacity ?? (effect.kind === "drop-shadow" ? 0.35 : 0.75)) * opacity);
+      p.setBlendMode(effect.kind === "drop-shadow" ? ck.BlendMode.Multiply : ck.BlendMode.Screen);
+      target.getCanvas().drawImage(content, 0, 0, p);
+      p.delete();
+      filter.delete();
+    }
+  }
+
+  /** The layer with its colour overlays and strokes applied, as a new image. */
+  private withEffectsAbove(content: Image, layer: Layer): Image {
+    const { ck } = this;
+    const k = this.scale;
+    const s = this.surface();
+    const canvas = s.getCanvas();
+    // Outside strokes sit behind the content; the rest go on top.
+    const strokes = (layer.effects ?? []).filter((e) => e.kind === "stroke");
+    for (const stroke of strokes.filter((e) => (e.position ?? "outside") === "outside")) this.drawStroke(canvas, content, stroke, k);
+    canvas.drawImage(content, 0, 0);
+    for (const effect of layer.effects ?? []) {
+      if (effect.kind !== "color-overlay") continue;
+      const p = new ck.Paint();
+      p.setColorFilter(ck.ColorFilter.MakeBlend(this.color(effect.color), ck.BlendMode.SrcIn));
+      p.setAlphaf(effect.opacity ?? 1);
+      canvas.drawImage(content, 0, 0, p);
+      p.delete();
+    }
+    for (const stroke of strokes.filter((e) => (e.position ?? "outside") !== "outside")) this.drawStroke(canvas, content, stroke, k);
+    const image = s.makeImageSnapshot();
+    s.dispose();
+    return image;
+  }
+
+  /** A stroke around the content's alpha: grown outward, shrunk inward, or both for centred. */
+  private drawStroke(canvas: Canvas, content: Image, stroke: Extract<NonNullable<Layer["effects"]>[number], { kind: "stroke" }>, k: number): void {
+    const { ck } = this;
+    const position = stroke.position ?? "outside";
+    const w = stroke.width * k;
+    const [outer, inner] = position === "outside" ? [w, 0] : position === "inside" ? [0, w] : [w / 2, w / 2];
+    const ring = this.surface();
+    const c = ring.getCanvas();
+    const tint = ck.ColorFilter.MakeBlend(this.color(stroke.color), ck.BlendMode.SrcIn);
+    const grow = new ck.Paint();
+    grow.setImageFilter(outer > 0 ? ck.ImageFilter.MakeDilate(outer, outer, null) : null);
+    grow.setColorFilter(tint);
+    c.drawImage(content, 0, 0, grow);
+    const cut = new ck.Paint();
+    cut.setImageFilter(inner > 0 ? ck.ImageFilter.MakeErode(inner, inner, null) : null);
+    cut.setBlendMode(ck.BlendMode.DstOut);
+    c.drawImage(content, 0, 0, cut);
+    const image = ring.makeImageSnapshot();
+    ring.dispose();
+    const p = new ck.Paint();
+    p.setAlphaf(stroke.opacity ?? 1);
+    canvas.drawImage(image, 0, 0, p);
+    [grow, cut, p].forEach((x) => x.delete());
+    image.delete();
   }
 
   /** Renders one layer's content, smart filters and mask onto a transparent artboard-sized image. */

@@ -1,2 +1,2 @@
 import "./setup.js";
-export { writePsd, shapeKnots, type PsdOptions, type PsdResult } from "./write.js";
+export { writePsd, shapeKnots, pathKnots, type PsdOptions, type PsdResult } from "./write.js";
