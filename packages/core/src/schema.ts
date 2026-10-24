@@ -221,10 +221,22 @@ export const TextStyle = z.object({
   align: z.enum(["start", "center", "end", "justify"]).optional(),
 });
 
+/** A stretch of text with its own styling; anything left out comes from the layer's style. */
+export const TextRun = z.object({
+  text: z.string(),
+  font: z.string().optional(),
+  size: z.number().positive().optional(),
+  weight: z.number().int().min(100).max(900).optional(),
+  fill: Color.optional(),
+  tracking: z.number().optional(),
+});
+
 export const TextLayer = LayerBase.extend({
   type: z.literal("text"),
   content: z.string(),
   style: TextStyle,
+  /** Mixed styling: the runs' texts, joined, must equal content. */
+  runs: z.array(TextRun).min(1).optional(),
   box: z
     .union([
       z.object({ kind: z.literal("point") }),

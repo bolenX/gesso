@@ -265,3 +265,30 @@ it("exports effects as live layer styles", async () => {
   // Pixels hold the content only; Photoshop draws the effects itself.
   expect([card.left, card.top, card.right, card.bottom]).toEqual([20, 20, 80, 80]);
 });
+
+it.skipIf(!existsSync(FONT))("writes mixed text styling as style runs", async () => {
+  const doc: Doc = {
+    id: "runs",
+    revision: 1,
+    assets: { sans: { uri: FONT, kind: "font", family: "DejaVu Sans", postscriptName: "DejaVuSans" } },
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 300, h: 100 },
+        layers: [
+          {
+            id: "t", name: "T", type: "text", content: "Big sale today", style: { font: "DejaVu Sans", size: 20, fill: "#111110" },
+            runs: [{ text: "Big " }, { text: "sale", size: 30, fill: "#FF4F1A" }, { text: " today" }],
+            frame: { x: 10, y: 10, w: 280, h: 60 },
+          },
+        ],
+      },
+    ],
+  };
+  const text = readPsd((await writePsd(doc)).bytes, { useImageData: true }).children![0]!.children![0]!.text!;
+  expect(text.styleRuns?.map((r) => r.length)).toEqual([4, 4, 6]);
+  const style = text.styleRuns![1]!.style;
+  expect(style.fontSize).toBe(30);
+  expect(Object.values(style.fillColor!).map(Math.round)).toEqual([255, 79, 26]);
+});

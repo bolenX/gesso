@@ -72,6 +72,10 @@ export function normalizeLayer(input: unknown): unknown {
   if (!isObject(input)) return input;
   const layer: Json = { ...input };
   layer.name ??= layer.id;
+  // Text given only as runs gets its content from them.
+  if (layer.type === "text" && layer.content === undefined && Array.isArray(layer.runs)) {
+    layer.content = layer.runs.map((r) => (isObject(r) && typeof r.text === "string" ? r.text : "")).join("");
+  }
   if (Array.isArray(layer.children)) layer.children = layer.children.map(normalizeLayer);
   return layer;
 }

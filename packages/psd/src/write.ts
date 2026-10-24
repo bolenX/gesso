@@ -246,6 +246,7 @@ function psdText(layer: TextLayer, part: LayerPart, ctx: Ctx): NonNullable<PsdLa
       ...((style.weight ?? 400) >= 600 && !font?.postscriptName ? { fauxBold: true } : {}),
     },
     paragraphStyle: { justification: justification[style.align ?? "start"] },
+    ...(layer.runs ? { styleRuns: textRuns(layer, size, ctx) } : {}),
   };
 }
 
@@ -341,6 +342,27 @@ function vectorShape(layer: Extract<Layer, { type: "shape" }>, part: LayerPart, 
         }
       : {}),
   };
+}
+
+/** Mixed styling as Photoshop style runs, sized like the rendered text. */
+function textRuns(layer: TextLayer, size: number, ctx: Ctx): NonNullable<NonNullable<PsdLayer["text"]>["styleRuns"]> {
+  const k = size / layer.style.size;
+  const fontFor = (family: string) => Object.values(ctx.doc.assets).find((a) => a.kind === "font" && a.family === family);
+  return layer.runs!.map((run) => {
+    const family = run.font ?? layer.style.font;
+    const font = fontFor(family);
+    const weight = run.weight ?? layer.style.weight ?? 400;
+    return {
+      length: run.text.length,
+      style: {
+        font: { name: font?.postscriptName ?? family.replace(/\s+/g, "") },
+        fontSize: (run.size ?? layer.style.size) * k,
+        ...(run.fill ? { fillColor: rgb(run.fill) } : {}),
+        ...(run.tracking !== undefined ? { tracking: run.tracking } : {}),
+        ...(weight >= 600 && !font?.postscriptName ? { fauxBold: true } : {}),
+      },
+    };
+  });
 }
 
 /** Gesso effects as Photoshop layer styles, with the same defaults the renderer uses. Spread (choke) is a percentage Photoshop stores as a plain number. */

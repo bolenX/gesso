@@ -780,7 +780,28 @@ class Compositor {
       },
     });
     const builder = ck.ParagraphBuilder.MakeFromFontProvider(paraStyle, this.res.fonts);
-    builder.addText(layer.content);
+    if (layer.runs) {
+      // Run sizes shrink with the layer when it shrinks to fit.
+      const k = size / style.size;
+      for (const run of layer.runs) {
+        const runSize = (run.size ?? style.size) * k;
+        if (run.font && !this.res.families.has(run.font)) this.warnings.push(`text "${layer.id}": font "${run.font}" is not loaded; add it as a font asset`);
+        builder.pushStyle(
+          new ck.TextStyle({
+            color: this.color(run.fill ?? fill),
+            fontFamilies: [run.font ?? style.font],
+            fontSize: runSize,
+            fontStyle: { weight: { value: run.weight ?? style.weight ?? 400 } as never },
+            letterSpacing: ((run.tracking ?? style.tracking ?? 0) / 1000) * runSize,
+            ...(style.leading ? { heightMultiplier: (style.leading * k) / runSize, halfLeading: true } : {}),
+          }),
+        );
+        builder.addText(run.text);
+        builder.pop();
+      }
+    } else {
+      builder.addText(layer.content);
+    }
     const para = builder.build();
     builder.delete();
     para.layout(width ?? 1e6);

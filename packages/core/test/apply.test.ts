@@ -166,3 +166,10 @@ describe("asset op", () => {
     expect(() => applyOps(promo, [{ op: "asset", id: used, asset: null }])).toThrow(/missing asset/);
   });
 });
+
+describe("text runs", () => {
+  it("must add up to the content", () => {
+    const head = promo.artboards[0]!.layers.find((l) => l.type === "text")!;
+    expect(() => applyOps(promo, [{ op: "set", target: `#${head.id}`, path: "runs", value: [{ text: "nope" }] }])).toThrow(/runs don't add up/);
+  });
+});

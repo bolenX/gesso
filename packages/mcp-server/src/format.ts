@@ -31,7 +31,7 @@ frame: { "x", "y", "w", "h" } in pixels, or { "anchor": "top-left|top|top-right|
 Effects (live layer styles in the PSD): "effects": [{ "kind": "drop-shadow", "color"?, "opacity"?, "angle"? (light direction, 90 = from above), "distance"?, "size"?, "spread"? }, { "kind": "outer-glow", "color"?, "size"? }, { "kind": "stroke", "color", "width", "position"?: outside|inside|center }, { "kind": "color-overlay", "color", "opacity"? }].
 Every layer can also take "rotation" (degrees clockwise, around the centre of its frame) and "flip": horizontal|vertical|both. Rotated text and shapes stay live in the PSD.
 Layer types and their own fields:
-- text: "content", "style" { "font" (a font asset's family), "size", "weight", "tracking", "leading", "fill", "align": start|center|end|justify }, "box" { "kind": "point" | "area", "shrinkToFit" }
+- text: "content", "style" { "font" (a font asset's family), "size", "weight", "tracking", "leading", "fill", "align": start|center|end|justify }, "box" { "kind": "point" | "area", "shrinkToFit" }, "runs" (mixed styling, e.g. one bold word: [{ "text": "Big " }, { "text": "sale", "weight": 700, "fill": "#FF4F1A", "size"?, "font"? }]; their texts joined must equal content)
 - shape: "shape" { "kind": "rect", "radius" } | { "kind": "ellipse" } | { "kind": "path", "d": "<svg path>" }, "fill", "stroke" { "paint", "width" }
 - image: "asset", "fit": cover|contain|fill, "focus": [x, y]
 - adjustment: "adjustment" { "kind": "curves", "points": [[in, out], …] } | levels | hue-saturation | brightness-contrast

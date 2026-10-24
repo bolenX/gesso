@@ -56,6 +56,23 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it.skipIf(!existsSync(FONT))("colours text runs on their own", async () => {
+    const text = {
+      id: "t", name: "t", type: "text", content: "AAAA BBBB", style: { font: "Sans", size: 30, fill: "#000000" },
+      runs: [{ text: "AAAA " }, { text: "BBBB", fill: "#FF0000" }], frame: { x: 0, y: 0, w: 300, h: 50 },
+    } as Layer;
+    const doc = docWith([text], { sans: { uri: FONT, kind: "font", family: "Sans" } });
+    doc.artboards[0]!.frame.w = 300;
+    const out = await renderArtboard(doc, "a");
+    const red = (x0: number, x1: number) => {
+      let n = 0;
+      for (let y = 0; y < 50; y++) for (let x = x0; x < x1; x++) { const [r, g, , a] = px(out.pixels, 300, x, y); if (a! > 200 && r! > 200 && g! < 60) n++; }
+      return n;
+    };
+    expect(red(0, 80)).toBe(0);
+    expect(red(100, 200)).toBeGreaterThan(50);
+  });
+
   it("draws drop shadows below and strokes around a layer", async () => {
     const box = rect("box", "#FFFFFF", { x: 30, y: 30, w: 40, h: 40 }, {
       effects: [
