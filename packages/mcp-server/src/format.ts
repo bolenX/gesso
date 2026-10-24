@@ -39,4 +39,4 @@ Layer types and their own fields:
 Symbols are reusable contents for smart layers; they export as Photoshop smart objects:
 "symbols": { "screen": { "size": [1600, 1000], "background": "#FFFFFF", "layers": [ ...layers, positioned within the size... ] } }
 Colours are "#RRGGBB" or "#RRGGBBAA"; gradients are { "kind": "linear-gradient", "angle", "stops": [{ "offset", "color" }] }.
-Text needs a font asset: point "uri" at a .ttf/.otf file and set "family" (and "postscriptName" so Photoshop finds it).`;
+Text needs a font asset: call font_list to find installed fonts and copy the asset entry it gives you, or point "uri" at a .ttf/.otf/.ttc file and set "family" (and "postscriptName" so Photoshop finds it; "face" picks a face in a .ttc).`;

@@ -30,6 +30,7 @@ export const TOOL_TITLES: Record<string, string> = {
   canvas_render: "Render preview",
   artboard_create: "Add artboard",
   canvas_export: "Export",
+  font_list: "Find fonts",
   asset_import: "Import asset",
   canvas_history: "History",
   gen_prepare: "Prepare generation",

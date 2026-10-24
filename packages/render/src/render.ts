@@ -11,6 +11,7 @@ import type {
   SmartObject,
   TextLayer,
 } from "@gesso/core";
+import { extractFace } from "./fonts.js";
 import type { CanvasKit, Canvas, Image, Paint, Paragraph, Surface, TypefaceFontProvider } from "canvaskit-wasm";
 import sharp from "sharp";
 import { applyAdjustment } from "./adjust.js";
@@ -193,7 +194,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
   for (const asset of Object.values(doc.assets)) {
     if (asset.kind !== "font") continue;
     if (!asset.family) throw new Error(`Font asset ${asset.uri} needs a "family"`);
-    fonts.registerFont(await loader(asset), asset.family);
+    fonts.registerFont(extractFace(await loader(asset), asset.face ?? 0), asset.family);
     families.add(asset.family);
   }
 

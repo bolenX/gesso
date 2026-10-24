@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { copyFile, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -177,6 +178,19 @@ describe("gesso MCP server", () => {
 
     const replaced = await second.callTool({ name: "canvas_create", arguments: { doc: promo, replace: true } });
     expect(replaced.isError).toBeFalsy();
+  });
+
+  it("finds fonts in the Gesso folder with ready asset entries", async () => {
+    const font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+    if (!existsSync(font)) return;
+    const baseDir = await mkdtemp(join(tmpdir(), "gesso-fonts-"));
+    await copyFile(font, join(baseDir, "Brand.ttf"));
+    const client = await connect({ baseDir });
+    const result = await client.callTool({ name: "font_list", arguments: { query: "dejavu sans bold" } });
+    const faces = JSON.parse((result.content as Array<{ text: string }>)[0]!.text.split(/\n\d+ more/)[0]!);
+    expect(faces[0]).toMatchObject({ family: "DejaVu Sans", style: "Bold", weight: 700, asset: { uri: "Brand.ttf", kind: "font", family: "DejaVu Sans Bold", postscriptName: "DejaVuSans-Bold" } });
+    const families = (await client.callTool({ name: "font_list", arguments: {} })).content as Array<{ text: string }>;
+    expect(families[0]!.text).toContain("DejaVu Sans: ");
   });
 
   it("reports unimplemented tools as errors", async () => {

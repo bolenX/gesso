@@ -133,7 +133,7 @@ Ask your agent:
 
 In agents that support MCP Apps, such as Claude Desktop, you'll see Gesso's cards as it works: the document outline, the layers it changed, a preview, and finally your files with download buttons. Other agents show the same steps as text, and the files land in your Gesso folder.
 
-Text needs a font file. Put the font in your Gesso folder, or ask the agent to use one already installed on your computer.
+Text uses fonts installed on your computer or put in your Gesso folder. The agent looks them up by name, so you can ask for "Inter Bold" or "a serif that's installed".
 
 ## Troubleshooting
 
