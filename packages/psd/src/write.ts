@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, type Doc, type Layer, type Shape, type TextLayer } from "@gesso/core";
-import { renderArtboard, renderLayerParts, type AssetLoader, type Box, type LayerPart } from "@gesso/render";
+import { compose, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type LayerPart } from "@gesso/render";
 import {
   writePsdUint8Array,
   type AdjustmentLayer as PsdAdjustment,
@@ -144,7 +144,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       return out;
     case "shape": {
       Object.assign(out, pixelData(part, ctx));
-      const knots = shapeKnots(layer.shape, offset(part.box, ctx));
+      const knots = shapeKnots(layer.shape, part.box)?.map((k) => ({ ...k, points: placePoints(k.points, part.matrix, ctx) }));
       if (knots && typeof layer.fill === "string" && !layer.stroke) {
         out.vectorFill = { type: "color", color: rgb(layer.fill) };
         out.vectorMask = { paths: [{ open: false, knots, fillRule: "non-zero" }] };
@@ -235,7 +235,7 @@ function psdText(layer: TextLayer, part: LayerPart, ctx: Ctx): NonNullable<PsdLa
   if (layer.direction === "rtl") ctx.warnings.push(`text "${layer.id}": RTL paragraph direction is not written to PSD yet`);
   return {
     text: layer.content.replace(/\n/g, "\r"),
-    transform: [1, 0, 0, 1, box.x, area ? box.y : box.y + size * 0.8],
+    transform: textTransform(part, area ? 0 : size * 0.8, ctx),
     shapeType: area ? "box" : "point",
     ...(area ? { boxBounds: [0, 0, box.w, box.h] } : {}),
     style: {
@@ -309,6 +309,22 @@ export function shapeKnots(shape: Shape, b: Box): BezierKnot[] | undefined {
     ];
   }
   return undefined; // SVG paths are written as pixels for now
+}
+
+/** Artboard points, rotated with the layer and placed in document coordinates. */
+function placePoints(points: number[], matrix: Affine | undefined, ctx: Ctx): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < points.length; i += 2) {
+    const [x, y] = transformPoint(matrix, points[i]!, points[i + 1]!);
+    out.push(x + ctx.ox, y + ctx.oy);
+  }
+  return out;
+}
+
+/** Photoshop's text matrix: the layer's rotation, then the text origin (baseline for point text). */
+function textTransform(part: LayerPart, baseline: number, ctx: Ctx): number[] {
+  const [a, b, c, d, e, f] = compose(part.matrix, [1, 0, 0, 1, part.box.x, part.box.y + baseline])!;
+  return [a, b, c, d, e + ctx.ox, f + ctx.oy];
 }
 
 function psdBlend(blend: BlendMode | undefined): PsdBlendMode {

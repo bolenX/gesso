@@ -56,6 +56,22 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it("rotates a layer around the centre of its box", async () => {
+    const out = await renderArtboard(docWith([rect("bar", "#FF0000", { x: 10, y: 45, w: 80, h: 10 }, { rotation: 90 })]), "a");
+    expect(px(out.pixels, 100, 50, 15)).toEqual([255, 0, 0, 255]);
+    expect(px(out.pixels, 100, 15, 50)[3]).toBe(0);
+  });
+
+  it("flips a group, children included", async () => {
+    const group = {
+      id: "pair", name: "pair", type: "group", flip: "horizontal", frame: { x: 0, y: 0, w: 100, h: 100 },
+      children: [rect("left", "#FF0000", { x: 0, y: 0, w: 50, h: 100 }), rect("right", "#0000FF", { x: 50, y: 0, w: 50, h: 100 })],
+    } as Layer;
+    const out = await renderArtboard(docWith([group]), "a");
+    expect(px(out.pixels, 100, 10, 50)).toEqual([0, 0, 255, 255]);
+    expect(px(out.pixels, 100, 90, 50)).toEqual([255, 0, 0, 255]);
+  });
+
   it("fills shapes and the artboard background", async () => {
     const doc = docWith([rect("box", "#FF0000", { x: 50, y: 0, w: 50, h: 100 })]);
     doc.artboards[0]!.background = "#0000FF";

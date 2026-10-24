@@ -149,6 +149,10 @@ const LayerBase = z.object({
   mask: Mask.optional(),
   filters: z.array(Filter).optional(),
   frame: Frame,
+  /** Degrees clockwise, around the centre of the layer's box. Masks stay in place. */
+  rotation: z.number().optional(),
+  /** Mirrors the layer around the centre of its box, before rotation. */
+  flip: z.enum(["horizontal", "vertical", "both"]).optional(),
 });
 
 export const ImageLayer = LayerBase.extend({
