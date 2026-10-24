@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, type Doc, type Effect, type Layer, type Paint, type Shape, type TextLayer } from "@gesso/core";
-import { compose, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type LayerPart } from "@gesso/render";
+import { compose, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type LayerPart, type Rendered } from "@gesso/render";
 import {
   writePsdUint8Array,
   type AdjustmentLayer as PsdAdjustment,
@@ -26,7 +26,12 @@ export type PsdOptions = {
   /** Wrap each Gesso artboard in a PSD artboard (default). Off writes one plain canvas. */
   artboards?: boolean;
 };
-export type PsdResult = { bytes: Uint8Array; warnings: string[] };
+export type PsdResult = {
+  bytes: Uint8Array;
+  warnings: string[];
+  /** Each artboard flattened, as rendered for the PSD's composite; reuse them instead of rendering again. */
+  flats: Rendered[];
+};
 
 export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdResult> {
   const bounds = unionBounds(doc.artboards);
@@ -65,11 +70,13 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
     linkedFiles.push({ id, name: `${symbol.name}.psd`, type: "8BPS", creator: "8BIM", data: result.bytes });
   }
 
+  const flats: Rendered[] = [];
   for (const artboard of doc.artboards) {
     const ox = Math.round(artboard.frame.x - bounds.left);
     const oy = Math.round(artboard.frame.y - bounds.top);
     const rendered = await renderArtboard(doc, artboard.id, options.loader ? { loader: options.loader } : {});
     blit(composite, width, rendered.pixels, rendered.width, rendered.height, ox, oy);
+    flats.push(rendered);
 
     const { parts, width: artboardWidth, warnings: w } = await renderLayerParts(doc, artboard.id, options.loader ? { loader: options.loader } : {});
     warnings.push(...w.map((msg) => `${artboard.id}: ${msg}`));
@@ -102,7 +109,7 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
   };
   if (doc.unknown?.length) warnings.push("opaque PSD blocks are not written yet; they were dropped");
   const bytes = writePsdUint8Array(psd, { invalidateTextLayers: true, noBackground: true });
-  return { bytes, warnings };
+  return { bytes, warnings, flats };
 }
 
 /** Per-artboard state. Part pixels are artboard-sized; ox/oy place them in the document. */

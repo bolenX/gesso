@@ -94,6 +94,8 @@ const withCard = (result: CallToolResult, card: CardData): CallToolResult => ({
 });
 
 export type ServerOptions = {
+  /** How long canvas_export waits before answering that the export continues in the background. */
+  exportWaitMs?: number;
   /** Defaults to a store that saves documents under baseDir/.gesso. */
   store?: DocStore;
   author?: string;
@@ -107,7 +109,9 @@ export function createServer({
   baseDir = process.cwd(),
   store = new DocStore(baseDir),
   loader = defaultAssetLoader(baseDir),
+  exportWaitMs = 45_000,
 }: ServerOptions = {}): McpServer {
+  const exports = new Map<string, Promise<CallToolResult>>();
   const skills = loadSkills();
   const server = new McpServer(
     { name: "gesso", title: "Gesso", version: GESSO_VERSION, websiteUrl: GESSO_URL, icons: ICONS },
@@ -554,54 +558,93 @@ export function createServer({
         images: z.boolean().default(true).describe("With format psd, also write a flat PNG of each artboard"),
       },
     },
-    async ({ doc, outDir, format, scale, images }) =>
+    async ({ doc, outDir, format, scale, images }, extra) =>
       guard(async () => {
         const d = store.get(doc);
         const dir = resolve(baseDir, outDir);
-        await mkdir(dir, { recursive: true });
-        const xmp = xmpPacket(d.id, d.revision);
-        const files = [];
-        if (format === "psd") {
-          const { bytes, warnings } = await writePsd(d, { loader });
-          const path = resolve(dir, `${d.id}.psd`);
-          await writeFile(path, bytes);
-          files.push({ artboards: d.artboards.map((a) => a.id), path, warnings });
+        // Large documents can take longer than an agent waits for one tool call. The export keeps
+        // running in the background; calling again with the same arguments picks up the result.
+        const key = JSON.stringify([d.id, d.revision, dir, format, scale, images]);
+        let job = exports.get(key);
+        if (!job) {
+          job = runExport(d, dir, format, scale, images);
+          exports.set(key, job);
+          job.then(
+            () => setTimeout(() => exports.delete(key), 10 * 60_000).unref(),
+            () => exports.delete(key),
+          );
         }
-        // A PSD export also writes a flat PNG of each artboard unless images is false.
-        const imageFormat = format === "psd" ? (images ? "png" : undefined) : format;
-        if (imageFormat) {
-          const ext = imageFormat === "jpeg" ? "jpg" : imageFormat;
-          for (const r of await renderDoc(d, { scale: format === "psd" ? 1 : scale, loader })) {
-            const path = resolve(dir, `${r.artboard}.${ext}`);
-            await writeFile(path, await encode(r, imageFormat as EncodeFormat, 90, xmp));
-            files.push({ artboard: r.artboard, path, width: r.width, height: r.height, warnings: r.warnings });
+        const progressToken = extra?._meta?.progressToken;
+        const started = Date.now();
+        const heartbeat = progressToken
+          ? setInterval(() => {
+              void extra.sendNotification({
+                method: "notifications/progress",
+                params: { progressToken, progress: Math.round((Date.now() - started) / 1000), message: `Exporting ${d.id}…` },
+              });
+            }, 5000)
+          : undefined;
+        try {
+          const done = await Promise.race([job, new Promise<undefined>((r) => setTimeout(() => r(undefined), exportWaitMs).unref())]);
+          if (!done) {
+            return text(
+              `Still exporting "${d.id}" (a large document); it carries on in the background and writes to ${dir}. Call canvas_export again with the same arguments in a minute to get the files.`,
+            );
           }
+          exports.delete(key);
+          return done;
+        } finally {
+          if (heartbeat) clearInterval(heartbeat);
         }
-        const manifestPath = resolve(dir, "manifest.json");
-        const manifest = { generator: GENERATOR, doc: d.id, revision: d.revision, exportedAt: new Date().toISOString(), format, scale, files };
-        await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-
-        const cardFiles: CardFile[] = [];
-        for (const f of [...files, { path: manifestPath }]) {
-          exported.add(f.path);
-          const ext = extname(f.path).toLowerCase();
-          cardFiles.push({
-            name: basename(f.path),
-            path: f.path,
-            kind: ext.slice(1).toUpperCase().replace("JPG", "JPEG"),
-            mimeType: MIME[ext] ?? "application/octet-stream",
-            bytes: (await stat(f.path)).size,
-          });
-        }
-        return withCard(json(manifest), {
-          kind: "export",
-          doc: d.id,
-          revision: d.revision,
-          files: cardFiles,
-          warnings: files.flatMap((f) => ("warnings" in f ? f.warnings : [])),
-        });
       }),
   );
+
+  async function runExport(d: Doc, dir: string, format: "png" | "jpeg" | "webp" | "psd", scale: number, images: boolean): Promise<CallToolResult> {
+    await mkdir(dir, { recursive: true });
+    const xmp = xmpPacket(d.id, d.revision);
+    const files = [];
+    let flats: Awaited<ReturnType<typeof renderDoc>> | undefined;
+    if (format === "psd") {
+      const result = await writePsd(d, { loader });
+      const path = resolve(dir, `${d.id}.psd`);
+      await writeFile(path, result.bytes);
+      files.push({ artboards: d.artboards.map((a) => a.id), path, warnings: result.warnings });
+      flats = result.flats;
+    }
+    // A PSD export also writes a flat PNG of each artboard unless images is false.
+    const imageFormat = format === "psd" ? (images ? "png" : undefined) : format;
+    if (imageFormat) {
+      const ext = imageFormat === "jpeg" ? "jpg" : imageFormat;
+      for (const r of flats ?? (await renderDoc(d, { scale, loader }))) {
+        const path = resolve(dir, `${r.artboard}.${ext}`);
+        await writeFile(path, await encode(r, imageFormat as EncodeFormat, 90, xmp));
+        files.push({ artboard: r.artboard, path, width: r.width, height: r.height, warnings: r.warnings });
+      }
+    }
+    const manifestPath = resolve(dir, "manifest.json");
+    const manifest = { generator: GENERATOR, doc: d.id, revision: d.revision, exportedAt: new Date().toISOString(), format, scale, files };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    const cardFiles: CardFile[] = [];
+    for (const f of [...files, { path: manifestPath }]) {
+      exported.add(f.path);
+      const ext = extname(f.path).toLowerCase();
+      cardFiles.push({
+        name: basename(f.path),
+        path: f.path,
+        kind: ext.slice(1).toUpperCase().replace("JPG", "JPEG"),
+        mimeType: MIME[ext] ?? "application/octet-stream",
+        bytes: (await stat(f.path)).size,
+      });
+    }
+    return withCard(json(manifest), {
+      kind: "export",
+      doc: d.id,
+      revision: d.revision,
+      files: cardFiles,
+      warnings: files.flatMap((f) => ("warnings" in f ? f.warnings : [])),
+    });
+  }
 
   server.registerTool(
     FILE_TOOL,

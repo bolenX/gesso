@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { existsSync } from "node:fs";
 import { copyFile, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { createServer, FILE_TOOL, TOOL_NAMES } from "../src/index.js";
@@ -286,6 +286,26 @@ describe("gesso MCP server", () => {
     expect(render.isError).toBeFalsy();
     const listed = (await client.callTool({ name: "canvas_list", arguments: {} })).content as Array<{ text: string }>;
     expect(listed[0]!.text).toContain("reopened");
+  });
+
+  it("keeps long exports running and hands over the files on the next call", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "gesso-"));
+    await sharp({ create: { width: 30, height: 40, channels: 3, background: "#c08040" } }).png().toFile(join(baseDir, "portrait.png"));
+    const doc = structuredClone(promo);
+    doc.assets.portrait!.uri = "portrait.png";
+    const client = await connect({ baseDir, exportWaitMs: 0 });
+    await client.callTool({ name: "canvas_create", arguments: { doc } });
+    const args = { doc: "promo-01", outDir: "out", format: "psd" };
+    const first = await client.callTool({ name: "canvas_export", arguments: args });
+    expect((first.content as Array<{ text: string }>)[0]!.text).toContain("Still exporting");
+    let done;
+    for (let i = 0; i < 100 && !done; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const again = await client.callTool({ name: "canvas_export", arguments: args });
+      if (!(again.content as Array<{ text: string }>)[0]!.text.includes("Still exporting")) done = again;
+    }
+    expect(done?.isError).toBeFalsy();
+    expect(JSON.parse((done!.content as Array<{ text: string }>)[0]!.text).files.map((f: { path: string }) => basename(f.path))).toEqual(["promo-01.psd", "post-4x5.png"]);
   });
 
   it("serves skills as prompts and through skill_read", async () => {

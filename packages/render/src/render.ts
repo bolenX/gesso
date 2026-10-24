@@ -316,7 +316,7 @@ class Compositor {
       for (const layer of layers) {
         const part: LayerPart = { id: layer.id, box: resolveFrame(layer.frame, parent) };
         if (layer.type !== "group" && layer.type !== "adjustment") {
-          const drawn = layer.filters?.length ? this.partFiltered(layer, parent, inherited) : this.partBounded(layer, parent, inherited);
+          const drawn = this.partBounded(layer, parent, inherited);
           part.box = drawn.box;
           if (drawn.cropped) {
             part.pixels = drawn.cropped.pixels;
@@ -384,8 +384,25 @@ class Compositor {
     return out.filter((p) => p.points.length > 2);
   }
 
-  /** A layer's pixels, drawn on a surface only as big as what it draws. */
+  /** A layer's pixels and where they sit, cropped to what isn't transparent. */
   private partBounded(layer: Layer, parent: Box, inherited: Affine | undefined) {
+    const { box, image, x, y } = this.renderBounded(layer, parent, inherited);
+    let cropped: ReturnType<typeof cropToContent>;
+    if (image) {
+      const [w, h] = [image.width(), image.height()];
+      const found = cropToContent(image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul, w, h)) as Uint8Array, w, h);
+      image.delete();
+      if (found) cropped = { pixels: found.pixels, box: { ...found.box, x: found.box.x + x, y: found.box.y + y } };
+    }
+    return { box, cropped };
+  }
+
+  /**
+   * A non-group layer's content, transforms and smart filters, rendered on a surface only as
+   * big as they reach (blur included), placed at (x, y) in device pixels. Allocating and
+   * blurring artboard-sized surfaces per layer is what made large posters slow.
+   */
+  private renderBounded(layer: Layer, parent: Box, inherited?: Affine): { box: Box; image?: Image; x: number; y: number } {
     const recorder = new this.ck.PictureRecorder();
     const limit = 1e6;
     const canvas = recorder.beginRecording(this.ck.LTRBRect(-limit, -limit, limit, limit), true);
@@ -393,42 +410,30 @@ class Compositor {
     const box = this.drawContent(layer, parent, undefined, canvas);
     const picture = recorder.finishRecordingAsPicture();
     recorder.delete();
+    // A Gaussian blur reaches about three sigmas.
+    const margin = (layer.filters ?? []).reduce((m, f) => m + (f.kind === "gaussian-blur" ? Math.ceil(3 * f.radius * this.scale) : 0), 0);
     const [l, t, r, b] = picture.cullRect();
-    const x = Math.max(0, Math.floor(l!));
-    const y = Math.max(0, Math.floor(t!));
-    const w = Math.min(this.width, Math.ceil(r!)) - x;
-    const h = Math.min(this.height, Math.ceil(b!)) - y;
-    let cropped: ReturnType<typeof cropToContent>;
-    if (w > 0 && h > 0) {
-      const s = this.ck.MakeSurface(w, h)!;
-      const c = s.getCanvas();
-      c.clear(this.ck.TRANSPARENT);
-      c.translate(-x, -y);
-      c.drawPicture(picture);
-      const pixels = s.makeImageSnapshot();
-      s.dispose();
-      const found = cropToContent(pixels.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul, w, h)) as Uint8Array, w, h);
-      pixels.delete();
-      if (found) cropped = { pixels: found.pixels, box: { ...found.box, x: found.box.x + x, y: found.box.y + y } };
+    const x = Math.max(0, Math.floor(l! - margin));
+    const y = Math.max(0, Math.floor(t! - margin));
+    const w = Math.min(this.width, Math.ceil(r! + margin)) - x;
+    const h = Math.min(this.height, Math.ceil(b! + margin)) - y;
+    if (w <= 0 || h <= 0) {
+      picture.delete();
+      return { box, x, y };
     }
+    const s = this.ck.MakeSurface(w, h);
+    if (!s) throw new Error("Could not allocate a render surface");
+    const c = s.getCanvas();
+    c.clear(this.ck.TRANSPARENT);
+    c.translate(-x, -y);
+    c.drawPicture(picture);
     picture.delete();
-    return { box, cropped };
-  }
-
-  /** A layer with smart filters, which can spread past its bounds, drawn on a full artboard. */
-  private partFiltered(layer: Layer, parent: Box, inherited: Affine | undefined) {
-    const s = this.surface();
-    if (inherited) s.getCanvas().concat(this.deviceMatrix(inherited));
-    const box = this.drawContent(layer, parent, s);
     let image = s.makeImageSnapshot();
     s.dispose();
     for (const filter of layer.filters ?? []) {
       if (filter.kind === "gaussian-blur") image = this.blur(image, filter.radius);
     }
-    // Crop right away: keeping a full-artboard copy per layer runs out of memory on large posters.
-    const cropped = cropToContent(image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array, this.width, this.height);
-    image.delete();
-    return { box, cropped };
+    return { box, image, x, y };
   }
 
   private index(layers: Layer[]): void {
@@ -516,17 +521,28 @@ class Compositor {
    * documents many times faster. Returns false when the layer needs the full path.
    */
   private drawDirect(layer: Layer, parent: Box, target: Surface): boolean {
-    if (layer.type === "group" || layer.type === "adjustment" || layer.mask || layer.filters?.length || layer.effects?.length || layer.rotation || layer.flip) {
-      return false;
-    }
-    const recorder = new this.ck.PictureRecorder();
-    const limit = 1e6;
-    this.drawUntransformed(layer, parent, target, recorder.beginRecording(this.ck.LTRBRect(-limit, -limit, limit, limit), true));
-    const picture = recorder.finishRecordingAsPicture();
-    recorder.delete();
+    if (layer.type === "group" || layer.type === "adjustment" || layer.mask || layer.effects?.length) return false;
     const canvas = target.getCanvas();
     const blend = layer.blend ?? "normal";
     const opacity = layer.opacity ?? 1;
+    if (layer.filters?.length) {
+      // Filtered layers render bounded, then blend in as an image.
+      const { image, x, y } = this.renderBounded(layer, parent);
+      if (image) {
+        const p = new this.ck.Paint();
+        p.setBlendMode(this.ck.BlendMode[BLEND[blend]] as never);
+        p.setAlphaf(opacity);
+        canvas.drawImage(image, x, y, p);
+        p.delete();
+        image.delete();
+      }
+      return true;
+    }
+    const recorder = new this.ck.PictureRecorder();
+    const limit = 1e6;
+    this.drawContent(layer, parent, undefined, recorder.beginRecording(this.ck.LTRBRect(-limit, -limit, limit, limit), true));
+    const picture = recorder.finishRecordingAsPicture();
+    recorder.delete();
     if (blend === "normal" && opacity === 1) {
       canvas.drawPicture(picture);
     } else {
@@ -621,12 +637,23 @@ class Compositor {
   /** Renders one layer's content, smart filters and mask onto a transparent artboard-sized image. */
   private renderLayer(layer: Layer, parent: Box, withMask = true): Image {
     const s = this.surface();
-    const box = this.drawContent(layer, parent, s);
+    let box: Box;
+    if (layer.type === "group") {
+      box = this.drawContent(layer, parent, s);
+    } else {
+      const bounded = this.renderBounded(layer, parent);
+      box = bounded.box;
+      if (bounded.image) {
+        s.getCanvas().drawImage(bounded.image, bounded.x, bounded.y);
+        bounded.image.delete();
+      }
+    }
     let image = s.makeImageSnapshot();
     s.dispose();
-
-    for (const filter of layer.filters ?? []) {
-      if (filter.kind === "gaussian-blur") image = this.blur(image, filter.radius);
+    if (layer.type === "group") {
+      for (const filter of layer.filters ?? []) {
+        if (filter.kind === "gaussian-blur") image = this.blur(image, filter.radius);
+      }
     }
     if (withMask && layer.mask) {
       const mask = this.maskImage(layer.mask, box, parent);
@@ -947,7 +974,9 @@ class Compositor {
   }
 
   private blur(image: Image, radius: number): Image {
-    const s = this.surface();
+    const s = this.ck.MakeSurface(image.width(), image.height());
+    if (!s) throw new Error("Could not allocate a render surface");
+    s.getCanvas().clear(this.ck.TRANSPARENT);
     const p = new this.ck.Paint();
     const sigma = radius * this.scale;
     p.setImageFilter(this.ck.ImageFilter.MakeBlur(sigma, sigma, this.ck.TileMode.Decal, null));
