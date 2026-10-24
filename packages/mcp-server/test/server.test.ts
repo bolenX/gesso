@@ -193,6 +193,34 @@ describe("gesso MCP server", () => {
     expect(families[0]!.text).toContain("DejaVu Sans: ");
   });
 
+  it("imports images and fonts as document assets", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "gesso-import-"));
+    await sharp({ create: { width: 30, height: 20, channels: 3, background: "#FF4F1A" } }).png().toFile(join(baseDir, "photo.png"));
+    const client = await connect({ baseDir });
+    await client.callTool({ name: "canvas_create", arguments: { doc: promo } });
+    const body = (r: Awaited<ReturnType<typeof client.callTool>>) => (r.content as Array<{ text: string }>)[0]!.text;
+
+    const local = JSON.parse(body(await client.callTool({ name: "asset_import", arguments: { doc: "promo-01", id: "shot", source: "photo.png" } })));
+    expect(local).toMatchObject({ revision: 13, asset: { uri: "photo.png", kind: "image", width: 30, height: 20 } });
+
+    const png = await sharp({ create: { width: 4, height: 6, channels: 3, background: "#000000" } }).jpeg().toBuffer();
+    const pasted = JSON.parse(body(await client.callTool({ name: "asset_import", arguments: { doc: "promo-01", id: "pasted", data: png.toString("base64") } })));
+    expect(pasted.asset).toMatchObject({ uri: "assets/pasted.jpg", width: 4, height: 6 });
+    expect(existsSync(join(baseDir, "assets/pasted.jpg"))).toBe(true);
+
+    const again = await client.callTool({ name: "asset_import", arguments: { doc: "promo-01", id: "shot", source: "photo.png" } });
+    expect(again.isError).toBe(true);
+    expect(body(again)).toContain("replace: true");
+
+    const font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+    if (existsSync(font)) {
+      const imported = JSON.parse(body(await client.callTool({ name: "asset_import", arguments: { doc: "promo-01", id: "bold", source: font } })));
+      expect(imported.asset).toMatchObject({ uri: font, kind: "font", family: "DejaVu Sans Bold", postscriptName: "DejaVuSans-Bold" });
+    }
+    const missing = await client.callTool({ name: "asset_import", arguments: { doc: "promo-01", id: "nope", source: "nope.png" } });
+    expect(body(missing)).toContain("No file at");
+  });
+
   it("reports unimplemented tools as errors", async () => {
     const client = await connect();
     const result = await client.callTool({ name: "gen_prepare", arguments: { doc: "promo-01" } });

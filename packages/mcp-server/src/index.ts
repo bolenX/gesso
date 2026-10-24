@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ICONS, TOOL_TITLES } from "./brand.js";
 import { DOC_FORMAT } from "./format.js";
+import { importAsset } from "./import.js";
 import { DocStore } from "./store.js";
 import { FILE_TOOL, WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
 
@@ -194,6 +195,36 @@ export function createServer({
         }));
         const more = matches.length > faces.length ? `\n${matches.length - faces.length} more; narrow the query or raise limit.` : "";
         return text(JSON.stringify(faces, null, 2) + more);
+      }),
+  );
+
+  register(
+    "asset_import",
+    {
+      description:
+        "Add an image or font to a document's assets from a path, a URL or base64 data. Reads the image size, or the font's family and PostScript name, and returns the entry. Downloads and pasted data are saved in the Gesso folder under assets/. Use the id in image layers (\"asset\") or the family in text styles (\"font\").",
+      inputSchema: {
+        doc: docId,
+        id: z.string().describe('Asset ID to use in layers, e.g. "hero-photo"'),
+        source: z.string().optional().describe("Path (relative to the Gesso folder, or absolute) or http(s) URL"),
+        data: z.string().optional().describe("Base64 file contents, when there's no path or URL"),
+        kind: z.enum(["image", "font", "mask"]).optional().describe("Detected from the file when left out"),
+        face: z.number().int().nonnegative().optional().describe("Face index in a .ttc font collection"),
+        description: z.string().optional(),
+        replace: z.boolean().optional().describe("Replace an existing asset with this id"),
+      },
+    },
+    async ({ doc, replace, ...request }) =>
+      guard(async () => {
+        const history = store.history(doc);
+        if (request.id in history.head.assets && !replace) {
+          return error(`Asset "${request.id}" already exists: ${JSON.stringify(history.head.assets[request.id])}. Pass replace: true to swap it, or use another id.`);
+        }
+        const asset = await importAsset(request, baseDir);
+        const result = history.apply({ doc, baseRevision: history.head.revision, ops: [{ op: "asset", id: request.id, asset }] }, author);
+        if (isConflict(result)) return error("The document changed while importing; try again.");
+        store.save(doc);
+        return json({ revision: result.revision, id: request.id, asset });
       }),
   );
 
@@ -443,7 +474,6 @@ export function createServer({
 
   const stubs: Array<[string, string]> = [
     ["artboard_create", "New artboard from a preset or size, or duplicate one with reflow."],
-    ["asset_import", "Import an asset from a URL or path."],
     ["gen_prepare", "Build a provider-neutral generative job spec."],
   ];
   for (const [name, description] of stubs) {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Asset } from "./schema.js";
 import { parseSelector } from "./selector.js";
 
 // Patches are the only way to change a document. Ops are ID-addressed, never
@@ -54,7 +55,14 @@ export const RemoveOp = z.object({
   many: z.boolean().optional(),
 });
 
-export const Op = z.union([SetOp, InsertOp, MoveOp, RemoveOp]);
+/** Adds or replaces an entry in doc.assets; null removes it (an error while layers still use it). */
+export const AssetOp = z.object({
+  op: z.literal("asset"),
+  id: z.string().min(1),
+  asset: Asset.nullable(),
+});
+
+export const Op = z.union([SetOp, InsertOp, MoveOp, RemoveOp, AssetOp]);
 export type Op = z.infer<typeof Op>;
 
 export const Patch = z.object({
