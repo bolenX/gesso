@@ -2,10 +2,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, PRESETS, presetList, reflowArtboard, select, semanticErrors, xmpPacket } from "@gesso/core";
 import { encode, renderArtboard, renderDoc, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type EncodeFormat, type InstalledFont } from "@gesso/render";
-import { writePsd } from "@gesso/psd";
+import { importPsd, writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
-import { basename, extname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ICONS, TOOL_TITLES } from "./brand.js";
@@ -24,6 +26,7 @@ export { DocStore };
 export const TOOL_NAMES = [
   "canvas_list",
   "canvas_create",
+  "psd_import",
   "canvas_outline",
   "canvas_get",
   "canvas_selection",
@@ -139,7 +142,7 @@ export function createServer({
   // Files this server exported; the download tool serves only these.
   const exported = new Set<string>();
 
-  const CARD_TOOLS = new Set(["canvas_create", "canvas_patch", "canvas_render", "canvas_export"]);
+  const CARD_TOOLS = new Set(["canvas_create", "psd_import", "canvas_patch", "canvas_render", "canvas_export"]);
   const register: typeof server.registerTool = (name, config, cb) =>
     server.registerTool(
       name,
@@ -283,6 +286,42 @@ export function createServer({
       const tree = outline(parsed.data);
       return withCard(text(tree), { kind: "create", doc: parsed.data.id, revision: parsed.data.revision, outline: tree });
     },
+  );
+
+  register(
+    "psd_import",
+    {
+      description:
+        "Open a Photoshop file as a Gesso document you can edit with canvas_patch. Artboards, groups, text (with mixed styling), shapes, smart objects, adjustments, masks and effects stay editable; pixel layers become images saved in the Gesso folder under imported/. Returns the outline and anything that couldn't be kept.",
+      inputSchema: {
+        path: z.string().describe("The .psd file: relative to the Gesso folder, or absolute"),
+        id: z.string().optional().describe("Document ID; defaults to the file name"),
+        replace: z.boolean().optional().describe("Replace an existing document with this id"),
+      },
+    },
+    async ({ path, id, replace }) =>
+      guard(async () => {
+        const file = resolve(baseDir, path.startsWith("~/") ? join(homedir(), path.slice(2)) : path);
+        if (!existsSync(file)) return error(`No file at ${file}`);
+        const docId = (id ?? basename(file).replace(/\.ps[db]$/i, "")).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "imported";
+        if (store.exists(docId) && !replace) return error(`A document called "${docId}" already exists. Pass another id, or replace: true.`);
+        const fonts = await installedFonts();
+        const { doc, warnings } = await importPsd(await readFile(file), {
+          id: docId,
+          assetDir: join(baseDir, "imported", docId),
+          uriBase: `imported/${docId}`,
+          findFont: async (ps) => {
+            const f = fonts.find((x) => x.postscriptName === ps);
+            return f ? { uri: fontUri(f.path, baseDir), family: f.fullName, ...(f.face ? { face: f.face } : {}) } : undefined;
+          },
+        });
+        const parsed = Doc.safeParse(doc);
+        if (!parsed.success) return error(`The PSD converted to an invalid document: ${docIssues(doc).slice(0, 10).join("; ")}`);
+        store.put(parsed.data, author);
+        const tree = outline(parsed.data);
+        const notes = warnings.length ? `\n\nNot kept exactly:\n- ${warnings.join("\n- ")}` : "";
+        return withCard(text(tree + notes), { kind: "create", doc: docId, revision: 0, outline: tree, warnings });
+      }),
   );
 
   register(
