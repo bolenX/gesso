@@ -56,6 +56,20 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it.skipIf(!existsSync(FONT))("sets text along a path", async () => {
+    const along = { id: "t", name: "t", type: "text", content: "IIIIIIII", style: { font: "Sans", size: 20, fill: "#FF0000" }, path: { d: "M 0 50 L 0 0" }, frame: { x: 50, y: 10, w: 10, h: 80 } } as Layer;
+    const out = await renderArtboard(docWith([along], { sans: { uri: FONT, kind: "font", family: "Sans" } }), "a");
+    // Running up a vertical path, the letters stack in a column around x = 50, not along a row.
+    let column = 0;
+    let row = 0;
+    for (let y = 0; y < 100; y++) if (px(out.pixels, 100, 46, y)[0]! > 150) column++;
+    for (let x = 0; x < 100; x++) if (px(out.pixels, 100, x, 30)[0]! > 150) row++;
+    expect(column).toBeGreaterThan(20);
+    expect(row).toBeLessThan(20);
+    const long = await renderArtboard(docWith([{ ...along, content: "I".repeat(40) } as Layer], { sans: { uri: FONT, kind: "font", family: "Sans" } }), "a");
+    expect(long.warnings.join(" ")).toContain("runs past the ends of its path");
+  });
+
   it("runs every distortion and blur filter deterministically", async () => {
     // Mid-tones, so sharpening has room to push values apart.
     const pattern = [rect("bg", "#404040", { x: 0, y: 0, w: 100, h: 100 }), rect("bar", "#C0C0C0", { x: 40, y: 0, w: 20, h: 100 }), rect("dot", "#C04040", { x: 20, y: 20, w: 15, h: 15 })];

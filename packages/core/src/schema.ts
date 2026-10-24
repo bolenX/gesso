@@ -340,6 +340,11 @@ export const TextLayer = LayerBase.extend({
   type: z.literal("text"),
   content: z.string(),
   style: TextStyle,
+  /**
+   * Text on a path: the baseline follows this SVG path (coordinates relative to the frame's
+   * top-left), starting `offset` px along it; style.align places the text along the path.
+   */
+  path: z.object({ d: z.string(), offset: z.number().optional() }).optional(),
   /** Mixed styling: the runs' texts, joined, must equal content. */
   runs: z.array(TextRun).min(1).optional(),
   box: z
