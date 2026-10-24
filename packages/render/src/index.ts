@@ -24,3 +24,4 @@ export { meshVertices, type MeshVertices } from "./mesh.js";
 export { gradientTable } from "./adjust.js";
 export { directionField, samplePath } from "./shaders.js";
 export { writeSvg, type SvgOptions, type SvgResult } from "./svg.js";
+export { writePdf, type PdfOptions, type PdfResult } from "./pdf.js";

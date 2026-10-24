@@ -9,3 +9,4 @@ export { applyOps, locate, PatchError, semanticErrors, type Applied, type ApplyO
 export { DocHistory, isConflict, type Conflict, type Revision, type SavedHistory } from "./history.js";
 export { GENERATOR, GESSO_URL, GESSO_VERSION, xmpPacket } from "./brand.js";
 export { docIssues, layerIssues, LAYER_TYPES, normalizeDoc, normalizeLayer } from "./explain.js";
+export { withBleed } from "./print.js";
