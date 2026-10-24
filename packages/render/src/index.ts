@@ -10,6 +10,7 @@ export {
   type EncodeFormat,
   type LayerPart,
   type LayerParts,
+  type Backdrop,
   type Rendered,
   type RenderOptions,
 } from "./render.js";

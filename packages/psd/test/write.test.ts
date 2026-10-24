@@ -292,3 +292,35 @@ it.skipIf(!existsSync(FONT))("writes mixed text styling as style runs", async ()
   expect(style.fontSize).toBe(30);
   expect(Object.values(style.fillColor!).map(Math.round)).toEqual([255, 79, 26]);
 });
+
+it("bakes background blurs under a live glass layer", async () => {
+  const doc: Doc = {
+    id: "glass",
+    revision: 1,
+    assets: {},
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 100, h: 100 },
+        background: "#FFFFFF",
+        layers: [
+          { id: "art", name: "Art", type: "shape", shape: { kind: "rect" }, fill: "#FF4F1A", frame: { x: 0, y: 0, w: 100, h: 50 } },
+          {
+            id: "strip", name: "Strip", type: "shape", shape: { kind: "rect" }, frame: { x: 40, y: 10, w: 20, h: 80 }, blend: "overlay", fillOpacity: 0.2,
+            fill: { kind: "linear-gradient", angle: 0, stops: [{ offset: 0, color: "#FFFFFF0D" }, { offset: 0.76, color: "#040404" }, { offset: 1, color: "#FFFFFF0D" }] },
+            effects: [{ kind: "background-blur", radius: 20 }],
+          },
+        ],
+      },
+    ],
+  };
+  const result = await writePsd(doc);
+  expect(result.warnings.join(" ")).toContain("background blur");
+  const names = readPsd(result.bytes, { useImageData: true }).children![0]!.children!.map((l) => l.name);
+  expect(names).toEqual(["Background", "Art", "Strip · background blur", "Strip"]);
+  const strip = readPsd(result.bytes, { useImageData: true }).children![0]!.children![3]!;
+  expect(strip.fillOpacity).toBeCloseTo(0.2, 2);
+  expect(strip.blendMode).toBe("overlay");
+  expect(strip.vectorFill).toMatchObject({ type: "solid" });
+});

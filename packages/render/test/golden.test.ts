@@ -48,6 +48,17 @@ const scenes: Record<string, Layer[]> = {
       mask: { kind: "vector", shape: { kind: "rect", radius: 20 }, feather: 4 }, flip: "horizontal",
     } as Layer,
   ],
+  "fractal-glass": [
+    rect("square", { kind: "linear-gradient", angle: -90, stops: [{ offset: 0, color: "#F0703F" }, { offset: 1, color: "#E8471A" }] }, { x: 20, y: 20, w: 110, h: 70 }),
+    rect("diamond", { kind: "linear-gradient", angle: 45, stops: [{ offset: 0, color: "#120E3A" }, { offset: 1, color: "#2228F0" }] }, { x: 110, y: 40, w: 60, h: 60 }, { rotation: 45 }),
+    ...Array.from({ length: 8 }, (_, i) =>
+      rect(`glass-${i}`, { kind: "linear-gradient", angle: 0, stops: [{ offset: 0, color: "#FFFFFF0D" }, { offset: 0.76, color: "#040404" }, { offset: 1, color: "#FFFFFF0D" }] }, { x: 10 + i * 23, y: 50, w: 27, h: 95 }, {
+        blend: "overlay",
+        fillOpacity: 0.2,
+        effects: [{ kind: "background-blur", radius: 22 }],
+      }),
+    ),
+  ],
   adjustments: [
     { id: "photo", name: "photo", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
     { id: "warm", name: "warm", type: "adjustment", adjustment: { kind: "hue-saturation", hue: 25, saturation: -40, lightness: 0 }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
