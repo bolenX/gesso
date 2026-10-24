@@ -248,20 +248,11 @@ class Compositor {
       for (const layer of layers) {
         const part: LayerPart = { id: layer.id, box: resolveFrame(layer.frame, parent) };
         if (layer.type !== "group" && layer.type !== "adjustment") {
-          const s = this.surface();
-          if (inherited) s.getCanvas().concat(this.deviceMatrix(inherited));
-          part.box = this.drawContent(layer, parent, s);
-          let image = s.makeImageSnapshot();
-          s.dispose();
-          for (const filter of layer.filters ?? []) {
-            if (filter.kind === "gaussian-blur") image = this.blur(image, filter.radius);
-          }
-          // Crop right away: keeping a full-artboard copy per layer runs out of memory on large posters.
-          const cropped = cropToContent(image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array, this.width, this.height);
-          image.delete();
-          if (cropped) {
-            part.pixels = cropped.pixels;
-            part.pixelBox = cropped.box;
+          const drawn = layer.filters?.length ? this.partFiltered(layer, parent, inherited) : this.partBounded(layer, parent, inherited);
+          part.box = drawn.box;
+          if (drawn.cropped) {
+            part.pixels = drawn.cropped.pixels;
+            part.pixelBox = drawn.cropped.box;
           }
           const fitted = this.fittedSizes.get(layer.id);
           if (fitted !== undefined) part.fontSize = fitted;
@@ -281,6 +272,53 @@ class Compositor {
     };
     visit(artboard.layers, { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h }, undefined);
     return { width: this.width, height: this.height, parts, warnings: this.warnings };
+  }
+
+  /** A layer's pixels, drawn on a surface only as big as what it draws. */
+  private partBounded(layer: Layer, parent: Box, inherited: Affine | undefined) {
+    const recorder = new this.ck.PictureRecorder();
+    const limit = 1e6;
+    const canvas = recorder.beginRecording(this.ck.LTRBRect(-limit, -limit, limit, limit), true);
+    if (inherited) canvas.concat(this.deviceMatrix(inherited));
+    const box = this.drawContent(layer, parent, undefined, canvas);
+    const picture = recorder.finishRecordingAsPicture();
+    recorder.delete();
+    const [l, t, r, b] = picture.cullRect();
+    const x = Math.max(0, Math.floor(l!));
+    const y = Math.max(0, Math.floor(t!));
+    const w = Math.min(this.width, Math.ceil(r!)) - x;
+    const h = Math.min(this.height, Math.ceil(b!)) - y;
+    let cropped: ReturnType<typeof cropToContent>;
+    if (w > 0 && h > 0) {
+      const s = this.ck.MakeSurface(w, h)!;
+      const c = s.getCanvas();
+      c.clear(this.ck.TRANSPARENT);
+      c.translate(-x, -y);
+      c.drawPicture(picture);
+      const pixels = s.makeImageSnapshot();
+      s.dispose();
+      const found = cropToContent(pixels.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul, w, h)) as Uint8Array, w, h);
+      pixels.delete();
+      if (found) cropped = { pixels: found.pixels, box: { ...found.box, x: found.box.x + x, y: found.box.y + y } };
+    }
+    picture.delete();
+    return { box, cropped };
+  }
+
+  /** A layer with smart filters, which can spread past its bounds, drawn on a full artboard. */
+  private partFiltered(layer: Layer, parent: Box, inherited: Affine | undefined) {
+    const s = this.surface();
+    if (inherited) s.getCanvas().concat(this.deviceMatrix(inherited));
+    const box = this.drawContent(layer, parent, s);
+    let image = s.makeImageSnapshot();
+    s.dispose();
+    for (const filter of layer.filters ?? []) {
+      if (filter.kind === "gaussian-blur") image = this.blur(image, filter.radius);
+    }
+    // Crop right away: keeping a full-artboard copy per layer runs out of memory on large posters.
+    const cropped = cropToContent(image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array, this.width, this.height);
+    image.delete();
+    return { box, cropped };
   }
 
   private index(layers: Layer[]): void {
@@ -308,6 +346,8 @@ class Compositor {
         this.composite(base.children, resolveFrame(base.frame, parent), target);
         continue;
       }
+
+      if (clipped.length === 0 && this.drawDirect(base, parent, target)) continue;
 
       const content = this.renderLayer(base, parent);
       if (clipped.length === 0) {
@@ -353,6 +393,36 @@ class Compositor {
     );
   }
 
+  /**
+   * Draws a plain layer (no mask, filters, transform or clipped layers) straight onto target,
+   * blending only within its own bounds. Skipping the artboard-sized intermediate makes large
+   * documents many times faster. Returns false when the layer needs the full path.
+   */
+  private drawDirect(layer: Layer, parent: Box, target: Surface): boolean {
+    if (layer.type === "group" || layer.type === "adjustment" || layer.mask || layer.filters?.length || layer.rotation || layer.flip) return false;
+    const recorder = new this.ck.PictureRecorder();
+    const limit = 1e6;
+    this.drawUntransformed(layer, parent, target, recorder.beginRecording(this.ck.LTRBRect(-limit, -limit, limit, limit), true));
+    const picture = recorder.finishRecordingAsPicture();
+    recorder.delete();
+    const canvas = target.getCanvas();
+    const blend = layer.blend ?? "normal";
+    const opacity = layer.opacity ?? 1;
+    if (blend === "normal" && opacity === 1) {
+      canvas.drawPicture(picture);
+    } else {
+      const p = new this.ck.Paint();
+      p.setBlendMode(this.ck.BlendMode[BLEND[blend]] as never);
+      p.setAlphaf(opacity);
+      canvas.saveLayer(p, picture.cullRect());
+      canvas.drawPicture(picture);
+      canvas.restore();
+      p.delete();
+    }
+    picture.delete();
+    return true;
+  }
+
   /** Renders one layer's content, smart filters and mask onto a transparent artboard-sized image. */
   private renderLayer(layer: Layer, parent: Box, withMask = true): Image {
     const s = this.surface();
@@ -377,9 +447,9 @@ class Compositor {
   }
 
   /** Draws the layer's content, rotated and flipped as the layer says. */
-  private drawContent(layer: Layer, parent: Box, s: Surface): Box {
-    if (!layer.rotation && !layer.flip) return this.drawUntransformed(layer, parent, s);
-    const canvas = s.getCanvas();
+  /** `s` is needed only for groups, which composite their children onto it. */
+  private drawContent(layer: Layer, parent: Box, s: Surface | undefined, canvas: Canvas = s!.getCanvas()): Box {
+    if (!layer.rotation && !layer.flip) return this.drawUntransformed(layer, parent, s, canvas);
     const p = new this.ck.Paint();
     p.setAntiAlias(true);
     let box: Box;
@@ -416,7 +486,7 @@ class Compositor {
     return [a, c, e * this.scale, b, d, f * this.scale, 0, 0, 1];
   }
 
-  private drawUntransformed(layer: Layer, parent: Box, s: Surface, canvas: Canvas = s.getCanvas()): Box {
+  private drawUntransformed(layer: Layer, parent: Box, s: Surface | undefined, canvas: Canvas = s!.getCanvas()): Box {
     switch (layer.type) {
       case "shape": {
         const box = resolveFrame(layer.frame, parent);
@@ -437,6 +507,7 @@ class Compositor {
         return this.drawText(layer, parent, canvas);
       case "group": {
         const box = resolveFrame(layer.frame, parent);
+        if (!s) throw new Error(`group "${layer.id}" needs a surface to composite onto`);
         this.composite(layer.children, box, s);
         return box;
       }
