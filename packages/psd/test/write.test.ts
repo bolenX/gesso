@@ -159,3 +159,34 @@ describe("shapeKnots", () => {
     expect(shapeKnots({ kind: "path", d: "M0 0 L10 10" }, { x: 0, y: 0, w: 10, h: 10 })).toBeUndefined();
   });
 });
+
+it("keeps rotated text and shapes live", async () => {
+  const doc: Doc = {
+    id: "turn",
+    revision: 1,
+    assets: existsSync(FONT) ? { sans: { uri: FONT, kind: "font", family: "DejaVu Sans", postscriptName: "DejaVuSans" } } : {},
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 100, h: 100 },
+        layers: [
+          { id: "bar", name: "Bar", type: "shape", shape: { kind: "rect" }, fill: "#FF0000", frame: { x: 10, y: 45, w: 80, h: 10 }, rotation: 90 },
+          ...(existsSync(FONT)
+            ? [{ id: "t", name: "T", type: "text" as const, content: "Hi", style: { font: "DejaVu Sans", size: 20 }, frame: { x: 20, y: 40, w: 60, h: 20 }, rotation: 30 }]
+            : []),
+        ],
+      },
+    ],
+  };
+  const psd = readPsd((await writePsd(doc)).bytes, { useImageData: true });
+  const [bar, text] = psd.children![0]!.children!;
+  const corners = bar!.vectorMask!.paths[0]!.knots.map((k) => k.points.slice(2, 4).map((v) => Math.round(v)));
+  expect(corners).toEqual([[55, 10], [55, 90], [45, 90], [45, 10]]);
+  if (text) {
+    const [a, b, c, d, e, f] = text.text!.transform!;
+    expect([a, b, c, d].map((v) => +v.toFixed(3))).toEqual([0.866, 0.5, -0.5, 0.866]);
+    // The box's top-left corner, turned 30° around the box centre (50, 50).
+    expect([+e.toFixed(1), +f.toFixed(1)]).toEqual([29.0, 26.3]);
+  }
+});

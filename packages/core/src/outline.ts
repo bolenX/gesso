@@ -35,6 +35,8 @@ function describe(layer: Layer, isClipBase: boolean): string {
   const parts = [layer.id.padEnd(14), layer.type.padEnd(7)];
   if (layer.clip) parts.push("clip");
   if (layer.blend && layer.blend !== "normal") parts.push(layer.blend);
+  if (layer.rotation) parts.push(`rot=${+layer.rotation.toFixed(2)}°`);
+  if (layer.flip) parts.push(`flip=${layer.flip}`);
   if (layer.meta?.role) parts.push(`role=${layer.meta.role}`);
   if (isClipBase) parts.push("[clip-base]");
   if (layer.visible === false) parts.push("[hidden]");

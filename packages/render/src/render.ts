@@ -45,9 +45,43 @@ export type LayerPart = {
   mask?: Uint8Array;
   /** Font size after shrink-to-fit, for text layers. */
   fontSize?: number;
-  /** Corner pin in artboard pixels (TL, TR, BR, BL), for smart layers. */
+  /** Corner pin in artboard pixels (TL, TR, BR, BL), for smart layers. Includes any rotation. */
   quad?: Array<[number, number]>;
+  /** Rotation and flips from this layer and its groups, in artboard pixels. Absent when there are none. */
+  matrix?: Affine;
 };
+
+/** A 2D affine transform: x' = a·x + c·y + e, y' = b·x + d·y + f. */
+export type Affine = [a: number, b: number, c: number, d: number, e: number, f: number];
+
+/** The layer's rotation and flip around the centre of its box, or undefined when it has neither. */
+export function layerTransform(layer: { rotation?: number; flip?: "horizontal" | "vertical" | "both" }, box: Box): Affine | undefined {
+  if (!layer.rotation && !layer.flip) return undefined;
+  const rad = ((layer.rotation ?? 0) * Math.PI) / 180;
+  const sx = layer.flip === "horizontal" || layer.flip === "both" ? -1 : 1;
+  const sy = layer.flip === "vertical" || layer.flip === "both" ? -1 : 1;
+  const [cos, sin] = [Math.cos(rad), Math.sin(rad)];
+  const [a, b, c, d] = [cos * sx, sin * sx, -sin * sy, cos * sy];
+  const [cx, cy] = [box.x + box.w / 2, box.y + box.h / 2];
+  return [a, b, c, d, cx - (a * cx + c * cy), cy - (b * cx + d * cy)];
+}
+
+/** m after n. Either may be undefined, meaning no transform. */
+export function compose(m: Affine | undefined, n: Affine | undefined): Affine | undefined {
+  if (!m || !n) return m ?? n;
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+}
+
+export function transformPoint(m: Affine | undefined, x: number, y: number): [number, number] {
+  return m ? [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]] : [x, y];
+}
 export type LayerParts = { width: number; height: number; parts: Map<string, LayerPart>; warnings: string[] };
 
 const BLEND: Record<BlendMode, keyof CanvasKit["BlendMode"]> = {
@@ -209,11 +243,12 @@ class Compositor {
     this.height = Math.max(1, Math.round(artboard.frame.h));
     this.index(artboard.layers);
     const parts = new Map<string, LayerPart>();
-    const visit = (layers: Layer[], parent: Box) => {
+    const visit = (layers: Layer[], parent: Box, inherited: Affine | undefined) => {
       for (const layer of layers) {
         const part: LayerPart = { id: layer.id, box: resolveFrame(layer.frame, parent) };
         if (layer.type !== "group" && layer.type !== "adjustment") {
           const s = this.surface();
+          if (inherited) s.getCanvas().concat(this.deviceMatrix(inherited));
           part.box = this.drawContent(layer, parent, s);
           let image = s.makeImageSnapshot();
           s.dispose();
@@ -236,12 +271,14 @@ class Compositor {
               : [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
           }
         }
+        part.matrix = compose(inherited, layerTransform(layer, part.box));
+        if (part.quad && part.matrix) part.quad = part.quad.map(([x, y]) => transformPoint(part.matrix, x, y));
         if (layer.mask) part.mask = this.readImageAlpha(this.maskImage(layer.mask, part.box, parent));
         parts.set(layer.id, part);
-        if (layer.type === "group") visit(layer.children, part.box);
+        if (layer.type === "group") visit(layer.children, part.box, part.matrix);
       }
     };
-    visit(artboard.layers, { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h });
+    visit(artboard.layers, { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h }, undefined);
     return { width: this.width, height: this.height, parts, warnings: this.warnings };
   }
 
@@ -310,7 +347,8 @@ class Compositor {
       (group.opacity ?? 1) === 1 &&
       (group.blend ?? "normal") === "normal" &&
       !group.mask &&
-      !group.filters?.length
+      !group.filters?.length &&
+      !layerTransform(group, { x: 0, y: 0, w: 0, h: 0 })
     );
   }
 
@@ -337,8 +375,47 @@ class Compositor {
     return image;
   }
 
+  /** Draws the layer's content, rotated and flipped as the layer says. */
   private drawContent(layer: Layer, parent: Box, s: Surface): Box {
+    if (!layer.rotation && !layer.flip) return this.drawUntransformed(layer, parent, s);
     const canvas = s.getCanvas();
+    const p = new this.ck.Paint();
+    p.setAntiAlias(true);
+    let box: Box;
+    if (layer.type === "group") {
+      // Children composite on their own, so adjustments inside see the group unrotated.
+      const flat = this.surface();
+      box = this.drawUntransformed(layer, parent, flat);
+      const image = flat.makeImageSnapshot();
+      flat.dispose();
+      canvas.save();
+      canvas.concat(this.deviceMatrix(layerTransform(layer, box)!));
+      canvas.drawImageOptions(image, 0, 0, this.ck.FilterMode.Linear, this.ck.MipmapMode.None, p);
+      canvas.restore();
+      image.delete();
+    } else {
+      // Recorded as vectors first, so content past the artboard edge can rotate into view.
+      const recorder = new this.ck.PictureRecorder();
+      const limit = 1e6;
+      box = this.drawUntransformed(layer, parent, s, recorder.beginRecording(this.ck.LTRBRect(-limit, -limit, limit, limit)));
+      const picture = recorder.finishRecordingAsPicture();
+      recorder.delete();
+      canvas.save();
+      canvas.concat(this.deviceMatrix(layerTransform(layer, box)!));
+      canvas.drawPicture(picture);
+      canvas.restore();
+      picture.delete();
+    }
+    p.delete();
+    return box;
+  }
+
+  /** An artboard-pixel transform as a CanvasKit matrix in device pixels. */
+  private deviceMatrix([a, b, c, d, e, f]: Affine): number[] {
+    return [a, c, e * this.scale, b, d, f * this.scale, 0, 0, 1];
+  }
+
+  private drawUntransformed(layer: Layer, parent: Box, s: Surface, canvas: Canvas = s.getCanvas()): Box {
     switch (layer.type) {
       case "shape": {
         const box = resolveFrame(layer.frame, parent);

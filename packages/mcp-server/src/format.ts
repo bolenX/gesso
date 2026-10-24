@@ -28,6 +28,7 @@ Format (JSON). Layers are listed bottom to top; IDs are short and meaningful ("h
 
 Every layer: "id", "type", "frame"; optional "name", "opacity" (0..1), "blend" ("multiply", "screen", …), "clip" (clip to the layer below), "visible", "mask", "filters" ([{ "kind": "gaussian-blur", "radius" }]), "meta" ({ "role", "description" }).
 frame: { "x", "y", "w", "h" } in pixels, or { "anchor": "top-left|top|top-right|left|center|right|bottom-left|bottom|bottom-right", "margin": n or [x, y], "w", "h" } where w/h may be "50%".
+Every layer can also take "rotation" (degrees clockwise, around the centre of its frame) and "flip": horizontal|vertical|both. Rotated text and shapes stay live in the PSD.
 Layer types and their own fields:
 - text: "content", "style" { "font" (a font asset's family), "size", "weight", "tracking", "leading", "fill", "align": start|center|end|justify }, "box" { "kind": "point" | "area", "shrinkToFit" }
 - shape: "shape" { "kind": "rect", "radius" } | { "kind": "ellipse" } | { "kind": "path", "d": "<svg path>" }, "fill", "stroke" { "paint", "width" }
