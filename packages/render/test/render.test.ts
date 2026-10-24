@@ -56,6 +56,29 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it("names the asset and the fix when a file is missing", async () => {
+    const doc = docWith([{ id: "pic", name: "pic", type: "image", asset: "photo", frame: { x: 0, y: 0, w: 10, h: 10 } } as Layer], { photo: { uri: "/nowhere/photo.png", kind: "image" } });
+    await expect(renderArtboard(doc, "a")).rejects.toThrow(/Asset "photo" \(\/nowhere\/photo.png\) couldn't be loaded: the file isn't there\. .*asset_import/);
+  });
+
+  it("renders with a warning when a font file is missing", async () => {
+    const text = { id: "t", name: "t", type: "text", content: "Hi", style: { font: "Gone", size: 20 }, frame: { x: 0, y: 0, w: 100, h: 30 } } as Layer;
+    const out = await renderArtboard(docWith([text], { gone: { uri: "/nowhere/gone.ttf", kind: "font", family: "Gone" } }), "a");
+    expect(out.warnings[0]).toMatch(/Asset "gone" .*couldn't be loaded/);
+  });
+
+  it("reuses decoded images across renders", async () => {
+    const big = await sharp({ create: { width: 3000, height: 3000, channels: 3, background: "#808080" } }).jpeg().toBuffer();
+    const doc = docWith([{ id: "pic", name: "pic", type: "image", asset: "big", frame: { x: 0, y: 0, w: 100, h: 100 } } as Layer], { big: { uri: "big.jpg", kind: "image" } });
+    const loader = loaderFor({ "big.jpg": big });
+    let t = performance.now();
+    await renderArtboard(doc, "a", { loader });
+    const first = performance.now() - t;
+    t = performance.now();
+    await renderArtboard(doc, "a", { loader });
+    expect(performance.now() - t).toBeLessThan(first / 2);
+  });
+
   it.skipIf(!existsSync(FONT))("colours text runs on their own", async () => {
     const text = {
       id: "t", name: "t", type: "text", content: "AAAA BBBB", style: { font: "Sans", size: 30, fill: "#000000" },
