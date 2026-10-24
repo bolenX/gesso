@@ -137,6 +137,44 @@ export const Filter = z.discriminatedUnion("kind", [
 ]);
 export type Filter = z.infer<typeof Filter>;
 
+/**
+ * Layer effects, as in Photoshop's Layer Style. They follow the layer's content and mask,
+ * and export as live effects. Distances and sizes are in pixels.
+ */
+export const Effect = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("drop-shadow"),
+    color: Color.optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    /** Direction the light comes from, in degrees: 90 is from above, so the shadow falls below. */
+    angle: z.number().optional(),
+    distance: z.number().nonnegative().optional(),
+    size: z.number().nonnegative().optional(),
+    /** 0..1: how much of the size is solid before it fades. */
+    spread: z.number().min(0).max(1).optional(),
+  }),
+  z.object({
+    kind: z.literal("outer-glow"),
+    color: Color.optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    size: z.number().nonnegative().optional(),
+    spread: z.number().min(0).max(1).optional(),
+  }),
+  z.object({
+    kind: z.literal("stroke"),
+    color: Color,
+    width: z.number().positive(),
+    position: z.enum(["outside", "inside", "center"]).optional(),
+    opacity: z.number().min(0).max(1).optional(),
+  }),
+  z.object({
+    kind: z.literal("color-overlay"),
+    color: Color,
+    opacity: z.number().min(0).max(1).optional(),
+  }),
+]);
+export type Effect = z.infer<typeof Effect>;
+
 const LayerBase = z.object({
   id: Id,
   name: z.string(),
@@ -148,6 +186,7 @@ const LayerBase = z.object({
   clip: z.boolean().optional(),
   mask: Mask.optional(),
   filters: z.array(Filter).optional(),
+  effects: z.array(Effect).optional(),
   frame: Frame,
   /** Degrees clockwise, around the centre of the layer's box. Masks stay in place. */
   rotation: z.number().optional(),

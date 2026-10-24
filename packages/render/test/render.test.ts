@@ -56,6 +56,21 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it("draws drop shadows below and strokes around a layer", async () => {
+    const box = rect("box", "#FFFFFF", { x: 30, y: 30, w: 40, h: 40 }, {
+      effects: [
+        { kind: "drop-shadow", color: "#000000", opacity: 1, angle: 90, distance: 10, size: 0 },
+        { kind: "stroke", color: "#FF0000", width: 4 },
+      ],
+    });
+    const out = await renderArtboard(docWith([box]), "a");
+    expect(px(out.pixels, 100, 50, 50)).toEqual([255, 255, 255, 255]);
+    expect(px(out.pixels, 100, 50, 28)).toEqual([255, 0, 0, 255]);
+    // The shadow falls 10 px below the stroked box: its stroke ends at 74, the shadow at 84.
+    expect(px(out.pixels, 100, 50, 80)).toEqual([0, 0, 0, 255]);
+    expect(px(out.pixels, 100, 50, 90)[3]).toBe(0);
+  });
+
   it("rotates a layer around the centre of its box", async () => {
     const out = await renderArtboard(docWith([rect("bar", "#FF0000", { x: 10, y: 45, w: 80, h: 10 }, { rotation: 90 })]), "a");
     expect(px(out.pixels, 100, 50, 15)).toEqual([255, 0, 0, 255]);
