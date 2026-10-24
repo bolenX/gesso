@@ -60,6 +60,8 @@ export type LayerPart = {
   mask?: Uint8Array;
   /** Font size after shrink-to-fit, for text layers. */
   fontSize?: number;
+  /** Laid-out lines of a text layer: UTF-16 ranges of content, with x and baseline in artboard units. */
+  lines?: TextLine[];
   /** Corner pin in artboard pixels (TL, TR, BR, BL), for smart layers. Includes any rotation. */
   quad?: Array<[number, number]>;
   /**
@@ -102,6 +104,7 @@ export function compose(m: Affine | undefined, n: Affine | undefined): Affine | 
 export function transformPoint(m: Affine | undefined, x: number, y: number): [number, number] {
   return m ? [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]] : [x, y];
 }
+export type TextLine = { start: number; end: number; left: number; baseline: number };
 export type LayerParts = { width: number; height: number; parts: Map<string, LayerPart>; warnings: string[] };
 
 const BLEND: Record<BlendMode, keyof CanvasKit["BlendMode"]> = {
@@ -325,6 +328,7 @@ class Compositor {
   /** While compositing one layer: the area it and its effects can touch. Draws outside are skipped. */
   private reach: [number, number, number, number] | undefined;
   private fittedSizes = new Map<string, number>();
+  private textLines = new Map<string, TextLine[]>();
 
   constructor(
     private ck: CanvasKit,
@@ -366,6 +370,8 @@ class Compositor {
           }
           const fitted = this.fittedSizes.get(layer.id);
           if (fitted !== undefined) part.fontSize = fitted;
+          const lines = this.textLines.get(layer.id);
+          if (lines) part.lines = lines;
           if (layer.type === "smart") {
             const b = part.box;
             part.quad = layer.quad
@@ -971,6 +977,10 @@ class Compositor {
     if (fixedHeight && para.getHeight() > box.h + 0.5) this.warnings.push(`text "${layer.id}" overflows its box`);
 
     this.drawScaled(canvas, (c) => c.drawParagraph(para, box.x, box.y));
+    this.textLines.set(
+      layer.id,
+      para.getLineMetrics().map((m) => ({ start: m.startIndex, end: m.endExcludingWhitespaces, left: box.x + m.left, baseline: box.y + m.baseline })),
+    );
     para.delete();
     this.fittedSizes.set(layer.id, size);
     return box;

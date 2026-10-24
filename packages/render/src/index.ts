@@ -10,6 +10,7 @@ export {
   type EncodeFormat,
   type LayerPart,
   type LayerParts,
+  type TextLine,
   type Backdrop,
   type Rendered,
   type RenderOptions,
@@ -22,3 +23,4 @@ export { extractFace, isCollection, readFontFaces, scanFonts, systemFontDirs, fo
 export { meshVertices, type MeshVertices } from "./mesh.js";
 export { gradientTable } from "./adjust.js";
 export { directionField, samplePath } from "./shaders.js";
+export { writeSvg, type SvgOptions, type SvgResult } from "./svg.js";
