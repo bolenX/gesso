@@ -71,13 +71,12 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.20.0
         version: 1.32.1(zod@3.25.76)
+      sharp:
+        specifier: 0.34.5
+        version: 0.34.5
       zod:
         specifier: ^3.25.76
         version: 3.25.76
-    devDependencies:
-      sharp:
-        specifier: ^0.34.5
-        version: 0.34.5
 
   packages/psd:
     dependencies:

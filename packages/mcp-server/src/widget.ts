@@ -79,7 +79,9 @@ pre { margin:0; padding:10px 12px; border:1px solid var(--rule); border-radius:6
 ${appBundle()}
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const VERBS = { create: "Created", patch: "Edited", render: "Rendered", export: "Exported" };
-function show(data) {
+function show(data, content = []) {
+  // Preview images arrive as the result's image parts, in artboard order, not inside the card data.
+  const images = content.filter((c) => c.type === "image");
   const body = document.getElementById("body");
   body.className = ""; body.replaceChildren();
   const what = document.getElementById("what");
@@ -93,18 +95,20 @@ function show(data) {
   }
   if (data.previews?.length) {
     const boards = el("div", "boards");
-    for (const p of data.previews) {
+    data.previews.forEach((p, i) => {
+      const image = images[i];
+      if (!image) return;
       const b = el("div", "board"), frame = el("div", "img"), img = el("img");
-      img.src = "data:image/png;base64," + p.png; img.alt = "Preview of " + p.artboard;
+      img.src = "data:" + (image.mimeType ?? "image/png") + ";base64," + image.data; img.alt = "Preview of " + p.artboard;
       frame.append(img); b.append(frame, el("span", "cap", p.artboard + " · " + p.width + "×" + p.height));
       boards.append(b);
-    }
+    });
     body.append(boards);
   }
   if (data.files?.length) {
     body.append(el("div", "ready", data.files.length + (data.files.length === 1 ? " file ready" : " files ready")));
     const files = el("div", "files");
-    for (const f of data.files) files.append(fileCard(f));
+    for (const f of data.files) files.append(fileCard(f, data.files));
     body.append(files);
   }
   if (data.outline) body.append(el("pre", null, data.outline));
@@ -112,10 +116,24 @@ function show(data) {
 }
 globalThis.gessoShow = show; // lets a test page render the card without a host
 const size = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(0) + " KB" : (n / 1048576).toFixed(1) + " MB";
-function fileCard(f) {
+// Thumbnails are fetched on demand through the card-only tool, so they never enter the agent's context.
+const IMAGE_KINDS = new Set(["PNG", "JPEG", "WEBP"]);
+async function loadThumb(path, into) {
+  if (!(app.getHostCapabilities?.() ?? {}).serverTools) return;
+  try {
+    const res = await app.callServerTool({ name: "${FILE_TOOL}", arguments: { path, maxSize: 320 } });
+    const file = res.structuredContent;
+    if (res.isError || !file) return;
+    const img = el("img"); img.src = "data:" + file.mimeType + ";base64," + file.blob; img.alt = "";
+    into.replaceChildren(img);
+  } catch (err) { console.error(err); }
+}
+function fileCard(f, all) {
   const card = el("div", "file"), thumb = el("div", "thumb"), meta = el("div", "meta");
-  if (f.thumb) { const img = el("img"); img.src = "data:image/png;base64," + f.thumb; img.alt = ""; thumb.append(img); }
-  else thumb.append(el("span", "badge", f.kind));
+  thumb.append(el("span", "badge", f.kind));
+  // A PSD shows the flat PNG exported next to it, when there is one.
+  const preview = IMAGE_KINDS.has(f.kind) ? f.path : f.kind === "PSD" ? all.find((o) => o.kind === "PNG")?.path : undefined;
+  if (preview) loadThumb(preview, thumb);
   const name = el("div", "name", f.name); name.title = f.path;
   meta.append(name, el("div", "info", f.kind + " · " + size(f.bytes)));
   const caps = app.getHostCapabilities?.() ?? {};
@@ -147,8 +165,8 @@ function fileCard(f) {
   card.append(thumb, meta);
   return card;
 }
-const app = new globalThis.GessoApp({ name: "Gesso", version: "0.3.3" });
-app.ontoolresult = (result) => { if (result?.structuredContent?.gesso) show(result.structuredContent.gesso); };
+const app = new globalThis.GessoApp({ name: "Gesso", version: "0.3.4" });
+app.ontoolresult = (result) => { if (result?.structuredContent?.gesso) show(result.structuredContent.gesso, result.content ?? []); };
 await app.connect();
 </script></body></html>`;
   return cached;

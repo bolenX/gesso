@@ -34,8 +34,13 @@ export type LayerPart = {
   id: string;
   /** Resolved box in artboard pixels. */
   box: Box;
-  /** Content plus smart filters, without mask, opacity or blend. Absent for groups and adjustments. */
+  /**
+   * Content plus smart filters, without mask, opacity or blend, cropped to the pixels that
+   * aren't transparent; pixelBox says where they sit in the artboard. Absent for groups,
+   * adjustments and empty layers.
+   */
   pixels?: Uint8Array;
+  pixelBox?: { x: number; y: number; w: number; h: number };
   /** Mask coverage, one byte per pixel. */
   mask?: Uint8Array;
   /** Font size after shrink-to-fit, for text layers. */
@@ -195,7 +200,7 @@ class Compositor {
     }
     this.composite(artboard.layers, box, target);
     const pixels = this.readPixels(target);
-    target.delete();
+    target.dispose();
     return { artboard: artboard.id, width: this.width, height: this.height, pixels, warnings: this.warnings };
   }
 
@@ -211,12 +216,17 @@ class Compositor {
           const s = this.surface();
           part.box = this.drawContent(layer, parent, s);
           let image = s.makeImageSnapshot();
-          s.delete();
+          s.dispose();
           for (const filter of layer.filters ?? []) {
             if (filter.kind === "gaussian-blur") image = this.blur(image, filter.radius);
           }
-          part.pixels = image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array;
+          // Crop right away: keeping a full-artboard copy per layer runs out of memory on large posters.
+          const cropped = cropToContent(image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array, this.width, this.height);
           image.delete();
+          if (cropped) {
+            part.pixels = cropped.pixels;
+            part.pixelBox = cropped.box;
+          }
           const fitted = this.fittedSizes.get(layer.id);
           if (fitted !== undefined) part.fontSize = fitted;
           if (layer.type === "smart") {
@@ -282,12 +292,12 @@ class Compositor {
         image.delete();
         this.drawImage(s, content, undefined, 1, "DstIn");
         const clippedImage = s.makeImageSnapshot();
-        s.delete();
+        s.dispose();
         this.drawImage(group, clippedImage, layer.blend, layer.opacity);
         clippedImage.delete();
       }
       const groupImage = group.makeImageSnapshot();
-      group.delete();
+      group.dispose();
       this.drawImage(target, groupImage, base.blend, base.opacity);
       groupImage.delete();
       content.delete();
@@ -309,7 +319,7 @@ class Compositor {
     const s = this.surface();
     const box = this.drawContent(layer, parent, s);
     let image = s.makeImageSnapshot();
-    s.delete();
+    s.dispose();
 
     for (const filter of layer.filters ?? []) {
       if (filter.kind === "gaussian-blur") image = this.blur(image, filter.radius);
@@ -322,7 +332,7 @@ class Compositor {
       mask.delete();
       image.delete();
       image = out.makeImageSnapshot();
-      out.delete();
+      out.dispose();
     }
     return image;
   }
@@ -405,7 +415,7 @@ class Compositor {
     }
     this.composite(symbol.layers, box, target);
     const pixels = this.readPixels(target);
-    target.delete();
+    target.dispose();
     return { artboard: symbol.id, width: this.width, height: this.height, pixels, warnings: this.warnings };
   }
 
@@ -542,7 +552,7 @@ class Compositor {
       image.delete();
     }
     let image = s.makeImageSnapshot();
-    s.delete();
+    s.dispose();
     if (mask.kind !== "luminance-of" && mask.feather) image = this.blur(image, mask.feather);
     return image;
   }
@@ -585,7 +595,7 @@ class Compositor {
     p.delete();
     image.delete();
     const out = s.makeImageSnapshot();
-    s.delete();
+    s.dispose();
     return out;
   }
 
@@ -677,4 +687,25 @@ function quadBounds(quad: Array<[number, number]>): Box {
   const x = Math.min(...xs);
   const y = Math.min(...ys);
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+/** The smallest box holding every pixel that isn't fully transparent, or undefined if there are none. */
+function cropToContent(pixels: Uint8Array, width: number, height: number) {
+  let [minX, minY, maxX, maxY] = [width, height, -1, -1];
+  for (let y = 0; y < height; y++) {
+    const row = y * width * 4;
+    for (let x = 0; x < width; x++) {
+      if (pixels[row + x * 4 + 3] === 0) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < 0) return undefined;
+  const w = maxX - minX + 1;
+  const h = maxY - minY + 1;
+  const out = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) out.set(pixels.subarray(((minY + y) * width + minX) * 4, ((minY + y) * width + minX + w) * 4), y * w * 4);
+  return { pixels: out, box: { x: minX, y: minY, w, h } };
 }

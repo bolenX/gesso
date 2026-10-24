@@ -118,6 +118,8 @@ describe("gesso MCP server", () => {
 
     const preview = await client.callTool({ name: "canvas_render", arguments: { doc: "promo-01", scale: 0.1 } });
     const [label, image] = preview.content as [{ text: string }, { type: string; data: string }];
+    expect(JSON.stringify(preview.structuredContent)).not.toContain(image.data.slice(0, 40));
+    expect(JSON.stringify(preview.structuredContent).length).toBeLessThan(1000);
     expect(label.text).toMatch(/^post-4x5 108×135/);
     expect(image.type).toBe("image");
     expect((await sharp(Buffer.from(image.data, "base64")).metadata()).width).toBe(108);
@@ -137,7 +139,12 @@ describe("gesso MCP server", () => {
     // The export card lists the PSD, a flat PNG per artboard and the manifest, each downloadable.
     const card = (psd.structuredContent as { gesso: { files: Array<{ name: string; kind: string; path: string; bytes: number; thumb?: string }> } }).gesso;
     expect(card.files.map((f) => [f.name, f.kind])).toEqual([["promo-01.psd", "PSD"], ["post-4x5.png", "PNG"], ["manifest.json", "JSON"]]);
-    expect(card.files[0]!.thumb).toBeTruthy();
+    // No images in the card data: it reaches the agent as text, so it must stay small.
+    expect(JSON.stringify(psd.structuredContent).length).toBeLessThan(2000);
+    const thumb = await client.callTool({ name: FILE_TOOL, arguments: { path: card.files[1]!.path, maxSize: 64 } });
+    const thumbFile = thumb.structuredContent as { mimeType: string; blob: string };
+    expect(thumbFile.mimeType).toBe("image/png");
+    expect((await sharp(Buffer.from(thumbFile.blob, "base64")).metadata()).height).toBe(64);
     expect(card.files[0]!.bytes).toBe(bytes.length);
     const download = await client.callTool({ name: FILE_TOOL, arguments: { path: card.files[0]!.path } });
     expect(Buffer.from((download.structuredContent as { blob: string }).blob, "base64").equals(bytes)).toBe(true);
