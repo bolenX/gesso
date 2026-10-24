@@ -129,7 +129,7 @@ export function layerIssues(layer: unknown, where = "layer"): string[] {
 /** What a field should look like, for the fields agents most often get wrong. */
 const HINTS: Record<string, string> = {
   frame: 'needs { "x", "y", "w", "h" } in pixels, or { "anchor": "top-left" | "center" | …, "margin"?, "w"?, "h"? }',
-  fill: 'needs a colour like "#FF4F1A", or { "kind": "linear-gradient", "angle", "stops": [{ "offset", "color" }] }',
+  fill: 'needs a colour like "#FF4F1A", { "kind": "linear-gradient", "angle", "stops": [{ "offset", "color" }] }, { "kind": "radial-gradient", "stops" } or { "kind": "mesh-gradient", "colors": [[row of colours], …], "points"? }',
   background: 'needs a colour like "#FFFFFF", or a gradient',
   shape: 'needs { "kind": "rect", "radius"? }, { "kind": "ellipse" } or { "kind": "path", "d": "<svg path>" }',
   style: 'needs { "font": "<family of a font asset>", "size", "weight"?, "fill"?, "align"? }',

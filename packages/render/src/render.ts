@@ -13,7 +13,9 @@ import type {
   SmartObject,
   TextLayer,
 } from "@gesso/core";
+import { paintColor } from "@gesso/core";
 import { extractFace } from "./fonts.js";
+import { meshVertices } from "./mesh.js";
 import type { CanvasKit, Canvas, Image, Paint, Paragraph, Surface, TypefaceFontProvider } from "canvaskit-wasm";
 import sharp from "sharp";
 import { applyAdjustment } from "./adjust.js";
@@ -977,9 +979,9 @@ class Compositor {
     const { style } = layer;
     const align = { start: ck.TextAlign.Start, center: ck.TextAlign.Center, end: ck.TextAlign.End, justify: ck.TextAlign.Justify };
     if (style.fill && typeof style.fill !== "string") {
-      this.warnings.push(`text "${layer.id}": gradient fills are not rendered yet; using the first stop`);
+      this.warnings.push(`text "${layer.id}": gradient fills on text are not rendered yet; using its first colour`);
     }
-    const fill = style.fill === undefined ? "#000000" : typeof style.fill === "string" ? style.fill : style.fill.stops[0]!.color;
+    const fill = style.fill === undefined ? "#000000" : paintColor(style.fill);
     const paraStyle = new ck.ParagraphStyle({
       textAlign: align[style.align ?? "start"],
       textDirection: layer.direction === "rtl" ? ck.TextDirection.RTL : ck.TextDirection.LTR,
@@ -1081,6 +1083,32 @@ class Compositor {
     const opacity = layer.opacity ?? 1;
     const mask = layer.mask ? this.readImageAlpha(this.maskImage(layer.mask, resolveFrame(layer.frame, parent), parent)) : null;
     const base = clipBase ? this.readImageAlpha(clipBase, false) : null;
+    const blend = layer.blend ?? "normal";
+    if (blend !== "normal") {
+      // Blended adjustments (a gradient map in soft light, say): draw the adjusted pixels over the
+      // originals in that mode, with opacity, mask and clipping as alpha, then keep the originals' alpha.
+      for (let i = 0, p = 0; i < adjusted.length; i += 4, p++) {
+        let t = opacity;
+        if (mask) t *= mask[p]! / 255;
+        if (base) t *= base[p]! / 255;
+        adjusted[i + 3] = Math.round(t * pixels[i + 3]!);
+      }
+      const over = this.ck.MakeImage(this.info(this.ck.AlphaType.Unpremul), adjusted, this.width * 4)!;
+      const p = new this.ck.Paint();
+      p.setBlendMode(this.ck.BlendMode[BLEND[blend]] as never);
+      target.getCanvas().drawImage(over, 0, 0, p);
+      p.delete();
+      over.delete();
+      // Adjustments never change coverage: put the original alpha back.
+      const blended = this.readPixels(target);
+      for (let i = 3; i < blended.length; i += 4) blended[i] = pixels[i]!;
+      const image = this.ck.MakeImage(this.info(this.ck.AlphaType.Unpremul), blended, this.width * 4)!;
+      const canvas = target.getCanvas();
+      canvas.clear(this.ck.TRANSPARENT);
+      canvas.drawImage(image, 0, 0);
+      image.delete();
+      return;
+    }
     for (let i = 0, p = 0; i < pixels.length; i += 4, p++) {
       let t = opacity;
       if (mask) t *= mask[p]! / 255;
@@ -1124,6 +1152,10 @@ class Compositor {
       p.setColor(this.color(paint));
       return p;
     }
+    if (paint.kind === "mesh-gradient") {
+      p.setShader(this.meshShader(paint, box));
+      return p;
+    }
     const colors = paint.stops.map((s) => this.color(s.color));
     const positions = paint.stops.map((s) => s.offset);
     const cx = box.x + box.w / 2;
@@ -1141,6 +1173,30 @@ class Compositor {
       p.setShader(ck.Shader.MakeRadialGradient([cx, cy], Math.max(box.w, box.h) / 2, colors, positions, ck.TileMode.Clamp));
     }
     return p;
+  }
+
+  /** A mesh gradient rendered at output resolution over the box, as an image shader in artboard units. */
+  private meshShader(mesh: Extract<GessoPaint, { kind: "mesh-gradient" }>, box: Box) {
+    const { ck } = this;
+    const w = Math.max(1, Math.ceil(box.w * this.scale));
+    const h = Math.max(1, Math.ceil(box.h * this.scale));
+    const s = ck.MakeSurface(w, h);
+    if (!s) throw new Error("Could not allocate a render surface");
+    const c = s.getCanvas();
+    c.clear(ck.TRANSPARENT);
+    const { positions, colors, indices } = meshVertices(mesh, w, h);
+    const vertices = ck.MakeVertices(ck.VertexMode.Triangles, positions, null, colors, indices);
+    const p = new ck.Paint();
+    p.setAntiAlias(true);
+    c.drawVertices(vertices, ck.BlendMode.Dst, p);
+    p.delete();
+    vertices.delete();
+    const image = s.makeImageSnapshot();
+    s.dispose();
+    const local = ck.Matrix.multiply(ck.Matrix.translated(box.x, box.y), ck.Matrix.scaled(1 / this.scale, 1 / this.scale));
+    const shader = image.makeShaderOptions(ck.TileMode.Decal, ck.TileMode.Decal, ck.FilterMode.Linear, ck.MipmapMode.None, local);
+    image.delete();
+    return shader;
   }
 
   private color(hex: string) {

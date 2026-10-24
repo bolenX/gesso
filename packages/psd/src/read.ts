@@ -357,6 +357,13 @@ function convertAdjustment(adj: NonNullable<PsdLayer["adjustment"]>): Adjustment
   if (adj.type === "brightness/contrast") return { kind: "brightness-contrast", brightness: adj.brightness ?? 0, contrast: adj.contrast ?? 0 };
   if (adj.type === "hue/saturation") return { kind: "hue-saturation", hue: adj.master?.hue ?? 0, saturation: adj.master?.saturation ?? 0, lightness: adj.master?.lightness ?? 0 };
   if (adj.type === "curves" && adj.rgb?.length) return { kind: "curves", points: adj.rgb.map((p) => [p.input, p.output] as [number, number]) };
+  if (adj.type === "gradient map" && adj.gradientType === "solid" && (adj.colorStops?.length ?? 0) >= 2) {
+    return {
+      kind: "gradient-map",
+      stops: adj.colorStops!.map((s) => ({ offset: round(s.location, 4), color: hex(s.color) })),
+      ...(adj.reverse ? { reverse: true } : {}),
+    };
+  }
   if (adj.type === "levels" && adj.rgb) {
     const l = adj.rgb;
     return { kind: "levels", inputBlack: l.shadowInput, inputWhite: l.highlightInput, gamma: l.midtoneInput, outputBlack: l.shadowOutput, outputWhite: l.highlightOutput };

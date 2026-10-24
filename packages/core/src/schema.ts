@@ -49,6 +49,27 @@ export const Color = z.string().regex(/^#([0-9a-f]{6}|[0-9a-f]{8})$/i, "Colours 
 
 export const GradientStop = z.object({ offset: z.number().min(0).max(1), color: Color });
 
+/**
+ * A mesh gradient, like Illustrator's gradient mesh: a grid of colour points over the shape's
+ * box, blended smoothly between neighbours. Move points (fractions of the box, 0..1) to bend
+ * the colour flow; colours pass exactly through every point.
+ */
+export const MeshGradient = z
+  .object({
+    kind: z.literal("mesh-gradient"),
+    /** Point colours, row by row from the top, each row left to right; at least 2×2. */
+    colors: z.array(z.array(Color).min(2)).min(2),
+    /** Point positions with the same shape as colors, as [x, y] fractions of the box. Defaults to an even grid. */
+    points: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
+  })
+  .superRefine((mesh, ctx) => {
+    const cols = mesh.colors[0]!.length;
+    if (mesh.colors.some((row) => row.length !== cols)) ctx.addIssue({ code: "custom", message: "every row of colors needs the same number of points", path: ["colors"] });
+    if (mesh.points && (mesh.points.length !== mesh.colors.length || mesh.points.some((row) => row.length !== cols))) {
+      ctx.addIssue({ code: "custom", message: `points needs the same shape as colors (${mesh.colors.length} rows of ${cols})`, path: ["points"] });
+    }
+  });
+
 export const Paint = z.union([
   Color,
   z.object({
@@ -60,8 +81,15 @@ export const Paint = z.union([
     kind: z.literal("radial-gradient"),
     stops: z.array(GradientStop).min(2),
   }),
+  MeshGradient,
 ]);
 export type Paint = z.infer<typeof Paint>;
+
+/** A representative flat colour for a paint, where only one colour fits (text in PSD, fallbacks). */
+export function paintColor(paint: Paint): string {
+  if (typeof paint === "string") return paint;
+  return paint.kind === "mesh-gradient" ? paint.colors[0]![0]! : paint.stops[0]!.color;
+}
 
 export const Provenance = z.object({
   op: z.string(),
@@ -276,6 +304,12 @@ export const Adjustment = z.discriminatedUnion("kind", [
     kind: z.literal("curves"),
     channel: z.enum(["rgb", "red", "green", "blue"]).optional(),
     points: z.array(CurvePoint).min(2),
+  }),
+  z.object({
+    /** Recolours by brightness: dark pixels take the first stop's colour, light ones the last. */
+    kind: z.literal("gradient-map"),
+    stops: z.array(GradientStop).min(2),
+    reverse: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("levels"),

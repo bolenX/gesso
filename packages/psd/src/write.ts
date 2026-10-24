@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, type Doc, type Effect, type Layer, type Paint, type Shape, type TextLayer } from "@gesso/core";
+import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, paintColor, type Doc, type Effect, type Layer, type Paint, type Shape, type TextLayer } from "@gesso/core";
 import { compose, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type Backdrop, type LayerPart, type Rendered } from "@gesso/render";
 import {
   writePsdUint8Array,
@@ -267,7 +267,7 @@ function psdText(layer: TextLayer, part: LayerPart, ctx: Ctx): NonNullable<PsdLa
   const box = offset(part.box, ctx);
   const size = part.fontSize ?? style.size;
   const font = Object.values(ctx.doc.assets).find((a) => a.kind === "font" && a.family === style.font);
-  const fill = typeof style.fill === "string" ? style.fill : (style.fill?.stops[0]?.color ?? "#000000");
+  const fill = style.fill === undefined ? "#000000" : paintColor(style.fill);
   const justification = { start: "left", center: "center", end: "right", justify: "justify-left" } as const;
   const area = layer.box?.kind !== "point";
   if (layer.direction === "rtl") ctx.warnings.push(`text "${layer.id}": RTL paragraph direction is not written to PSD yet`);
@@ -310,6 +310,19 @@ function psdAdjustment(adjustment: AdjustmentLayer["adjustment"]): PsdAdjustment
       return {
         type: "hue/saturation",
         master: { a: 0, b: 0, c: 0, d: 0, hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness },
+      };
+    case "gradient-map":
+      return {
+        type: "gradient map",
+        name: "Gesso gradient",
+        gradientType: "solid",
+        smoothness: 1,
+        reverse: adjustment.reverse ?? false,
+        colorStops: adjustment.stops.map((s) => ({ color: rgb(s.color), location: s.offset, midpoint: 0.5 })),
+        opacityStops: [
+          { opacity: 1, location: 0, midpoint: 0.5 },
+          { opacity: 1, location: 1, midpoint: 0.5 },
+        ],
       };
   }
 }
@@ -436,6 +449,8 @@ function psdEffects(effects: Effect[]): LayerEffectsInfo {
 /** Photoshop fill content for a paint, or null when it can't be expressed (a translucent flat colour). */
 function vectorContent(paint: Paint, turn: number): VectorContent | null {
   if (typeof paint === "string") return alpha(paint) < 1 ? null : { type: "color", color: rgb(paint) };
+  // Photoshop has no mesh gradients: those shapes stay pixels.
+  if (paint.kind === "mesh-gradient") return null;
   return {
     type: "solid",
     name: "Gesso gradient",
