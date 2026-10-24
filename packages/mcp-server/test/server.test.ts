@@ -10,7 +10,9 @@ import { promo } from "../../core/test/fixtures.js";
 
 async function connect(options: Parameters<typeof createServer>[0] = {}) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await createServer(options).connect(serverTransport);
+  // Each test saves into its own temporary folder, never the repo.
+  const baseDir = options.baseDir ?? (await mkdtemp(join(tmpdir(), "gesso-test-")));
+  await createServer({ ...options, baseDir }).connect(serverTransport);
   const client = new Client({ name: "test", version: "0.0.0" });
   await client.connect(clientTransport);
   return client;
@@ -151,6 +153,31 @@ describe("gesso MCP server", () => {
     const refused = await client.callTool({ name: FILE_TOOL, arguments: { path: "/etc/hostname" } });
     expect(refused.isError).toBe(true);
   }, 30_000);
+
+  it("saves documents and reopens them in a new server", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "gesso-save-"));
+    const first = await connect({ baseDir });
+    await first.callTool({ name: "canvas_create", arguments: { doc: promo } });
+    await first.callTool({
+      name: "canvas_patch",
+      arguments: { doc: "promo-01", baseRevision: 12, ops: [{ op: "set", target: "#headline", path: "content", value: "Saved" }] },
+    });
+    const again = await first.callTool({ name: "canvas_create", arguments: { doc: promo } });
+    expect(again.isError).toBe(true);
+    expect((again.content as Array<{ text: string }>)[0]!.text).toContain('already exists (rev 13)');
+
+    // A fresh server on the same folder, as after a restart or in a new session.
+    const second = await connect({ baseDir });
+    const listed = JSON.parse(((await second.callTool({ name: "canvas_list", arguments: {} })).content as Array<{ text: string }>)[0]!.text);
+    expect(listed).toMatchObject([{ id: "promo-01", revision: 13, artboards: 1 }]);
+    const outlineText = ((await second.callTool({ name: "canvas_outline", arguments: { doc: "promo-01" } })).content as Array<{ text: string }>)[0]!.text;
+    expect(outlineText).toContain('"Saved"');
+    const reverted = await second.callTool({ name: "canvas_history", arguments: { doc: "promo-01", revertTo: 12 } });
+    expect((reverted.content as Array<{ text: string }>)[0]!.text).toContain("Summer Edit");
+
+    const replaced = await second.callTool({ name: "canvas_create", arguments: { doc: promo, replace: true } });
+    expect(replaced.isError).toBeFalsy();
+  });
 
   it("reports unimplemented tools as errors", async () => {
     const client = await connect();

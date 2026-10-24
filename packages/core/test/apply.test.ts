@@ -141,3 +141,18 @@ describe("DocHistory", () => {
     expect(history.revisions().map((r) => r.revision)).toEqual([12, 13, 14]);
   });
 });
+
+describe("DocHistory persistence", () => {
+  it("round-trips through JSON with its revisions", () => {
+    const history = new DocHistory(promo);
+    history.apply(patch([{ op: "set", target: "#headline", path: "content", value: "A" }]), "agent");
+    const restored = DocHistory.fromJSON(JSON.parse(JSON.stringify(history)));
+    expect(restored.head.revision).toBe(13);
+    expect(restored.revisions().map((r) => r.author)).toEqual(["system", "agent"]);
+    expect(restored.at(12).artboards[0]!.layers[3]).toMatchObject({ content: "Summer Edit" });
+  });
+
+  it("refuses files that aren't saved Gesso documents", () => {
+    expect(() => DocHistory.fromJSON({ hello: 1 })).toThrow(/not a saved Gesso document/);
+  });
+});

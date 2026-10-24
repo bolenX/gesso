@@ -21,6 +21,7 @@ export const LOGO_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(FAVICON_SV
 export const ICONS = [{ src: LOGO_DATA_URI, mimeType: "image/svg+xml", sizes: ["any"] }];
 
 export const TOOL_TITLES: Record<string, string> = {
+  canvas_list: "List documents",
   canvas_create: "Create document",
   canvas_outline: "Read outline",
   canvas_get: "Read layers",

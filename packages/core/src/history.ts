@@ -1,6 +1,6 @@
 import { applyOps, PatchError, type ApplyOptions } from "./apply.js";
 import type { Op, Patch, PatchResult } from "./patch.js";
-import type { Doc } from "./schema.js";
+import { Doc } from "./schema.js";
 
 // The event log. Every revision records its ops and author; undo, revert and
 // conflict handling come from it. Snapshots per revision keep v0.1 simple; a
@@ -17,6 +17,9 @@ export type Revision = {
 
 export type Conflict = { conflict: true; currentRevision: number; opsSince: Op[] };
 
+/** A history as stored on disk. */
+export type SavedHistory = { format: "gesso-history"; version: 1; snapshots: Doc[]; log: Revision[] };
+
 export class DocHistory {
   private snapshots: Doc[];
   private log: Revision[];
@@ -24,6 +27,23 @@ export class DocHistory {
   constructor(doc: Doc, author = "system") {
     this.snapshots = [doc];
     this.log = [{ revision: doc.revision, author, at: new Date().toISOString(), ops: [] }];
+  }
+
+  /** Restores a history saved with toJSON. Snapshots are validated, so a hand-edited file can't load broken. */
+  static fromJSON(data: unknown): DocHistory {
+    const saved = data as Partial<SavedHistory>;
+    if (saved?.format !== "gesso-history" || !Array.isArray(saved.snapshots) || !Array.isArray(saved.log) || saved.snapshots.length === 0) {
+      throw new PatchError("not a saved Gesso document");
+    }
+    if (saved.snapshots.length !== saved.log.length) throw new PatchError("saved document is inconsistent: snapshots and log differ in length");
+    const history = Object.create(DocHistory.prototype) as DocHistory;
+    history.snapshots = saved.snapshots.map((s) => Doc.parse(s));
+    history.log = saved.log;
+    return history;
+  }
+
+  toJSON(): SavedHistory {
+    return { format: "gesso-history", version: 1, snapshots: this.snapshots, log: this.log };
   }
 
   get head(): Doc {
