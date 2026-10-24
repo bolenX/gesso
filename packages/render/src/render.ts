@@ -17,7 +17,7 @@ import { paintColor } from "@gesso/core";
 import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
 import { directionField, samplePath, shaderEffect, shearRows, type ShaderName } from "./shaders.js";
-import type { CanvasKit, Canvas, Image, Paint, Paragraph, Shader, Surface, TypefaceFontProvider } from "canvaskit-wasm";
+import type { CanvasKit, Canvas, Font, Image, Paint, Paragraph, Shader, Surface, Typeface, TypefaceFontProvider } from "canvaskit-wasm";
 import sharp from "sharp";
 import { applyAdjustment } from "./adjust.js";
 import { defaultAssetLoader, type AssetLoader } from "./assets.js";
@@ -129,9 +129,14 @@ export async function renderArtboard(doc: Doc, artboardId: string, options: Rend
   const ck = await loadCanvasKit();
   const resources = await loadResources(ck, doc, [artboard], options.loader ?? defaultAssetLoader());
   try {
-    const out = new Compositor(ck, resources, options.scale ?? 1, doc.symbols ?? {}).render(artboard);
-    out.warnings.unshift(...resources.warnings);
-    return out;
+    const compositor = new Compositor(ck, resources, options.scale ?? 1, doc.symbols ?? {});
+    try {
+      const out = compositor.render(artboard);
+      out.warnings.unshift(...resources.warnings);
+      return out;
+    } finally {
+      compositor.release();
+    }
   } finally {
     resources.dispose();
   }
@@ -150,9 +155,14 @@ export async function renderLayerParts(doc: Doc, artboardId: string, options: Om
   const ck = await loadCanvasKit();
   const resources = await loadResources(ck, doc, [artboard], options.loader ?? defaultAssetLoader());
   try {
-    const out = new Compositor(ck, resources, 1, doc.symbols ?? {}).parts(artboard);
-    out.warnings.unshift(...resources.warnings);
-    return out;
+    const compositor = new Compositor(ck, resources, 1, doc.symbols ?? {});
+    try {
+      const out = compositor.parts(artboard);
+      out.warnings.unshift(...resources.warnings);
+      return out;
+    } finally {
+      compositor.release();
+    }
   } finally {
     resources.dispose();
   }
@@ -173,6 +183,8 @@ type Resources = {
   images: Map<string, Image>;
   fonts: TypefaceFontProvider;
   families: Set<string>;
+  /** Font file bytes by family, for text that's laid out glyph by glyph (text on a path). */
+  fontData: Map<string, Uint8Array>;
   warnings: string[];
   dispose(): void;
 };
@@ -264,13 +276,16 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
 
   const fonts = ck.TypefaceFontProvider.Make();
   const families = new Set<string>();
+  const fontData = new Map<string, Uint8Array>();
   for (const [id, asset] of Object.entries(doc.assets)) {
     if (asset.kind !== "font") continue;
     if (!asset.family) throw new Error(`Font asset ${asset.uri} needs a "family"`);
     // A missing font shouldn't stop the render: its text falls back and the warning says why.
     try {
-      fonts.registerFont(extractFace(await loadAsset(loader, id, asset), asset.face ?? 0), asset.family);
+      const face = extractFace(await loadAsset(loader, id, asset), asset.face ?? 0);
+      fonts.registerFont(face, asset.family);
       families.add(asset.family);
+      if (!fontData.has(asset.family)) fontData.set(asset.family, face);
     } catch (err) {
       warnings.push((err as Error).message);
     }
@@ -280,6 +295,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
     images,
     fonts,
     families,
+    fontData,
     warnings,
     dispose() {
       release();
@@ -295,6 +311,15 @@ class Compositor {
   warnings: string[] = [];
   backdrops = new Map<string, Backdrop>();
   private byId = new Map<string, Layer>();
+  private typefaces = new Map<string, Typeface | null>();
+
+  /** Frees the fonts this compositor made. */
+  release(): void {
+    for (const d of this.disposables.splice(0)) d.delete();
+    this.typefaces.clear();
+  }
+  /** CanvasKit objects to free when the render finishes. */
+  private disposables: Array<{ delete(): void }> = [];
   /** Device-pixel bounds of the last layer renderLayer drew, when known (not for groups). */
   private lastBounds: [number, number, number, number] | undefined;
   /** While compositing one layer: the area it and its effects can touch. Draws outside are skipped. */
@@ -847,6 +872,7 @@ class Compositor {
     const [w, h] = symbol.size;
     const sub = new Compositor(this.ck, this.res, this.scale, this.symbols);
     const rendered = sub.renderSymbol(symbol);
+    sub.release();
     this.warnings.push(...sub.warnings.map((m) => `symbol "${symbol.id}": ${m}`));
     const image = this.ck.MakeImage(this.info(this.ck.AlphaType.Unpremul, rendered.width, rendered.height), rendered.pixels, rendered.width * 4)!;
 
@@ -919,6 +945,7 @@ class Compositor {
   }
 
   private drawText(layer: TextLayer, parent: Box, canvas: Canvas): Box {
+    if (layer.path) return this.drawTextOnPath(layer, parent, canvas);
     const { style } = layer;
     if (!this.res.families.has(style.font)) {
       this.warnings.push(`text "${layer.id}": font "${style.font}" is not loaded; add it as a font asset`);
@@ -947,6 +974,69 @@ class Compositor {
     para.delete();
     this.fittedSizes.set(layer.id, size);
     return box;
+  }
+
+  /**
+   * Text along a path: each character is placed at its distance along the path and turned to
+   * the path's direction there, its baseline on the path. Kerning and ligatures aren't applied.
+   */
+  private drawTextOnPath(layer: TextLayer, parent: Box, canvas: Canvas): Box {
+    const { ck } = this;
+    const box = resolveFrame(layer.frame, parent);
+    const path = ck.Path.MakeFromSVGString(layer.path!.d);
+    if (!path) throw new Error(`text "${layer.id}": invalid path "${layer.path!.d}"`);
+    path.offset(box.x, box.y);
+    const contours = new ck.ContourMeasureIter(path, false, 1);
+    const contour = contours.next();
+    const runs = layer.runs ?? [{ text: layer.content }];
+    // Measure every character with its own run's font and size.
+    const glyphs: Array<{ id: number; width: number; font: Font; fill: GessoPaint }> = [];
+    for (const run of runs) {
+      const font = this.fontFor(run.font ?? layer.style.font, run.size ?? layer.style.size);
+      const ids = font.getGlyphIDs(run.text);
+      const widths = font.getGlyphWidths(ids);
+      const tracking = ((run.tracking ?? layer.style.tracking ?? 0) / 1000) * (run.size ?? layer.style.size);
+      ids.forEach((id, i) => glyphs.push({ id, width: widths[i]! + tracking, font, fill: run.fill ?? layer.style.fill ?? "#000000" }));
+    }
+    const total = glyphs.reduce((sum, g) => sum + g.width, 0);
+    const length = contour?.length() ?? 0;
+    const align = layer.style.align ?? "start";
+    let at = (layer.path!.offset ?? 0) + (align === "center" ? (length - total) / 2 : align === "end" ? length - total : 0);
+    if (at + total > length + 0.5 || at < -0.5) this.warnings.push(`text "${layer.id}" runs past the ends of its path`);
+    this.drawScaled(canvas, (c) => {
+      for (const g of glyphs) {
+        const mid = at + g.width / 2;
+        at += g.width;
+        if (!contour || mid < 0 || mid > length) continue;
+        const [px, py, tx, ty] = contour.getPosTan(mid);
+        const blob = ck.TextBlob.MakeFromRSXformGlyphs([g.id], [tx!, ty!, px! - (tx! * g.width) / 2, py! - (ty! * g.width) / 2], g.font);
+        if (!blob) continue;
+        const paint = this.paint(g.fill, box);
+        c.drawTextBlob(blob, 0, 0, paint);
+        paint.delete();
+        blob.delete();
+      }
+    });
+    contour?.delete();
+    contours.delete();
+    path.delete();
+    return box;
+  }
+
+  /** A CanvasKit font for a family and size, from the loaded font files (falls back to the default face). */
+  private fontFor(family: string, size: number): Font {
+    const { ck } = this;
+    let typeface = this.typefaces.get(family);
+    if (typeface === undefined) {
+      const data = this.res.fontData.get(family);
+      typeface = data ? ck.Typeface.MakeFreeTypeFaceFromData(data.slice().buffer) : null;
+      if (!typeface) this.warnings.push(`font "${family}" is not loaded; add it as a font asset`);
+      else this.disposables.push(typeface);
+      this.typefaces.set(family, typeface);
+    }
+    const font = new ck.Font(typeface, size);
+    this.disposables.push(font);
+    return font;
   }
 
   private paragraph(layer: TextLayer, size: number, width: number | undefined): Paragraph {

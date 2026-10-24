@@ -182,6 +182,10 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       return out;
     case "text":
       Object.assign(out, pixelData(part, ctx));
+      if (layer.path) {
+        ctx.warnings.push(`text "${layer.id}" follows a path, which is written as pixels; Photoshop type on a path isn't supported yet`);
+        return out;
+      }
       out.text = psdText(layer, part, ctx);
       return out;
     case "shape": {
