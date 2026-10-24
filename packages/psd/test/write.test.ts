@@ -3,7 +3,10 @@ import type { Doc } from "@gesso/core";
 import { readPsd, type Layer as PsdLayer } from "ag-psd";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { pathKnots, shapeKnots, writePsd } from "../src/index.js";
+import { importPsd, pathKnots, shapeKnots, writePsd } from "../src/index.js";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 
@@ -323,4 +326,31 @@ it("bakes background blurs under a live glass layer", async () => {
   expect(strip.fillOpacity).toBeCloseTo(0.2, 2);
   expect(strip.blendMode).toBe("overlay");
   expect(strip.vectorFill).toMatchObject({ type: "solid" });
+});
+
+it("writes gradient maps as live adjustments and mesh fills as pixels", async () => {
+  const doc: Doc = {
+    id: "grad",
+    revision: 1,
+    assets: {},
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 100, h: 100 },
+        layers: [
+          { id: "mesh", name: "Mesh", type: "shape", shape: { kind: "rect" }, fill: { kind: "mesh-gradient", colors: [["#FF0000", "#00FF00"], ["#0000FF", "#FFFFFF"]] }, frame: { x: 0, y: 0, w: 100, h: 100 } },
+          { id: "map", name: "Map", type: "adjustment", blend: "soft-light", adjustment: { kind: "gradient-map", stops: [{ offset: 0, color: "#2A0B6E" }, { offset: 1, color: "#39D8FF" }] }, frame: { x: 0, y: 0, w: 100, h: 100 } },
+        ],
+      },
+    ],
+  };
+  const bytes = (await writePsd(doc)).bytes;
+  const [mesh, map] = readPsd(bytes, { useImageData: true }).children![0]!.children!;
+  expect(mesh!.vectorMask).toBeUndefined();
+  expect(mesh!.imageData?.width).toBe(100);
+  expect(map!.adjustment).toMatchObject({ type: "gradient map", gradientType: "solid" });
+  expect(map!.blendMode).toBe("soft light");
+  const back = await importPsd(bytes, { id: "grad", assetDir: await mkdtemp(join(tmpdir(), "gesso-grad-")), uriBase: "imported" });
+  expect(back.doc.artboards[0]!.layers[1]).toMatchObject({ type: "adjustment", blend: "soft-light", adjustment: { kind: "gradient-map", stops: [{ offset: 0, color: "#2A0B6E" }, { offset: 1, color: "#39D8FF" }] } });
 });

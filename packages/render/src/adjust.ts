@@ -12,6 +12,7 @@ const clamp = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
 /** Applies an adjustment in place to unpremultiplied RGBA pixels. */
 export function applyAdjustment(pixels: Uint8Array, adjustment: Adjustment): void {
   if (adjustment.kind === "hue-saturation") return hueSaturation(pixels, adjustment);
+  if (adjustment.kind === "gradient-map") return gradientMap(pixels, adjustment);
   const luts = channelLuts(adjustment);
   for (let i = 0; i < pixels.length; i += 4) {
     pixels[i] = luts[0][pixels[i]!]!;
@@ -20,7 +21,33 @@ export function applyAdjustment(pixels: Uint8Array, adjustment: Adjustment): voi
   }
 }
 
-function channelLuts(adjustment: Exclude<Adjustment, { kind: "hue-saturation" }>): [Lut, Lut, Lut] {
+/** Photoshop's gradient map: each pixel's luminosity picks a colour along the gradient. */
+function gradientMap(pixels: Uint8Array, adjustment: Extract<Adjustment, { kind: "gradient-map" }>): void {
+  const table = gradientTable(adjustment.stops, adjustment.reverse);
+  for (let i = 0; i < pixels.length; i += 4) {
+    const l = Math.round(0.3 * pixels[i]! + 0.59 * pixels[i + 1]! + 0.11 * pixels[i + 2]!);
+    pixels[i] = table[l * 3]!;
+    pixels[i + 1] = table[l * 3 + 1]!;
+    pixels[i + 2] = table[l * 3 + 2]!;
+  }
+}
+
+/** 256 RGB colours along the stops, linearly interpolated. */
+export function gradientTable(stops: Array<{ offset: number; color: string }>, reverse = false): Uint8Array {
+  const sorted = [...stops].sort((a, b) => a.offset - b.offset).map((s) => ({ at: s.offset, rgb: [1, 3, 5].map((k) => parseInt(s.color.slice(k, k + 2), 16)) }));
+  const table = new Uint8Array(256 * 3);
+  for (let v = 0; v < 256; v++) {
+    const t = reverse ? 1 - v / 255 : v / 255;
+    const next = sorted.findIndex((s) => s.at >= t);
+    const hi = sorted[next === -1 ? sorted.length - 1 : next]!;
+    const lo = sorted[next <= 0 ? (next === -1 ? sorted.length - 1 : 0) : next - 1]!;
+    const f = hi.at === lo.at ? 0 : (t - lo.at) / (hi.at - lo.at);
+    for (let c = 0; c < 3; c++) table[v * 3 + c] = clamp(lo.rgb[c]! + (hi.rgb[c]! - lo.rgb[c]!) * f);
+  }
+  return table;
+}
+
+function channelLuts(adjustment: Exclude<Adjustment, { kind: "hue-saturation" | "gradient-map" }>): [Lut, Lut, Lut] {
   const identity = lut((v) => v);
   switch (adjustment.kind) {
     case "brightness-contrast": {

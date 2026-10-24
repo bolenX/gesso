@@ -56,6 +56,29 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it("recolours by brightness with a gradient map, also in a blend mode", async () => {
+    const map = (extra: object = {}) =>
+      ({ id: "map", name: "map", type: "adjustment", adjustment: { kind: "gradient-map", stops: [{ offset: 0, color: "#0000FF" }, { offset: 1, color: "#FF0000" }] }, frame: { x: 0, y: 0, w: 100, h: 100 }, ...extra }) as Layer;
+    const art = [rect("dark", "#000000", { x: 0, y: 0, w: 50, h: 100 }), rect("light", "#FFFFFF", { x: 50, y: 0, w: 50, h: 100 })];
+    const plain = await renderArtboard(docWith([...art, map()]), "a");
+    expect(px(plain.pixels, 100, 10, 10)).toEqual([0, 0, 255, 255]);
+    expect(px(plain.pixels, 100, 90, 10)).toEqual([255, 0, 0, 255]);
+    const multiplied = await renderArtboard(docWith([...art, map({ blend: "multiply" })]), "a");
+    expect(px(multiplied.pixels, 100, 10, 10)).toEqual([0, 0, 0, 255]);
+    expect(px(multiplied.pixels, 100, 90, 10)).toEqual([255, 0, 0, 255]);
+  });
+
+  it("fills shapes with a mesh gradient", async () => {
+    const fill = { kind: "mesh-gradient", colors: [["#FF0000", "#00FF00"], ["#0000FF", "#FFFFFF"]] };
+    const out = await renderArtboard(docWith([rect("mesh", "#000000", { x: 0, y: 0, w: 100, h: 100 }, { fill })]), "a");
+    const [r, g] = px(out.pixels, 100, 1, 1);
+    expect(r).toBeGreaterThan(240);
+    expect(g).toBeLessThan(20);
+    const centre = px(out.pixels, 100, 50, 50);
+    expect(centre[3]).toBe(255);
+    for (const c of centre.slice(0, 3)) expect(Math.abs(c! - 128)).toBeLessThan(40);
+  });
+
   it("frosts what's beneath a layer with a background blur, inside its own bounds", async () => {
     const glass = rect("glass", "#FFFFFF00", { x: 40, y: 10, w: 20, h: 80 }, { effects: [{ kind: "background-blur", radius: 20 }] });
     const out = await renderArtboard(docWith([rect("top", "#FF0000", { x: 0, y: 0, w: 100, h: 50 }), rect("bottom", "#0000FF", { x: 0, y: 50, w: 100, h: 50 }), glass]), "a");

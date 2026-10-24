@@ -19,3 +19,5 @@ export { resolveFrame, type Box } from "./layout.js";
 export { applyAdjustment, curveLut } from "./adjust.js";
 export { rectToQuad, project, type Point } from "./perspective.js";
 export { extractFace, isCollection, readFontFaces, scanFonts, systemFontDirs, fontUri, type FontFace, type InstalledFont } from "./fonts.js";
+export { meshVertices, type MeshVertices } from "./mesh.js";
+export { gradientTable } from "./adjust.js";

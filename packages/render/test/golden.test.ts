@@ -59,6 +59,14 @@ const scenes: Record<string, Layer[]> = {
       }),
     ),
   ],
+  "mesh-gradient": [
+    rect("mesh", { kind: "mesh-gradient", colors: [["#F6D3D9", "#EE5A6A", "#F4C9D0"], ["#86E3C6", "#1C2F63", "#86E3C6"], ["#F8E1E5", "#E2253F", "#FBF1F3"]], points: [[[0, 0], [0.5, 0], [1, 0]], [[0, 0.5], [0.4, 0.4], [1, 0.55]], [[0, 1], [0.6, 1], [1, 1]]] }, { x: 0, y: 0, w: 200, h: 150 }),
+  ],
+  "gradient-map": [
+    rect("bg", { kind: "linear-gradient", angle: 0, stops: [{ offset: 0, color: "#000000" }, { offset: 1, color: "#FFFFFF" }] }, { x: 0, y: 0, w: 200, h: 150 }),
+    { id: "map", name: "map", type: "adjustment", adjustment: { kind: "gradient-map", stops: [{ offset: 0, color: "#000000" }, { offset: 0.35, color: "#2A0B6E" }, { offset: 0.65, color: "#2F4DF2" }, { offset: 1, color: "#39D8FF" }] }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
+    { id: "grade", name: "grade", type: "adjustment", blend: "soft-light", opacity: 0.6, adjustment: { kind: "gradient-map", stops: [{ offset: 0, color: "#FF4F1A" }, { offset: 1, color: "#FFC21A" }] }, frame: { x: 0, y: 75, w: 200, h: 75 }, mask: { kind: "vector", shape: { kind: "rect" } } } as Layer,
+  ],
   adjustments: [
     { id: "photo", name: "photo", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
     { id: "warm", name: "warm", type: "adjustment", adjustment: { kind: "hue-saturation", hue: 25, saturation: -40, lightness: 0 }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
