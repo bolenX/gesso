@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, type Doc, type Effect, type Layer, type Paint, type Shape, type TextLayer } from "@gesso/core";
-import { compose, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type LayerPart, type Rendered } from "@gesso/render";
+import { compose, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type Backdrop, type LayerPart, type Rendered } from "@gesso/render";
 import {
   writePsdUint8Array,
   type AdjustmentLayer as PsdAdjustment,
@@ -81,7 +81,10 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
     const { parts, width: artboardWidth, warnings: w } = await renderLayerParts(doc, artboard.id, options.loader ? { loader: options.loader } : {});
     warnings.push(...w.map((msg) => `${artboard.id}: ${msg}`));
     const ctx: Ctx = { doc, parts, ox, oy, width: artboardWidth, warnings, symbolFiles, artboard: artboard.id };
-    const layers = artboard.layers.map((layer) => toPsdLayer(layer, ctx));
+
+    const ctxBackdrops = rendered.backdrops ?? new Map();
+    ctx.backdrops = ctxBackdrops;
+    const layers = artboard.layers.flatMap((layer) => withBackdrop(layer, ctx));
     if (artboard.background) layers.unshift(backgroundLayer(artboard, ox, oy));
     if (!asArtboards) {
       children.push(...layers);
@@ -122,7 +125,35 @@ type Ctx = {
   warnings: string[];
   symbolFiles: Map<string, string>;
   artboard: string;
+  /** Background blurs from the flattened render, baked into pixel layers. */
+  backdrops?: Map<string, Backdrop>;
 };
+
+/**
+ * The layer, preceded by its background blur baked as pixels: Photoshop has no live backdrop
+ * blur, so the frosted part is a pixel layer and the glass shape above it stays live.
+ */
+function withBackdrop(layer: Layer, ctx: Ctx): PsdLayer[] {
+  const out = toPsdLayer(layer, ctx);
+  const glass = ctx.backdrops?.get(layer.id);
+  if (!glass) return [out];
+  if (!ctx.warnings.some((w) => w.startsWith("background blur"))) {
+    ctx.warnings.push("background blur has no live equivalent in Photoshop; each one is baked into a pixel layer just below its glass layer");
+  }
+  return [
+    {
+      name: `${layer.name} · background blur`,
+      opacity: layer.opacity ?? 1,
+      hidden: layer.visible === false,
+      left: ctx.ox + glass.x,
+      top: ctx.oy + glass.y,
+      right: ctx.ox + glass.x + glass.w,
+      bottom: ctx.oy + glass.y + glass.h,
+      imageData: { width: glass.w, height: glass.h, data: glass.pixels },
+    },
+    out,
+  ];
+}
 
 function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
   const part = ctx.parts.get(layer.id)!;
@@ -132,6 +163,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
     blendMode: psdBlend(layer.blend),
     hidden: layer.visible === false,
     clipping: layer.clip === true,
+    ...(layer.fillOpacity !== undefined ? { fillOpacity: layer.fillOpacity } : {}),
   };
   if (layer.meta?.locked) out.protected = { transparency: true, composite: true, position: true };
   if (part.mask) out.mask = maskData(part.mask, ctx);
@@ -143,7 +175,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       if ((layer.isolation ?? "pass-through") === "pass-through" && (layer.blend ?? "normal") === "normal") {
         out.blendMode = "pass through";
       }
-      out.children = layer.children.map((child) => toPsdLayer(child, ctx));
+      out.children = layer.children.flatMap((child) => withBackdrop(child, ctx));
       return out;
     case "adjustment":
       out.adjustment = psdAdjustment(layer.adjustment);
@@ -394,7 +426,7 @@ function psdEffects(effects: Effect[]): LayerEffectsInfo {
       info.outerGlow = { ...on, color: rgb(e.color ?? "#FFFFFF"), opacity: e.opacity ?? 0.75, size: px(e.size ?? 20), choke: px(Math.round((e.spread ?? 0) * 100)), blendMode: "screen" };
     } else if (e.kind === "stroke") {
       (info.stroke ??= []).push({ ...on, size: px(e.width), position: e.position ?? "outside", fillType: "color", color: rgb(e.color), opacity: e.opacity ?? 1, blendMode: "normal" });
-    } else {
+    } else if (e.kind === "color-overlay") {
       (info.solidFill ??= []).push({ ...on, color: rgb(e.color), opacity: e.opacity ?? 1, blendMode: "normal" });
     }
   }

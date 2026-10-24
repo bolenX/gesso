@@ -172,6 +172,16 @@ export const Effect = z.discriminatedUnion("kind", [
     color: Color,
     opacity: z.number().min(0).max(1).optional(),
   }),
+  /**
+   * Frosted glass: blurs whatever is beneath the layer, inside the layer's shape, like Figma's
+   * background blur. The blur only sees what lies within the layer's bounds, so side-by-side
+   * strips each smear their own column: the fluted / fractal glass look. Radius is the blur's
+   * standard deviation in pixels (Figma's "blur 180" is about radius 90).
+   */
+  z.object({
+    kind: z.literal("background-blur"),
+    radius: z.number().positive(),
+  }),
 ]);
 export type Effect = z.infer<typeof Effect>;
 
@@ -181,6 +191,8 @@ const LayerBase = z.object({
   meta: Meta.optional(),
   visible: z.boolean().optional(),
   opacity: z.number().min(0).max(1).optional(),
+  /** Fades the layer's own pixels but not its effects, like Photoshop's Fill and Figma's fill opacity. */
+  fillOpacity: z.number().min(0).max(1).optional(),
   blend: BlendMode.optional(),
   /** Clips to the nearest non-clipped layer below. */
   clip: z.boolean().optional(),

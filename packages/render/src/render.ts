@@ -29,7 +29,16 @@ import { rectToQuad } from "./perspective.js";
 // Per-node caching (the render DAG) comes later; this renders every layer.
 
 export type RenderOptions = { scale?: number; loader?: AssetLoader };
-export type Rendered = { artboard: string; width: number; height: number; pixels: Uint8Array; warnings: string[] };
+export type Rendered = {
+  artboard: string;
+  width: number;
+  height: number;
+  pixels: Uint8Array;
+  warnings: string[];
+  /** Background blurs as drawn, by layer id: unpremultiplied RGBA within a box in output pixels. PSD export bakes these. */
+  backdrops?: Map<string, Backdrop>;
+};
+export type Backdrop = { pixels: Uint8Array; x: number; y: number; w: number; h: number };
 export type EncodeFormat = "png" | "jpeg" | "webp";
 
 /** One layer rendered on its own, for encoders such as PSD that store layers separately. */
@@ -281,7 +290,12 @@ class Compositor {
   private width = 0;
   private height = 0;
   warnings: string[] = [];
+  backdrops = new Map<string, Backdrop>();
   private byId = new Map<string, Layer>();
+  /** Device-pixel bounds of the last layer renderLayer drew, when known (not for groups). */
+  private lastBounds: [number, number, number, number] | undefined;
+  /** While compositing one layer: the area it and its effects can touch. Draws outside are skipped. */
+  private reach: [number, number, number, number] | undefined;
   private fittedSizes = new Map<string, number>();
 
   constructor(
@@ -304,7 +318,7 @@ class Compositor {
     this.composite(artboard.layers, box, target);
     const pixels = this.readPixels(target);
     target.dispose();
-    return { artboard: artboard.id, width: this.width, height: this.height, pixels, warnings: this.warnings };
+    return { artboard: artboard.id, width: this.width, height: this.height, pixels, warnings: this.warnings, backdrops: this.backdrops };
   }
 
   parts(artboard: Artboard): LayerParts {
@@ -465,42 +479,76 @@ class Compositor {
       if (clipped.length === 0 && this.drawDirect(base, parent, target)) continue;
 
       const content = this.renderLayer(base, parent);
-      // Shadows and glows follow the styled shape, strokes included, as in Photoshop.
-      const styled = base.effects?.length ? this.withEffectsAbove(content, base) : content;
-      if (base.effects?.length) this.drawEffectsBelow(target, styled, base);
-      if (clipped.length === 0) {
-        this.drawImage(target, styled, base.blend, base.opacity);
-        if (styled !== content) styled.delete();
-        content.delete();
-        continue;
-      }
-
-      // Clipped layers clip to the base's own pixels, not to its effects.
-      const group = this.surface();
-      group.getCanvas().drawImage(styled, 0, 0);
-      if (styled !== content) styled.delete();
-      for (const layer of clipped) {
-        if (layer.visible === false) continue;
-        if (layer.type === "adjustment") {
-          this.adjust(layer, parent, group, content);
+      this.reach = this.reachOf(base, this.lastBounds);
+      try {
+        const fill = base.fillOpacity ?? 1;
+        const styled = base.effects?.length || fill < 1 ? this.withEffectsAbove(content, base, fill) : content;
+        if (base.effects?.length) {
+          // Shadows and glows follow the styled shape, strokes included, and ignore fill opacity, as in Photoshop.
+          const shape = fill < 1 ? this.withEffectsAbove(content, base, 1) : styled;
+          this.drawEffectsBelow(target, shape, base);
+          if (shape !== styled) shape.delete();
+          for (const effect of base.effects) if (effect.kind === "background-blur") this.drawBackgroundBlur(target, base, parent, effect.radius);
+        }
+        if (clipped.length === 0) {
+          this.drawImage(target, styled, base.blend, base.opacity);
+          if (styled !== content) styled.delete();
+          content.delete();
           continue;
         }
-        const s = this.surface();
-        const image = this.renderLayer(layer, parent);
-        s.getCanvas().drawImage(image, 0, 0);
-        image.delete();
-        this.drawImage(s, content, undefined, 1, "DstIn");
-        const clippedImage = s.makeImageSnapshot();
-        s.dispose();
-        this.drawImage(group, clippedImage, layer.blend, layer.opacity);
-        clippedImage.delete();
+
+        // Clipped layers clip to the base's own pixels, not to its effects.
+        const group = this.surface();
+        group.getCanvas().drawImage(styled, 0, 0);
+        if (styled !== content) styled.delete();
+        for (const layer of clipped) {
+          if (layer.visible === false) continue;
+          if (layer.type === "adjustment") {
+            this.adjust(layer, parent, group, content);
+            continue;
+          }
+          const s = this.surface();
+          const image = this.renderLayer(layer, parent);
+          s.getCanvas().drawImage(image, 0, 0);
+          image.delete();
+          this.drawImage(s, content, undefined, 1, "DstIn");
+          const clippedImage = s.makeImageSnapshot();
+          s.dispose();
+          this.drawImage(group, clippedImage, layer.blend, layer.opacity);
+          clippedImage.delete();
+        }
+        const groupImage = group.makeImageSnapshot();
+        group.dispose();
+        this.drawImage(target, groupImage, base.blend, base.opacity);
+        groupImage.delete();
+        content.delete();
+      } finally {
+        this.reach = undefined;
       }
-      const groupImage = group.makeImageSnapshot();
-      group.dispose();
-      this.drawImage(target, groupImage, base.blend, base.opacity);
-      groupImage.delete();
-      content.delete();
     }
+  }
+
+  /** The layer's bounds grown by how far its effects spread, clamped to the artboard. */
+  private reachOf(layer: Layer, bounds: [number, number, number, number] | undefined): [number, number, number, number] | undefined {
+    if (!bounds) return undefined;
+    const k = this.scale;
+    let grow = 0;
+    for (const e of layer.effects ?? []) {
+      if (e.kind === "stroke") grow = Math.max(grow, e.width * k);
+      if (e.kind === "drop-shadow") grow = Math.max(grow, ((e.distance ?? 10) + (e.size ?? 10) * 1.5 + 2) * k);
+      if (e.kind === "outer-glow") grow = Math.max(grow, ((e.size ?? 20) * 1.5 + 2) * k);
+    }
+    const [l, t, r, b] = bounds;
+    return [Math.max(0, l - grow), Math.max(0, t - grow), Math.min(this.width, r + grow), Math.min(this.height, b + grow)];
+  }
+
+  /** Runs draw with the canvas clipped to the current layer's reach, if there is one. */
+  private inReach(canvas: Canvas, draw: () => void): void {
+    if (!this.reach) return draw();
+    canvas.save();
+    canvas.clipRect(this.ck.LTRBRect(...this.reach), this.ck.ClipOp.Intersect, false);
+    draw();
+    canvas.restore();
   }
 
   private isPlainPassThrough(group: Extract<Layer, { type: "group" }>): boolean {
@@ -524,7 +572,7 @@ class Compositor {
     if (layer.type === "group" || layer.type === "adjustment" || layer.mask || layer.effects?.length) return false;
     const canvas = target.getCanvas();
     const blend = layer.blend ?? "normal";
-    const opacity = layer.opacity ?? 1;
+    const opacity = (layer.opacity ?? 1) * (layer.fillOpacity ?? 1);
     if (layer.filters?.length) {
       // Filtered layers render bounded, then blend in as an image.
       const { image, x, y } = this.renderBounded(layer, parent);
@@ -578,22 +626,27 @@ class Compositor {
       p.setImageFilter(filter);
       p.setAlphaf((effect.opacity ?? (effect.kind === "drop-shadow" ? 0.35 : 0.75)) * opacity);
       p.setBlendMode(effect.kind === "drop-shadow" ? ck.BlendMode.Multiply : ck.BlendMode.Screen);
-      target.getCanvas().drawImage(content, 0, 0, p);
+      const canvas = target.getCanvas();
+      this.inReach(canvas, () => canvas.drawImage(content, 0, 0, p));
       p.delete();
       filter.delete();
     }
   }
 
   /** The layer with its colour overlays and strokes applied, as a new image. */
-  private withEffectsAbove(content: Image, layer: Layer): Image {
+  private withEffectsAbove(content: Image, layer: Layer, fill = 1): Image {
     const { ck } = this;
     const k = this.scale;
     const s = this.surface();
     const canvas = s.getCanvas();
+    if (this.reach) canvas.clipRect(ck.LTRBRect(...this.reach), ck.ClipOp.Intersect, false);
     // Outside strokes sit behind the content; the rest go on top.
     const strokes = (layer.effects ?? []).filter((e) => e.kind === "stroke");
     for (const stroke of strokes.filter((e) => (e.position ?? "outside") === "outside")) this.drawStroke(canvas, content, stroke, k);
-    canvas.drawImage(content, 0, 0);
+    const faded = new ck.Paint();
+    faded.setAlphaf(fill);
+    canvas.drawImage(content, 0, 0, faded);
+    faded.delete();
     for (const effect of layer.effects ?? []) {
       if (effect.kind !== "color-overlay") continue;
       const p = new ck.Paint();
@@ -608,6 +661,72 @@ class Compositor {
     return image;
   }
 
+  /**
+   * Blurs what's already on target within the layer's bounds, keeps it inside the layer's shape,
+   * and draws it back: frosted glass. Edges clamp, so each layer only smears what lies beneath it.
+   */
+  private drawBackgroundBlur(target: Surface, layer: Layer, parent: Box, radius: number): void {
+    const { ck } = this;
+    if (layer.type === "group" || layer.type === "adjustment") {
+      this.warnings.push(`layer "${layer.id}": background blur works on shapes, text and images, not ${layer.type}s`);
+      return;
+    }
+    const coverage = this.renderBounded(this.solid(layer), parent);
+    if (!coverage.image) return;
+    const { x, y } = coverage;
+    const [w, h] = [coverage.image.width(), coverage.image.height()];
+    const backdrop = target.makeImageSnapshot([x, y, x + w, y + h] as unknown as Int32Array);
+    const sigma = radius * this.scale;
+    // Extend the backdrop's edge pixels by the blur's reach, so the blur sees only what's beneath
+    // the layer (a save-layer blur would pull in transparency from outside instead).
+    // Wide blurs run at reduced resolution: the result is smooth either way, and far cheaper.
+    const f = Math.max(1, sigma / 6);
+    const m = Math.ceil((3 * sigma) / f);
+    const [sw, sh] = [Math.ceil(w / f) + 2 * m, Math.ceil(h / f) + 2 * m];
+    const padded = ck.MakeSurface(sw, sh);
+    if (!padded) throw new Error("Could not allocate a render surface");
+    const pc = padded.getCanvas();
+    pc.clear(ck.TRANSPARENT);
+    const extend = new ck.Paint();
+    const local = ck.Matrix.multiply(ck.Matrix.translated(m, m), ck.Matrix.scaled(1 / f, 1 / f));
+    extend.setShader(backdrop.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None, local));
+    const blur = new ck.Paint();
+    blur.setImageFilter(ck.ImageFilter.MakeBlur(sigma / f, sigma / f, ck.TileMode.Decal, null));
+    pc.saveLayer(blur);
+    pc.drawRect(ck.XYWHRect(0, 0, sw, sh), extend);
+    pc.restore();
+    const blurred = padded.makeImageSnapshot();
+    padded.dispose();
+    const s = ck.MakeSurface(w, h);
+    if (!s) throw new Error("Could not allocate a render surface");
+    const c = s.getCanvas();
+    c.clear(ck.TRANSPARENT);
+    const up = new ck.Paint();
+    c.drawImageRectOptions(blurred, ck.XYWHRect(m, m, w / f, h / f), ck.XYWHRect(0, 0, w, h), ck.FilterMode.Linear, ck.MipmapMode.None, up);
+    up.delete();
+    blurred.delete();
+    extend.delete();
+    const keep = new ck.Paint();
+    keep.setBlendMode(ck.BlendMode.DstIn);
+    c.drawImage(coverage.image, 0, 0, keep);
+    const glass = s.makeImageSnapshot();
+    s.dispose();
+    const p = new ck.Paint();
+    p.setAlphaf(layer.opacity ?? 1);
+    target.getCanvas().drawImage(glass, x, y, p);
+    this.backdrops.set(layer.id, { pixels: glass.readPixels(0, 0, this.info(ck.AlphaType.Unpremul, w, h)) as Uint8Array, x, y, w, h });
+    [blur, keep, p].forEach((paint) => paint.delete());
+    [backdrop, glass, coverage.image].forEach((image) => image.delete());
+  }
+
+  /** The layer's shape at full strength, whatever its fill: what a background blur covers. */
+  private solid(layer: Layer): Layer {
+    const plain = { ...layer, filters: undefined, effects: undefined, mask: undefined };
+    if (layer.type === "shape") return { ...plain, fill: "#FFFFFF", stroke: undefined } as Layer;
+    if (layer.type === "text") return { ...plain, style: { ...layer.style, fill: "#FFFFFF" }, runs: layer.runs?.map((r) => ({ ...r, fill: undefined })) } as Layer;
+    return plain as Layer;
+  }
+
   /** A stroke around the content's alpha: grown outward, shrunk inward, or both for centred. */
   private drawStroke(canvas: Canvas, content: Image, stroke: Extract<NonNullable<Layer["effects"]>[number], { kind: "stroke" }>, k: number): void {
     const { ck } = this;
@@ -616,6 +735,7 @@ class Compositor {
     const [outer, inner] = position === "outside" ? [w, 0] : position === "inside" ? [0, w] : [w / 2, w / 2];
     const ring = this.surface();
     const c = ring.getCanvas();
+    if (this.reach) c.clipRect(ck.LTRBRect(...this.reach), ck.ClipOp.Intersect, false);
     const tint = ck.ColorFilter.MakeBlend(this.color(stroke.color), ck.BlendMode.SrcIn);
     const grow = new ck.Paint();
     grow.setImageFilter(outer > 0 ? ck.ImageFilter.MakeDilate(outer, outer, null) : null);
@@ -638,12 +758,15 @@ class Compositor {
   private renderLayer(layer: Layer, parent: Box, withMask = true): Image {
     const s = this.surface();
     let box: Box;
+    this.lastBounds = undefined;
     if (layer.type === "group") {
       box = this.drawContent(layer, parent, s);
     } else {
       const bounded = this.renderBounded(layer, parent);
       box = bounded.box;
+      this.lastBounds = [bounded.x, bounded.y, bounded.x, bounded.y];
       if (bounded.image) {
+        this.lastBounds = [bounded.x, bounded.y, bounded.x + bounded.image.width(), bounded.y + bounded.image.height()];
         s.getCanvas().drawImage(bounded.image, bounded.x, bounded.y);
         bounded.image.delete();
       }
@@ -1036,7 +1159,8 @@ class Compositor {
     const p = new this.ck.Paint();
     p.setBlendMode(this.ck.BlendMode[mode ?? BLEND[blend ?? "normal"]] as never);
     p.setAlphaf(opacity);
-    target.getCanvas().drawImage(image, 0, 0, p);
+    const canvas = target.getCanvas();
+    this.inReach(canvas, () => canvas.drawImage(image, 0, 0, p));
     p.delete();
   }
 

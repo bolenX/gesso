@@ -56,6 +56,27 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it("frosts what's beneath a layer with a background blur, inside its own bounds", async () => {
+    const glass = rect("glass", "#FFFFFF00", { x: 40, y: 10, w: 20, h: 80 }, { effects: [{ kind: "background-blur", radius: 20 }] });
+    const out = await renderArtboard(docWith([rect("top", "#FF0000", { x: 0, y: 0, w: 100, h: 50 }), rect("bottom", "#0000FF", { x: 0, y: 50, w: 100, h: 50 }), glass]), "a");
+    const [r, , b, a] = px(out.pixels, 100, 50, 50);
+    // Mixed red and blue at the seam, fully opaque: the blur clamps at the layer's edges instead of fading.
+    expect(a).toBe(255);
+    expect(r).toBeGreaterThan(60);
+    expect(b).toBeGreaterThan(60);
+    // Outside the glass the art stays sharp.
+    expect(px(out.pixels, 100, 20, 49)).toEqual([255, 0, 0, 255]);
+    expect(out.backdrops?.get("glass")).toMatchObject({ x: 40, y: 10, w: 20, h: 80 });
+  });
+
+  it("fades a layer's fill but not its effects with fillOpacity", async () => {
+    const box = rect("box", "#000000", { x: 20, y: 20, w: 40, h: 40 }, { fillOpacity: 0.5, effects: [{ kind: "stroke", color: "#FF0000", width: 4 }] });
+    const out = await renderArtboard(docWith([rect("bg", "#FFFFFF", { x: 0, y: 0, w: 100, h: 100 }), box]), "a");
+    expect(px(out.pixels, 100, 40, 40)[0]).toBeGreaterThan(120);
+    expect(px(out.pixels, 100, 40, 40)[0]).toBeLessThan(135);
+    expect(px(out.pixels, 100, 40, 18)).toEqual([255, 0, 0, 255]);
+  });
+
   it("names the asset and the fix when a file is missing", async () => {
     const doc = docWith([{ id: "pic", name: "pic", type: "image", asset: "photo", frame: { x: 0, y: 0, w: 10, h: 10 } } as Layer], { photo: { uri: "/nowhere/photo.png", kind: "image" } });
     await expect(renderArtboard(doc, "a")).rejects.toThrow(/Asset "photo" \(\/nowhere\/photo.png\) couldn't be loaded: the file isn't there\. .*asset_import/);

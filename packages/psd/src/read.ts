@@ -127,6 +127,7 @@ async function convertLayer(layer: PsdLayer, origin: Box, ctx: Ctx): Promise<Lay
   const base: Record<string, unknown> = { id, name };
   if (layer.hidden) base.visible = false;
   if (layer.opacity !== undefined && layer.opacity < 1) base.opacity = round(layer.opacity, 3);
+  if (layer.fillOpacity !== undefined && layer.fillOpacity < 1) base.fillOpacity = round(layer.fillOpacity, 3);
   if (layer.clipping) base.clip = true;
   if (layer.blendMode && layer.blendMode !== "normal" && layer.blendMode !== "pass through") {
     const blend = BLEND[layer.blendMode];
