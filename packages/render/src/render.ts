@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import type {
   Artboard,
+  Asset,
   BlendMode,
   Doc,
   ImageLayer,
@@ -115,7 +117,9 @@ export async function renderArtboard(doc: Doc, artboardId: string, options: Rend
   const ck = await loadCanvasKit();
   const resources = await loadResources(ck, doc, [artboard], options.loader ?? defaultAssetLoader());
   try {
-    return new Compositor(ck, resources, options.scale ?? 1, doc.symbols ?? {}).render(artboard);
+    const out = new Compositor(ck, resources, options.scale ?? 1, doc.symbols ?? {}).render(artboard);
+    out.warnings.unshift(...resources.warnings);
+    return out;
   } finally {
     resources.dispose();
   }
@@ -134,7 +138,9 @@ export async function renderLayerParts(doc: Doc, artboardId: string, options: Om
   const ck = await loadCanvasKit();
   const resources = await loadResources(ck, doc, [artboard], options.loader ?? defaultAssetLoader());
   try {
-    return new Compositor(ck, resources, 1, doc.symbols ?? {}).parts(artboard);
+    const out = new Compositor(ck, resources, 1, doc.symbols ?? {}).parts(artboard);
+    out.warnings.unshift(...resources.warnings);
+    return out;
   } finally {
     resources.dispose();
   }
@@ -155,8 +161,64 @@ type Resources = {
   images: Map<string, Image>;
   fonts: TypefaceFontProvider;
   families: Set<string>;
+  warnings: string[];
   dispose(): void;
 };
+
+// Decoded images, kept between renders by content hash: decoding a large photo costs far
+// more than reading it, and agents render the same document over and over.
+type Cached = { image: Image; bytes: number; users: number; used: number };
+const imageCache = new Map<string, Cached>();
+const CACHE_BUDGET = 512 * 1024 * 1024;
+
+function evict(): void {
+  let total = [...imageCache.values()].reduce((sum, c) => sum + c.bytes, 0);
+  const idle = [...imageCache.entries()].filter(([, c]) => c.users === 0).sort((a, b) => a[1].used - b[1].used);
+  for (const [key, c] of idle) {
+    if (total <= CACHE_BUDGET) break;
+    c.image.delete();
+    imageCache.delete(key);
+    total -= c.bytes;
+  }
+}
+
+/** Loads an asset's bytes, with an error that says which asset and how to fix it. */
+async function loadAsset(loader: AssetLoader, id: string, asset: Asset): Promise<Uint8Array> {
+  try {
+    return await loader(asset);
+  } catch (err) {
+    const reason = (err as NodeJS.ErrnoException).code === "ENOENT" ? "the file isn't there" : (err as Error).message;
+    throw new Error(
+      `Asset "${id}" (${asset.uri}) couldn't be loaded: ${reason}. Point it at the right file with asset_import (same id, replace: true), or change the layers that use it.`,
+    );
+  }
+}
+
+/** Decodes an image asset, or reuses the decoded copy from an earlier render. */
+async function decodeImage(ck: CanvasKit, id: string, asset: Asset, bytes: Uint8Array): Promise<Cached> {
+  const key = createHash("sha1").update(bytes).digest("hex");
+  let cached = imageCache.get(key);
+  if (!cached) {
+    const { data, info } = await sharp(bytes)
+      .toColourspace("srgb")
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+      .catch(() => {
+        throw new Error(`Asset "${id}" (${asset.uri}) isn't an image Gesso can read`);
+      });
+    const image = ck.MakeImage(
+      { width: info.width, height: info.height, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB },
+      data,
+      info.width * 4,
+    );
+    if (!image) throw new Error(`Could not decode asset "${id}"`);
+    cached = { image, bytes: info.width * info.height * 4, users: 0, used: 0 };
+    imageCache.set(key, cached);
+  }
+  cached.used = Date.now();
+  return cached;
+}
 
 async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loader: AssetLoader): Promise<Resources> {
   const used = new Set<string>();
@@ -171,44 +233,45 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
   for (const artboard of artboards) visit(artboard.layers);
 
   const images = new Map<string, Image>();
-  for (const id of used) {
-    const asset = doc.assets[id];
-    if (!asset) throw new Error(`Missing asset "${id}"`);
-    const { data, info } = await sharp(await loader(asset))
-      .toColourspace("srgb")
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const image = ck.MakeImage(
-      {
-        width: info.width,
-        height: info.height,
-        colorType: ck.ColorType.RGBA_8888,
-        alphaType: ck.AlphaType.Unpremul,
-        colorSpace: ck.ColorSpace.SRGB,
-      },
-      data,
-      info.width * 4,
-    );
-    if (!image) throw new Error(`Could not decode asset "${id}"`);
-    images.set(id, image);
+  const held: Cached[] = [];
+  const warnings: string[] = [];
+  const release = () => held.forEach((c) => c.users--);
+  try {
+    for (const id of used) {
+      const asset = doc.assets[id];
+      if (!asset) throw new Error(`Missing asset "${id}": add it with asset_import, or change the layers that use it`);
+      const cached = await decodeImage(ck, id, asset, await loadAsset(loader, id, asset));
+      cached.users++;
+      held.push(cached);
+      images.set(id, cached.image);
+    }
+  } catch (err) {
+    release();
+    throw err;
   }
 
   const fonts = ck.TypefaceFontProvider.Make();
   const families = new Set<string>();
-  for (const asset of Object.values(doc.assets)) {
+  for (const [id, asset] of Object.entries(doc.assets)) {
     if (asset.kind !== "font") continue;
     if (!asset.family) throw new Error(`Font asset ${asset.uri} needs a "family"`);
-    fonts.registerFont(extractFace(await loader(asset), asset.face ?? 0), asset.family);
-    families.add(asset.family);
+    // A missing font shouldn't stop the render: its text falls back and the warning says why.
+    try {
+      fonts.registerFont(extractFace(await loadAsset(loader, id, asset), asset.face ?? 0), asset.family);
+      families.add(asset.family);
+    } catch (err) {
+      warnings.push((err as Error).message);
+    }
   }
 
   return {
     images,
     fonts,
     families,
+    warnings,
     dispose() {
-      for (const image of images.values()) image.delete();
+      release();
+      evict();
       fonts.delete();
     },
   };
