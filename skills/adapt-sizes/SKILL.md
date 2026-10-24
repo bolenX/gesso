@@ -43,4 +43,11 @@ Then export with `canvas_export`. A PSD keeps every size as its own artboard in 
 
 ## When the background is too short or too narrow
 
-If a photo background can't cover a new shape without cropping out the subject, it needs extending (outpainting). Until Gesso's generation hand-off (`gen_prepare`) arrives, tell the user which artboards need more background, and use a colour or gradient that matches the photo's edge as a stand-in.
+If a photo background can't cover the new shape without cropping out the subject, extend it instead (outpainting):
+
+1. Call `gen_prepare` with `job: "expand"`, the artboard and the background image layer. It writes the source, a padded canvas and a mask to the Gesso folder, and returns the target size, aspect ratio, how far to extend each side, and a prompt.
+2. Run it with an outpainting or expand tool the user has connected (for example Magnific or Higgsfield). Gesso never pays for or calls a model itself.
+3. Import the result with `asset_import` under the `assetId` from the job, then apply the job's `ops` with `canvas_patch`. They put the result in as a separate background layer with provenance, and keep the original photo on top with a soft edge, so its pixels are untouched.
+4. Render and check the seams, and that the subject wasn't repeated at the edges.
+
+When several sizes need the same extension, expand once for the most extreme shape and reuse that asset in the other artboards: one plate, consistent backgrounds, a single generation. If the user has no image tool connected, tell them which artboards need more background and use a colour or gradient matching the photo's edge as a stand-in.
