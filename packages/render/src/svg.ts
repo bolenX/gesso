@@ -13,10 +13,19 @@ import { encode, layerTransform, renderArtboard, renderLayerParts, type LayerPar
 // by the renderer and embedded as an image of just that layer. Layers below an adjustment or a
 // background blur, which depend on everything beneath them, are flattened into one image.
 
-export type SvgOptions = { loader?: AssetLoader; embedFonts?: boolean };
+export type SvgOptions = {
+  loader?: AssetLoader;
+  embedFonts?: boolean;
+  /**
+   * "pdf" writes SVG for PDF conversion, which has no blend modes or SVG filters and takes only
+   * PNG and JPEG: blended layers are flattened, feathered masks rendered, other images re-encoded.
+   */
+  target?: "browser" | "pdf";
+};
 export type SvgResult = { svg: string; warnings: string[] };
 
 type Ctx = {
+  pdf: boolean;
   doc: Doc;
   artboard: Artboard;
   parts: Map<string, LayerPart>;
@@ -32,7 +41,8 @@ export async function writeSvg(doc: Doc, artboardId: string, options: SvgOptions
   if (!artboard) throw new Error(`No artboard "${artboardId}"`);
   const loader = options.loader ?? defaultAssetLoader();
   const { parts, warnings } = await renderLayerParts(doc, artboardId, { loader });
-  const ctx: Ctx = { doc, artboard, parts, loader, defs: [], fonts: new Set(), warnings: [...warnings], ids: 0 };
+  const pdf = options.target === "pdf";
+  const ctx: Ctx = { pdf, doc, artboard, parts, loader, defs: [], fonts: new Set(), warnings: [...warnings], ids: 0 };
   const { w, h } = artboard.frame;
   const body: string[] = [];
 
@@ -40,19 +50,19 @@ export async function writeSvg(doc: Doc, artboardId: string, options: SvgOptions
   const layers = artboard.layers;
   let flatten = -1;
   layers.forEach((layer, i) => {
-    if (needsBackdrop(layer) || (layer.clip && i > 0)) flatten = i;
+    if (needsBackdrop(layer, pdf) || (layer.clip && i > 0)) flatten = i;
   });
   if (flatten >= 0) {
     const below = { ...doc, artboards: [{ ...artboard, layers: layers.slice(0, flatten + 1) }] };
     const flat = await renderArtboard(below, artboardId, { loader });
     body.push(`<image x="0" y="0" width="${w}" height="${h}" href="${dataUri("image/png", await encode(flat, "png"))}"><title>Flattened: ${esc(layers.slice(0, flatten + 1).map((l) => l.name).join(", "))}</title></image>`);
-    ctx.warnings.push(`layers up to "${layers[flatten]!.name}" are flattened into one image, because an adjustment, background blur or clipping needs what's beneath it`);
+    ctx.warnings.push(`layers up to "${layers[flatten]!.name}" are flattened into one image, because an adjustment, background blur, clipping${pdf ? " or blend mode (PDF has none)" : ""} needs what's beneath it`);
   } else if (artboard.background) {
     body.push(`<rect x="0" y="0" width="${w}" height="${h}" fill="${paintRef(artboard.background, { x: 0, y: 0, w, h }, ctx)}"/>`);
   }
   for (const layer of layers.slice(flatten + 1)) body.push(await element(layer, ctx));
 
-  const style = options.embedFonts === false ? "" : await fontFaces(ctx);
+  const style = options.embedFonts === false || pdf ? "" : await fontFaces(ctx);
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
     `<title>${esc(artboard.name)}</title>`,
@@ -64,20 +74,21 @@ export async function writeSvg(doc: Doc, artboardId: string, options: SvgOptions
   return { svg, warnings: ctx.warnings };
 }
 
-/** Layers whose pixels depend on what's beneath them. */
-function needsBackdrop(layer: Layer): boolean {
+/** Layers whose pixels depend on what's beneath them (in a PDF, blend modes too). */
+function needsBackdrop(layer: Layer, pdf = false): boolean {
   if (layer.type === "adjustment") return true;
   if (layer.effects?.some((e) => e.kind === "background-blur")) return true;
-  return layer.type === "group" && layer.children.some(needsBackdrop);
+  if (pdf && layer.blend && layer.blend !== "normal") return true;
+  return layer.type === "group" && layer.children.some((c) => needsBackdrop(c, pdf));
 }
 
 /** True when the layer (or something inside it) has to be drawn by the renderer. */
-function needsRaster(layer: Layer): boolean {
+function needsRaster(layer: Layer, pdf = false): boolean {
   if (layer.filters?.length || layer.effects?.length) return true;
-  if (layer.mask && layer.mask.kind !== "vector") return true;
+  if (layer.mask && (layer.mask.kind !== "vector" || (pdf && layer.mask.feather))) return true;
   if (layer.type === "smart") return true;
   if (layer.type === "shape" && (isMesh(layer.fill) || isMesh(layer.stroke?.paint))) return true;
-  if (layer.type === "group") return layer.children.some((c, i) => needsRaster(c) || needsBackdrop(c) || (c.clip && i > 0));
+  if (layer.type === "group") return layer.children.some((c, i) => needsRaster(c, pdf) || needsBackdrop(c, pdf) || (c.clip && i > 0));
   return false;
 }
 
@@ -86,7 +97,7 @@ const isMesh = (paint: Paint | undefined) => typeof paint === "object" && paint.
 async function element(layer: Layer, ctx: Ctx): Promise<string> {
   const part = ctx.parts.get(layer.id);
   if (!part) return "";
-  if (needsRaster(layer)) return raster(layer, part, ctx);
+  if (needsRaster(layer, ctx.pdf)) return raster(layer, part, ctx);
 
   let inner: string;
   switch (layer.type) {
@@ -145,10 +156,15 @@ function shapeElement(s: Extract<Layer, { type: "shape" }>["shape"], box: Box, a
 
 async function image(layer: Extract<Layer, { type: "image" }>, box: Box, ctx: Ctx): Promise<string> {
   const asset = ctx.doc.assets[layer.asset]!;
-  const bytes = await ctx.loader(asset);
+  let bytes = await ctx.loader(asset);
   const meta = await sharp(bytes).metadata();
   const [iw, ih] = [meta.width ?? 1, meta.height ?? 1];
-  const href = dataUri(`image/${meta.format === "jpg" ? "jpeg" : meta.format}`, bytes);
+  let format = meta.format === "jpg" ? "jpeg" : meta.format;
+  if (ctx.pdf && format !== "jpeg" && format !== "png") {
+    bytes = await sharp(bytes).png().toBuffer();
+    format = "png";
+  }
+  const href = dataUri(`image/${format}`, bytes);
   const fit = layer.fit ?? "cover";
   const [fx, fy] = layer.focus ?? [0.5, 0.5];
   // The same crop the renderer makes: a nested viewport showing the chosen part of the image.

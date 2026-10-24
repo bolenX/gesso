@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, PRESETS, presetList, reflowArtboard, select, semanticErrors, xmpPacket } from "@gesso/core";
-import { encode, renderArtboard, renderDoc, writeSvg, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type EncodeFormat, type InstalledFont } from "@gesso/render";
+import { encode, renderArtboard, renderDoc, writePdf, writeSvg, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type EncodeFormat, type InstalledFont } from "@gesso/render";
 import { importPsd, writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
@@ -85,6 +85,7 @@ const MIME: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".webp": "image/webp",
   ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
   ".json": "application/json",
 };
 
@@ -550,25 +551,28 @@ export function createServer({
     "canvas_export",
     {
       description:
-        "Export every artboard as an image file, the whole document as one layered PSD with artboards, or each artboard as an editable SVG (vector shapes and real text; effects SVG can't express are embedded as images), plus a manifest.json.",
+        "Export every artboard as an image file; the whole document as one layered PSD with artboards; each artboard as an editable SVG (vector shapes and real text; effects SVG can't express are embedded as images); or a PDF with a page per artboard (vector and selectable text, fonts embedded; for print, set bleed and marks). Writes a manifest.json too.",
       inputSchema: {
         doc: docId,
         outDir: z.string().describe("Directory to write into, relative to the server's base directory"),
-        format: z.enum(["png", "jpeg", "webp", "psd", "svg"]).default("png"),
+        format: z.enum(["png", "jpeg", "webp", "psd", "svg", "pdf"]).default("png"),
         scale: z.number().positive().max(4).default(1).describe("Ignored for PSD, which is always full size"),
-        images: z.boolean().default(true).describe("With format psd or svg, also write a flat PNG of each artboard"),
+        images: z.boolean().default(true).describe("With format psd, svg or pdf, also write a flat PNG of each artboard"),
+        dpi: z.number().positive().optional().describe("PDF: pixels per inch for the page size; default 300 for print presets (A4, Letter…), else 72"),
+        bleed: z.number().min(0).max(20).optional().describe("PDF: bleed in mm on every side (3 is standard); layers touching the edge extend into it"),
+        marks: z.boolean().optional().describe("PDF: add crop marks"),
       },
     },
-    async ({ doc, outDir, format, scale, images }, extra) =>
+    async ({ doc, outDir, format, scale, images, dpi, bleed, marks }, extra) =>
       guard(async () => {
         const d = store.get(doc);
         const dir = resolve(baseDir, outDir);
         // Large documents can take longer than an agent waits for one tool call. The export keeps
         // running in the background; calling again with the same arguments picks up the result.
-        const key = JSON.stringify([d.id, d.revision, dir, format, scale, images]);
+        const key = JSON.stringify([d.id, d.revision, dir, format, scale, images, dpi, bleed, marks]);
         let job = exports.get(key);
         if (!job) {
-          job = runExport(d, dir, format, scale, images);
+          job = runExport(d, dir, format, scale, images, { dpi, bleed, marks });
           exports.set(key, job);
           job.then(
             () => setTimeout(() => exports.delete(key), 10 * 60_000).unref(),
@@ -600,11 +604,24 @@ export function createServer({
       }),
   );
 
-  async function runExport(d: Doc, dir: string, format: "png" | "jpeg" | "webp" | "psd" | "svg", scale: number, images: boolean): Promise<CallToolResult> {
+  async function runExport(
+    d: Doc,
+    dir: string,
+    format: "png" | "jpeg" | "webp" | "psd" | "svg" | "pdf",
+    scale: number,
+    images: boolean,
+    print: { dpi?: number; bleed?: number; marks?: boolean } = {},
+  ): Promise<CallToolResult> {
     await mkdir(dir, { recursive: true });
     const xmp = xmpPacket(d.id, d.revision);
     const files = [];
     let flats: Awaited<ReturnType<typeof renderDoc>> | undefined;
+    if (format === "pdf") {
+      const { bytes, warnings } = await writePdf(d, { loader, ...print });
+      const path = resolve(dir, `${d.id}.pdf`);
+      await writeFile(path, bytes);
+      files.push({ artboards: d.artboards.map((a) => a.id), path, warnings });
+    }
     if (format === "svg") {
       for (const artboard of d.artboards) {
         const { svg, warnings } = await writeSvg(d, artboard.id, { loader });
@@ -621,7 +638,7 @@ export function createServer({
       flats = result.flats;
     }
     // PSD and SVG exports also write a flat PNG of each artboard unless images is false.
-    const imageFormat = format === "psd" || format === "svg" ? (images ? "png" : undefined) : format;
+    const imageFormat = format === "psd" || format === "svg" || format === "pdf" ? (images ? "png" : undefined) : format;
     if (imageFormat) {
       const ext = imageFormat === "jpeg" ? "jpg" : imageFormat;
       for (const r of flats ?? (await renderDoc(d, { scale, loader }))) {

@@ -21,6 +21,11 @@
   "dependencies": {
     "@gesso/core": "workspace:*",
     "canvaskit-wasm": "^0.40.0",
-    "sharp": "^0.34.5"
+    "pdfkit": "0.15.2",
+    "sharp": "^0.34.5",
+    "svg-to-pdfkit": "0.1.8"
+  },
+  "devDependencies": {
+    "@types/pdfkit": "^0.17.7"
   }
 }

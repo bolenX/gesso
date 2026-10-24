@@ -134,6 +134,9 @@ describe("gesso MCP server", () => {
     expect(((await sharp(join(baseDir, "out", "post-4x5.jpg")).metadata()).xmp ?? Buffer.alloc(0)).toString()).toContain("Gesso");
     expect((await sharp(join(baseDir, "out", "post-4x5.jpg")).metadata()).height).toBe(1350);
 
+    const pdf = await client.callTool({ name: "canvas_export", arguments: { doc: "promo-01", outDir: "out", format: "pdf", images: false, bleed: 3, marks: true } });
+    expect(pdf.isError).toBeFalsy();
+    expect((await readFile(join(baseDir, "out", "promo-01.pdf"))).subarray(0, 5).toString()).toBe("%PDF-");
     const svg = await client.callTool({ name: "canvas_export", arguments: { doc: "promo-01", outDir: "out", format: "svg", images: false } });
     expect(svg.isError).toBeFalsy();
     expect((await readFile(join(baseDir, "out", "post-4x5.svg"), "utf8")).startsWith("<svg")).toBe(true);
