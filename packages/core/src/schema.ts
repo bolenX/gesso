@@ -187,6 +187,36 @@ export const Filter = z.discriminatedUnion("kind", [
   }),
   /** A straight motion blur, as in Photoshop: distance in pixels along the angle (0 is horizontal). */
   z.object({ kind: z.literal("motion-blur"), angle: z.number(), distance: z.number().positive() }),
+  /** Photoshop's Radial Blur: "spin" turns around the centre by `amount` degrees; "zoom" streaks towards it (`amount` 0..1). */
+  z.object({
+    kind: z.literal("radial-blur"),
+    mode: z.enum(["spin", "zoom"]),
+    amount: z.number().positive(),
+    /** [x, y] fractions of the layer's box; the middle when left out. */
+    center: z.tuple([z.number(), z.number()]).optional(),
+  }),
+  /** Film grain: `amount` 0..1 is its strength; `size` in pixels; colour grain unless monochrome. */
+  z.object({
+    kind: z.literal("noise"),
+    amount: z.number().min(0).max(1),
+    size: z.number().positive().optional(),
+    monochrome: z.boolean().optional(),
+  }),
+  /** Unsharp mask: `amount` 0..5 (1 is Photoshop's 100%), `radius` in pixels. */
+  z.object({ kind: z.literal("sharpen"), amount: z.number().min(0).max(5), radius: z.number().positive().optional() }),
+  /** Swirls the layer around a centre: `angle` degrees at the centre, fading to none at `radius` (fraction of the box's shorter side). */
+  z.object({
+    kind: z.literal("twirl"),
+    angle: z.number(),
+    radius: z.number().positive().optional(),
+    center: z.tuple([z.number(), z.number()]).optional(),
+  }),
+  /** Sine-wave distortion: shifts pixels by up to `amplitude` px, repeating every `wavelength` px; angle 0 shifts sideways, waving down the layer. */
+  z.object({ kind: z.literal("wave"), amplitude: z.number(), wavelength: z.number().positive(), angle: z.number().optional() }),
+  /** Photoshop's Shear: bends the layer sideways along a curve through `offsets` (px), spaced evenly from top to bottom. */
+  z.object({ kind: z.literal("shear"), offsets: z.array(z.number()).min(2).max(16) }),
+  /** Mosaic blocks `size` px wide. */
+  z.object({ kind: z.literal("pixelate"), size: z.number().positive() }),
   /**
    * Photoshop's Path Blur: everything smears along a curved path. Points are [x, y] fractions of
    * the layer's box, at least two, drawn in the direction of motion; distance is the blur length

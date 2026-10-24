@@ -88,7 +88,13 @@ function scaleContent(layer: Layer, s: number): void {
     layer.filters = layer.filters.map((f) => {
       if (f.kind === "gaussian-blur") return { ...f, radius: f.radius * s };
       if (f.kind === "glass") return { ...f, size: f.size * s, amount: f.amount * s };
-      return { ...f, distance: f.distance * s };
+      if (f.kind === "motion-blur" || f.kind === "path-blur") return { ...f, distance: f.distance * s };
+      if (f.kind === "noise") return f.size ? { ...f, size: f.size * s } : f;
+      if (f.kind === "sharpen") return f.radius ? { ...f, radius: f.radius * s } : f;
+      if (f.kind === "wave") return { ...f, amplitude: f.amplitude * s, wavelength: f.wavelength * s };
+      if (f.kind === "shear") return { ...f, offsets: f.offsets.map((o) => o * s) };
+      if (f.kind === "pixelate") return { ...f, size: f.size * s };
+      return f; // radial blur and twirl are relative to the layer
     });
   }
   if (layer.mask && "feather" in layer.mask && layer.mask.feather) layer.mask = { ...layer.mask, feather: layer.mask.feather * s };
