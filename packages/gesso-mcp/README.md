@@ -22,6 +22,6 @@ Run it as a hosted connector with `npx -y gesso-mcp --http 3333`, then add `http
 
 ## Tools
 
-`canvas_list`, `canvas_create`, `canvas_outline`, `canvas_get`, `canvas_selection`, `canvas_patch`, `canvas_history`, `canvas_render`, `canvas_export` (PNG, JPEG, WebP, PSD), `artboard_create`, `font_list`, `asset_import`, `skill_read`. `gen_prepare` hands image jobs to the image tools you have connected. The `adapt-sizes` recipe is also an MCP prompt.
+`canvas_list`, `canvas_create`, `psd_import`, `canvas_outline`, `canvas_get`, `canvas_selection`, `canvas_patch`, `canvas_history`, `canvas_render`, `canvas_export` (PNG, JPEG, WebP, PSD), `artboard_create`, `font_list`, `asset_import`, `skill_read`. `gen_prepare` hands image jobs to the image tools you have connected. The `adapt-sizes` recipe is also an MCP prompt.
 
 Apache-2.0.

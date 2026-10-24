@@ -37,6 +37,7 @@ await sharp(join(here, "assets/favicon.svg"), { density: 1200 }).resize(512, 512
 const tools = [
   ["canvas_list", "List saved documents"],
   ["canvas_create", "Create a layered document from a full spec"],
+  ["psd_import", "Open a Photoshop file as an editable document"],
   ["canvas_outline", "Read the compact tree of artboards and layers"],
   ["canvas_get", "Read full JSON for layers matching selectors"],
   ["canvas_selection", "Read or set the shared selection"],

@@ -267,6 +267,27 @@ describe("gesso MCP server", () => {
     expect(JSON.stringify(layers)).toContain('"x":350');
   });
 
+  it("opens an exported PSD as a new editable document", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "gesso-"));
+    await sharp({ create: { width: 30, height: 40, channels: 3, background: "#c08040" } }).png().toFile(join(baseDir, "portrait.png"));
+    const doc = structuredClone(promo);
+    doc.assets.portrait!.uri = "portrait.png";
+    const client = await connect({ baseDir });
+    await client.callTool({ name: "canvas_create", arguments: { doc } });
+    await client.callTool({ name: "canvas_export", arguments: { doc: "promo-01", outDir: "out", format: "psd" } });
+
+    const opened = await client.callTool({ name: "psd_import", arguments: { path: "out/promo-01.psd", id: "reopened" } });
+    expect(opened.isError).toBeFalsy();
+    const body = (opened.content as Array<{ text: string }>)[0]!.text;
+    expect(body).toContain("headline");
+    const again = await client.callTool({ name: "psd_import", arguments: { path: "out/promo-01.psd", id: "reopened" } });
+    expect(again.isError).toBe(true);
+    const render = await client.callTool({ name: "canvas_render", arguments: { doc: "reopened", scale: 0.1 } });
+    expect(render.isError).toBeFalsy();
+    const listed = (await client.callTool({ name: "canvas_list", arguments: {} })).content as Array<{ text: string }>;
+    expect(listed[0]!.text).toContain("reopened");
+  });
+
   it("serves skills as prompts and through skill_read", async () => {
     const client = await connect();
     const { prompts } = await client.listPrompts();
