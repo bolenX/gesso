@@ -48,7 +48,7 @@ const tools = [
   ["font_list", "Find installed fonts"],
   ["skill_read", "Read a recipe, such as adapting a design to more sizes"],
   ["asset_import", "Add an image or font from a path, URL or data"],
-  ["gen_prepare", "Prepare a generative job (planned)"],
+  ["gen_prepare", "Prepare an expand, generate, cut-out or upscale job for a connected image tool"],
 ].map(([name, description]) => ({ name, description }));
 
 const manifest = {

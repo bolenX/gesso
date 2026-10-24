@@ -241,6 +241,32 @@ describe("gesso MCP server", () => {
     expect((unknown.content as Array<{ text: string }>)[0]!.text).toContain("Unknown preset");
   });
 
+  it("prepares an expand job whose ops place the result with provenance", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "gesso-gen-"));
+    await sharp({ create: { width: 400, height: 400, channels: 3, background: "#2440E6" } }).png().toFile(join(baseDir, "square.png"));
+    const doc = {
+      id: "wide", artboards: [{ id: "banner", frame: { x: 0, y: 0, w: 1600, h: 900 },
+        layers: [{ id: "photo", type: "image", asset: "sq", fit: "cover", frame: { x: 0, y: 0, w: 1600, h: 900 } }] }],
+      assets: { sq: { uri: "square.png", kind: "image" } },
+    };
+    const client = await connect({ baseDir });
+    await client.callTool({ name: "canvas_create", arguments: { doc } });
+    const body = (r: Awaited<ReturnType<typeof client.callTool>>) => (r.content as Array<{ text: string }>)[0]!.text;
+    const job = JSON.parse(body(await client.callTool({ name: "gen_prepare", arguments: { doc: "wide", job: "expand", artboard: "banner", layer: "photo" } })));
+    expect(job).toMatchObject({ job: "expand", aspectRatio: "16:9", expandBy: { left: 155, top: 0, right: 156, bottom: 0 }, assetId: "expand-photo-r0" });
+    const [mw, mh] = [(await sharp(job.files.mask).metadata()).width, (await sharp(job.files.padded).metadata()).height];
+    expect([mw, mh]).toEqual(job.targetSize);
+
+    // Stand in for the provider: any image of the target size.
+    await sharp({ create: { width: job.targetSize[0], height: job.targetSize[1], channels: 3, background: "#FFC21A" } }).png().toFile(join(baseDir, "result.png"));
+    await client.callTool({ name: "asset_import", arguments: { doc: "wide", id: job.assetId, source: "result.png" } });
+    const patched = await client.callTool({ name: "canvas_patch", arguments: { doc: "wide", baseRevision: 1, ops: job.ops } });
+    expect(patched.isError).toBeFalsy();
+    const layers = JSON.parse(body(await client.callTool({ name: "canvas_get", arguments: { doc: "wide", selectors: ["#photo-plate", "#photo"] } })));
+    expect(JSON.stringify(layers)).toContain('"op":"expand"');
+    expect(JSON.stringify(layers)).toContain('"x":350');
+  });
+
   it("serves skills as prompts and through skill_read", async () => {
     const client = await connect();
     const { prompts } = await client.listPrompts();
@@ -251,9 +277,4 @@ describe("gesso MCP server", () => {
     expect(JSON.stringify(prompt.messages)).toContain("safe zone");
   });
 
-  it("reports unimplemented tools as errors", async () => {
-    const client = await connect();
-    const result = await client.callTool({ name: "gen_prepare", arguments: { doc: "promo-01" } });
-    expect(result.isError).toBe(true);
-  });
 });

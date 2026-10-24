@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ICONS, TOOL_TITLES } from "./brand.js";
 import { DOC_FORMAT } from "./format.js";
+import { prepareJob } from "./gen.js";
 import { importAsset } from "./import.js";
 import { loadSkills } from "./skills.js";
 import { DocStore } from "./store.js";
@@ -87,11 +88,6 @@ const MIME: Record<string, string> = {
 const withCard = (result: CallToolResult, card: CardData): CallToolResult => ({
   ...result,
   structuredContent: { gesso: { ...card, generator: GENERATOR } },
-});
-
-const notImplemented = (tool: string) => async (): Promise<CallToolResult> => ({
-  isError: true,
-  content: [{ type: "text", text: `${tool} is not implemented yet` }],
 });
 
 export type ServerOptions = {
@@ -433,6 +429,24 @@ export function createServer({
   );
 
   register(
+    "gen_prepare",
+    {
+      description:
+        "Prepare an image-generation job for a layer: expand (outpaint an image to fill its frame without cropping), generate (a new image for a layer's frame from a prompt), remove-background, or upscale. Gesso doesn't generate images: it writes the source, padded canvas and mask to the Gesso folder and returns sizes, a prompt, the asset id to import the result under, and the canvas_patch ops that place it as a new layer with provenance. Run the job with an image tool the user has connected.",
+      inputSchema: {
+        doc: docId,
+        job: z.enum(["expand", "generate", "remove-background", "upscale"]),
+        artboard: z.string().describe("Artboard ID"),
+        layer: z.string().describe("Layer ID: the image layer to work on, or for generate the layer whose frame the new image fills"),
+        prompt: z.string().optional().describe("What to generate; expand has a sensible default"),
+        factor: z.number().int().min(2).max(8).optional().describe("Upscale factor, default 2"),
+      },
+    },
+    async ({ doc, job, ...request }) =>
+      guard(async () => json(await prepareJob(store.get(doc), { kind: job, ...request }, baseDir, loader))),
+  );
+
+  register(
     "skill_read",
     {
       description: `Read a Gesso recipe: the workflow, judgement calls and checks for a kind of task. Skills: ${skills.map((s) => `${s.name}: ${s.description}`).join(" | ") || "none"}`,
@@ -574,17 +588,6 @@ export function createServer({
         };
       }),
   );
-
-  const stubs: Array<[string, string]> = [
-    ["gen_prepare", "Build a provider-neutral generative job spec."],
-  ];
-  for (const [name, description] of stubs) {
-    register(
-      name,
-      { description, inputSchema: { doc: docId, args: z.record(z.unknown()).optional() } },
-      notImplemented(name),
-    );
-  }
 
   return server;
 }
