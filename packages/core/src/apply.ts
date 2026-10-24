@@ -218,6 +218,9 @@ export function semanticErrors(doc: Doc): string[] {
         errors.push(`mask on "${layer.id}" uses missing asset "${layer.mask.asset}"`);
       }
       if (layer.mask?.kind === "luminance-of") lumaRefs.push([layer.id, layer.mask.layer]);
+      if (layer.type === "text" && layer.runs && layer.runs.map((r) => r.text).join("") !== layer.content) {
+        errors.push(`text "${layer.id}": its runs don't add up to its content; set content and runs together`);
+      }
       if (layer.type === "smart" && !doc.symbols?.[layer.symbol]) {
         errors.push(`layer "${layer.id}" places missing symbol "${layer.symbol}"`);
       }

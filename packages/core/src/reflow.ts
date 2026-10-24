@@ -88,6 +88,7 @@ function scaleContent(layer: Layer, s: number): void {
   if (layer.mask && "feather" in layer.mask && layer.mask.feather) layer.mask = { ...layer.mask, feather: layer.mask.feather * s };
   if (layer.type === "text") {
     layer.style = { ...layer.style, size: round(layer.style.size * s), ...(layer.style.leading ? { leading: round(layer.style.leading * s) } : {}) };
+    if (layer.runs) layer.runs = layer.runs.map((r) => (r.size ? { ...r, size: round(r.size * s) } : r));
     if (layer.box?.kind === "area" && layer.box.minSize) layer.box = { ...layer.box, minSize: round(layer.box.minSize * s) };
   }
   if (layer.type === "shape") {
