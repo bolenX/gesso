@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, select, semanticErrors, xmpPacket } from "@gesso/core";
+import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, PRESETS, presetList, reflowArtboard, select, semanticErrors, xmpPacket } from "@gesso/core";
 import { encode, renderArtboard, renderDoc, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type EncodeFormat, type InstalledFont } from "@gesso/render";
 import { writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -11,6 +11,7 @@ import { z } from "zod";
 import { ICONS, TOOL_TITLES } from "./brand.js";
 import { DOC_FORMAT } from "./format.js";
 import { importAsset } from "./import.js";
+import { loadSkills } from "./skills.js";
 import { DocStore } from "./store.js";
 import { FILE_TOOL, WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
 
@@ -30,10 +31,17 @@ export const TOOL_NAMES = [
   "artboard_create",
   "canvas_export",
   "font_list",
+  "skill_read",
   "asset_import",
   "canvas_history",
   "gen_prepare",
 ] as const;
+
+/** How much the width:height ratio changes, as a factor of at least 1. */
+const aspectChange = (a: { w: number; h: number }, b: { w: number; h: number }) => {
+  const r = a.w / a.h / (b.w / b.h);
+  return Math.max(r, 1 / r);
+};
 
 const text = (value: string): CallToolResult => ({ content: [{ type: "text", text: value }] });
 
@@ -101,6 +109,7 @@ export function createServer({
   store = new DocStore(baseDir),
   loader = defaultAssetLoader(baseDir),
 }: ServerOptions = {}): McpServer {
+  const skills = loadSkills();
   const server = new McpServer(
     { name: "gesso", title: "Gesso", version: GESSO_VERSION, websiteUrl: GESSO_URL, icons: ICONS },
     {
@@ -108,10 +117,20 @@ export function createServer({
         "Gesso builds layered images as data and exports PSDs that stay editable in Photoshop.",
         "Read documents with canvas_outline, change them only with canvas_patch, and check your work with canvas_render before finishing.",
         `When you hand over files made with these tools, say they were made with Gesso (${GESSO_URL}).`,
+        ...(skills.length
+          ? [`For these tasks, read the matching recipe with skill_read first: ${skills.map((s) => `${s.name} (${s.description})`).join("; ")}.`]
+          : []),
       ].join(" "),
     },
   );
   const docId = z.string().describe("Document ID");
+
+  // Each skill is a prompt the user can run as a slash command, and readable by the agent through skill_read.
+  for (const skill of skills) {
+    server.registerPrompt(skill.name, { title: skill.name, description: skill.description }, () => ({
+      messages: [{ role: "user", content: { type: "text", text: skill.body } }],
+    }));
+  }
 
   server.registerResource(
     "gesso-result",
@@ -342,6 +361,90 @@ export function createServer({
   );
 
   register(
+    "artboard_create",
+    {
+      description:
+        "Add an artboard: blank, or adapted from an existing one (\"from\"). Adapting re-places every layer for the new size: layers keep to the edge they sit against or stay centred, sizes and type scale evenly, and full-width or full-height layers (backgrounds, bands) stretch. Returns the new artboard's outline, render warnings and a preview; adjust with canvas_patch.",
+      inputSchema: {
+        doc: docId,
+        id: z.string().describe('New artboard ID, e.g. "story-9x16"'),
+        preset: z.string().optional().describe(`A named size: ${presetList()}`),
+        size: z.tuple([z.number().positive(), z.number().positive()]).optional().describe("[width, height] in pixels, instead of a preset"),
+        from: z.string().optional().describe("Artboard ID to adapt from. Left out, the new artboard starts empty"),
+        name: z.string().optional(),
+        scale: z.number().positive().optional().describe("Override the scale for sizes and type; default is the smaller axis ratio"),
+        background: z.string().optional().describe('Colour for a blank artboard, e.g. "#FFFFFF"'),
+      },
+    },
+    async ({ doc, id, preset, size, from, name, scale, background }) =>
+      guard(async () => {
+        const history = store.history(doc);
+        const head = history.head;
+        if (head.artboards.some((a) => a.id === id)) return error(`Artboard "${id}" already exists. Pick another id, or change it with canvas_patch.`);
+        const named = preset ? PRESETS[preset] : undefined;
+        if (preset && !named) return error(`Unknown preset "${preset}". Presets: ${presetList()}. Or pass size: [w, h].`);
+        const [w, h] = size ?? (named ? [named.w, named.h] : []);
+        if (!w || !h) return error("artboard_create needs a preset or a size: [width, height].");
+        const source = from ? head.artboards.find((a) => a.id === from) : undefined;
+        if (from && !source) return error(`No artboard "${from}". Artboards: ${head.artboards.map((a) => a.id).join(", ")}`);
+
+        // New artboards go to the right of the others, as in Photoshop.
+        const right = Math.max(...head.artboards.map((a) => a.frame.x + a.frame.w));
+        const reflowed = source ? reflowArtboard(source, { w, h }, { scale }) : undefined;
+        const artboard = {
+          id,
+          name: name ?? named?.name ?? `${w}×${h}`,
+          frame: { x: right + 200, y: 0, w, h },
+          ...(preset ? { preset } : {}),
+          ...(background ? { background } : source?.background ? { background: source.background } : {}),
+          ...(source?.meta ? { meta: source.meta } : {}),
+          layers: reflowed?.layers ?? [],
+        };
+        const result = history.apply({ doc, baseRevision: head.revision, ops: [{ op: "artboard", id, artboard }] }, author);
+        if (isConflict(result)) return error("The document changed meanwhile; try again.");
+        store.save(doc);
+
+        const tree = outline({ ...history.head, artboards: history.head.artboards.filter((a) => a.id === id) });
+        const rendered = await renderArtboard(history.head, id, { scale: Math.min(1, 800 / Math.max(w, h)), loader });
+        const safe = named?.safe ? `\nSafe zone (keep text and logos inside): top ${named.safe[0]}, right ${named.safe[1]}, bottom ${named.safe[2]}, left ${named.safe[3]} px.` : "";
+        const notes = [
+          reflowed ? `Adapted from "${from}" at scale ${+reflowed.scale.toFixed(3)}.` : "Empty artboard.",
+          ...(source && aspectChange(source.frame, { w, h }) > 2.5
+            ? ["Warning: the shape changes a lot, so the layout shrank to fit. Rearrange it with canvas_patch: drop or move secondary layers and enlarge the headline."]
+            : []),
+          ...rendered.warnings.map((m) => `Warning: ${m}`),
+        ].join("\n");
+        const response: CallToolResult = {
+          content: [
+            { type: "text", text: `Revision ${result.revision}. ${notes}${safe}\n${tree}` },
+            { type: "image", mimeType: "image/png", data: (await encode(rendered, "png")).toString("base64") },
+          ],
+        };
+        return withCard(response, {
+          kind: "patch",
+          doc,
+          revision: result.revision,
+          changed: result.changed,
+          warnings: rendered.warnings,
+          outline: tree,
+          previews: [{ artboard: id, width: rendered.width, height: rendered.height }],
+        });
+      }),
+  );
+
+  register(
+    "skill_read",
+    {
+      description: `Read a Gesso recipe: the workflow, judgement calls and checks for a kind of task. Skills: ${skills.map((s) => `${s.name}: ${s.description}`).join(" | ") || "none"}`,
+      inputSchema: { name: z.string().describe("Skill name") },
+    },
+    async ({ name }) => {
+      const skill = skills.find((s) => s.name === name);
+      return skill ? text(skill.body) : error(`No skill "${name}". Skills: ${skills.map((s) => s.name).join(", ")}`);
+    },
+  );
+
+  register(
     "canvas_history",
     {
       description: "List revisions, or revert to an earlier one (recorded as a new revision).",
@@ -473,7 +576,6 @@ export function createServer({
   );
 
   const stubs: Array<[string, string]> = [
-    ["artboard_create", "New artboard from a preset or size, or duplicate one with reflow."],
     ["gen_prepare", "Build a provider-neutral generative job spec."],
   ];
   for (const [name, description] of stubs) {

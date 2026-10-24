@@ -28,6 +28,7 @@ await build({
 });
 
 cpSync(join(mcp, "assets"), join(here, "assets"), { recursive: true });
+cpSync(join(here, "../../skills"), join(here, "assets/skills"), { recursive: true, filter: (src) => !src.endsWith("README.md") });
 const require = createRequire(join(mcp, "package.json"));
 const appBundle = require.resolve("@modelcontextprotocol/ext-apps/app-with-deps");
 mkdirSync(join(here, "vendor"), { recursive: true });

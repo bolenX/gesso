@@ -31,6 +31,7 @@ export const TOOL_TITLES: Record<string, string> = {
   artboard_create: "Add artboard",
   canvas_export: "Export",
   font_list: "Find fonts",
+  skill_read: "Read skill",
   asset_import: "Import asset",
   canvas_history: "History",
   gen_prepare: "Prepare generation",

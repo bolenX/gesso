@@ -10,4 +10,6 @@ skills/<name>/
   examples/      # before/after docs with golden renders
 ```
 
+Gesso serves every skill whose front matter isn't `status: placeholder` as an MCP prompt (a slash command in most agents) and through the `skill_read` tool, so agents load the recipe when a task calls for it.
+
 A skill ships in a release only when its examples pass. The full catalogue and the waves it ships in are in [docs/spec-v0.1.md](../docs/spec-v0.1.md#skill-catalogue).

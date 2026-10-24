@@ -81,6 +81,19 @@ function applyOp(doc: Doc, op: Op, selection: string[]): string[] {
       siblings.splice(index, 0, layer);
       return [layer.id];
     }
+    case "artboard": {
+      const index = doc.artboards.findIndex((a) => a.id === op.id);
+      if (op.artboard) {
+        if (op.artboard.id !== op.id) throw new PatchError(`artboard id "${op.artboard.id}" doesn't match op id "${op.id}"`);
+        if (index >= 0) doc.artboards[index] = op.artboard;
+        else doc.artboards.push(op.artboard);
+        return layerIds(op.artboard.layers);
+      }
+      if (index < 0) throw new PatchError(`there is no artboard "${op.id}" to remove`);
+      if (doc.artboards.length === 1) throw new PatchError("a document needs at least one artboard");
+      doc.artboards.splice(index, 1);
+      return [];
+    }
     case "asset": {
       if (op.asset) doc.assets[op.id] = op.asset;
       else if (!(op.id in doc.assets)) throw new PatchError(`there is no asset "${op.id}" to remove`);

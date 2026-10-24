@@ -44,8 +44,9 @@ const tools = [
   ["canvas_history", "List revisions or revert to one"],
   ["canvas_render", "Render preview images"],
   ["canvas_export", "Export PNG, JPEG, WebP or a layered PSD"],
-  ["artboard_create", "Add an artboard (planned)"],
+  ["artboard_create", "Add a size, or adapt an artboard to one"],
   ["font_list", "Find installed fonts"],
+  ["skill_read", "Read a recipe, such as adapting a design to more sizes"],
   ["asset_import", "Add an image or font from a path, URL or data"],
   ["gen_prepare", "Prepare a generative job (planned)"],
 ].map(([name, description]) => ({ name, description }));
