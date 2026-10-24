@@ -154,7 +154,15 @@ export const Mask = z.discriminatedUnion("kind", [
     invert: z.boolean().optional(),
     feather: z.number().nonnegative().optional(),
   }),
-  z.object({ kind: z.literal("vector"), shape: Shape, feather: z.number().nonnegative().optional() }),
+  z.object({
+    kind: z.literal("vector"),
+    shape: Shape,
+    feather: z.number().nonnegative().optional(),
+    /** Where the shape sits within the layer's box; the whole box when left out. */
+    frame: Frame.optional(),
+    /** Hide inside the shape instead of outside it. */
+    invert: z.boolean().optional(),
+  }),
   z.object({ kind: z.literal("luminance-of"), layer: Id }),
 ]);
 export type Mask = z.infer<typeof Mask>;
@@ -162,6 +170,33 @@ export type Mask = z.infer<typeof Mask>;
 /** Smart filters run in order, before mask and blend. More filter kinds arrive in v0.2. */
 export const Filter = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("gaussian-blur"), radius: z.number().nonnegative() }),
+  /**
+   * Ribbed glass refraction (Photoshop's Glass filter with a stripe texture): the layer is cut
+   * into parallel ribs and each one shows a shifted, squeezed slice of what's beneath.
+   */
+  z.object({
+    kind: z.literal("glass"),
+    /** Rib width in pixels. */
+    size: z.number().positive(),
+    /** How far each rib shifts the image, in pixels. */
+    amount: z.number(),
+    /** 0 gives vertical ribs; 90 horizontal. */
+    angle: z.number().optional(),
+    /** "ramp": hard-edged ribs like reeded glass (default); "wave": smooth flutes. */
+    profile: z.enum(["ramp", "wave"]).optional(),
+  }),
+  /** A straight motion blur, as in Photoshop: distance in pixels along the angle (0 is horizontal). */
+  z.object({ kind: z.literal("motion-blur"), angle: z.number(), distance: z.number().positive() }),
+  /**
+   * Photoshop's Path Blur: everything smears along a curved path. Points are [x, y] fractions of
+   * the layer's box, at least two, drawn in the direction of motion; distance is the blur length
+   * in pixels. Pair it with an inverted, feathered vector mask to keep a subject sharp.
+   */
+  z.object({
+    kind: z.literal("path-blur"),
+    path: z.array(z.tuple([z.number(), z.number()])).min(2).max(16),
+    distance: z.number().positive(),
+  }),
 ]);
 export type Filter = z.infer<typeof Filter>;
 

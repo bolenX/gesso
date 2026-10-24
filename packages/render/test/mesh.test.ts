@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gradientTable, meshVertices } from "../src/index.js";
+import { directionField, gradientTable, meshVertices } from "../src/index.js";
 
 describe("meshVertices", () => {
   it("passes through every control point's position and colour", () => {
@@ -37,5 +37,18 @@ describe("gradientTable", () => {
     expect(Array.from(t.slice(128 * 3, 128 * 3 + 3))).toEqual([255, 1, 1]);
     expect(Array.from(t.slice(255 * 3))).toEqual([255, 255, 255]);
     expect(Array.from(gradientTable(stops, true).slice(0, 3))).toEqual([255, 255, 255]);
+  });
+});
+
+describe("directionField", () => {
+  it("points along the path's tangent", () => {
+    const field = directionField([[0, 10], [40, 10], [40, 50]], 50, 60);
+    const at = (x: number, y: number) => Array.from(field.slice((y * 50 + x) * 4, (y * 50 + x) * 4 + 2));
+    const [ax, ay] = at(10, 12);
+    expect(ax).toBe(255);
+    expect(Math.abs(ay! - 128)).toBeLessThanOrEqual(2);
+    const [bx, by] = at(42, 45);
+    expect(Math.abs(bx! - 128)).toBeLessThanOrEqual(2);
+    expect(by).toBe(255);
   });
 });

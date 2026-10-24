@@ -1,6 +1,6 @@
 {
   "name": "gesso-mcp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Gesso MCP server: AI agents build layered images as data and export PSDs that stay editable in Photoshop.",
   "license": "Apache-2.0",
   "type": "module",
