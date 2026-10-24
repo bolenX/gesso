@@ -221,6 +221,36 @@ describe("gesso MCP server", () => {
     expect(body(missing)).toContain("No file at");
   });
 
+  it("adapts an artboard to a preset size", async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), "gesso-"));
+    await sharp({ create: { width: 30, height: 40, channels: 3, background: "#c08040" } }).png().toFile(join(baseDir, "portrait.png"));
+    const doc = structuredClone(promo);
+    doc.assets.portrait!.uri = "portrait.png";
+    const client = await connect({ baseDir });
+    await client.callTool({ name: "canvas_create", arguments: { doc } });
+    const from = promo.artboards[0]!.id;
+    const result = await client.callTool({ name: "artboard_create", arguments: { doc: "promo-01", id: "story", preset: "instagram-story", from } });
+    expect(result.isError).toBeFalsy();
+    const [summary, preview] = result.content as Array<{ type: string; text?: string }>;
+    expect(summary!.text).toContain(`Adapted from "${from}"`);
+    expect(summary!.text).toContain("Safe zone");
+    expect(preview!.type).toBe("image");
+    const again = await client.callTool({ name: "artboard_create", arguments: { doc: "promo-01", id: "story", size: [100, 100] } });
+    expect(again.isError).toBe(true);
+    const unknown = await client.callTool({ name: "artboard_create", arguments: { doc: "promo-01", id: "x", preset: "nope" } });
+    expect((unknown.content as Array<{ text: string }>)[0]!.text).toContain("Unknown preset");
+  });
+
+  it("serves skills as prompts and through skill_read", async () => {
+    const client = await connect();
+    const { prompts } = await client.listPrompts();
+    expect(prompts.map((p) => p.name)).toContain("adapt-sizes");
+    const read = await client.callTool({ name: "skill_read", arguments: { name: "adapt-sizes" } });
+    expect((read.content as Array<{ text: string }>)[0]!.text).toContain("artboard_create");
+    const prompt = await client.getPrompt({ name: "adapt-sizes" });
+    expect(JSON.stringify(prompt.messages)).toContain("safe zone");
+  });
+
   it("reports unimplemented tools as errors", async () => {
     const client = await connect();
     const result = await client.callTool({ name: "gen_prepare", arguments: { doc: "promo-01" } });

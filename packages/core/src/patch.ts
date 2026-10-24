@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Asset } from "./schema.js";
+import { Artboard, Asset } from "./schema.js";
 import { parseSelector } from "./selector.js";
 
 // Patches are the only way to change a document. Ops are ID-addressed, never
@@ -62,7 +62,14 @@ export const AssetOp = z.object({
   asset: Asset.nullable(),
 });
 
-export const Op = z.union([SetOp, InsertOp, MoveOp, RemoveOp, AssetOp]);
+/** Adds an artboard (or replaces the one with this id); null removes it. */
+export const ArtboardOp = z.object({
+  op: z.literal("artboard"),
+  id: z.string().min(1),
+  artboard: Artboard.nullable(),
+});
+
+export const Op = z.union([SetOp, InsertOp, MoveOp, RemoveOp, AssetOp, ArtboardOp]);
 export type Op = z.infer<typeof Op>;
 
 export const Patch = z.object({
