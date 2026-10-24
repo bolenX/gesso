@@ -209,26 +209,11 @@ function backgroundLayer(artboard: Artboard, ox: number, oy: number): PsdLayer {
 }
 
 /** Crops a part's pixels to their non-transparent bounds, placed in document coordinates. */
+/** A part's pixels, already cropped to their content, placed in document coordinates. */
 function pixelData(part: LayerPart, ctx: Ctx): Partial<PsdLayer> {
-  const pixels = part.pixels!;
-  const width = ctx.width;
-  const height = pixels.length / 4 / width;
-  let [minX, minY, maxX, maxY] = [width, height, -1, -1];
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (pixels[(y * width + x) * 4 + 3]! === 0) continue;
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
-  }
-  if (maxX < 0) return {};
-  const w = maxX - minX + 1;
-  const h = maxY - minY + 1;
-  const data = new Uint8Array(w * h * 4);
-  for (let y = 0; y < h; y++) data.set(pixels.subarray(((minY + y) * width + minX) * 4, ((minY + y) * width + minX + w) * 4), y * w * 4);
-  return { left: ctx.ox + minX, top: ctx.oy + minY, right: ctx.ox + minX + w, bottom: ctx.oy + minY + h, imageData: { width: w, height: h, data } };
+  if (!part.pixels || !part.pixelBox) return {};
+  const { x, y, w, h } = part.pixelBox;
+  return { left: ctx.ox + x, top: ctx.oy + y, right: ctx.ox + x + w, bottom: ctx.oy + y + h, imageData: { width: w, height: h, data: part.pixels } };
 }
 
 function maskData(mask: Uint8Array, ctx: Ctx): PsdLayer["mask"] {

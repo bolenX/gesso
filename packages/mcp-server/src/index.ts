@@ -4,6 +4,7 @@ import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normal
 import { encode, renderArtboard, renderDoc, defaultAssetLoader, type AssetLoader, type EncodeFormat } from "@gesso/render";
 import { writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import sharp from "sharp";
 import { basename, extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
@@ -55,12 +56,13 @@ type CardData = {
   changed?: string[];
   warnings?: string[];
   outline?: string;
-  previews?: Array<{ artboard: string; width: number; height: number; png: string }>;
+  /** Preview sizes, in the same order as the result's image parts; the images themselves stay out of the card data. */
+  previews?: Array<{ artboard: string; width: number; height: number }>;
   files?: CardFile[];
 };
 
 /** One deliverable on the export card. Thumbnails are small PNGs; the file itself is fetched on download. */
-type CardFile = { name: string; path: string; kind: string; mimeType: string; bytes: number; thumb?: string };
+type CardFile = { name: string; path: string; kind: string; mimeType: string; bytes: number };
 
 const MIME: Record<string, string> = {
   ".psd": "image/vnd.adobe.photoshop",
@@ -224,7 +226,7 @@ export function createServer({
           card.previews = [];
           for (const r of rendered) {
             const png = (await encode(r, "png")).toString("base64");
-            card.previews.push({ artboard: r.artboard, width: r.width, height: r.height, png });
+            card.previews.push({ artboard: r.artboard, width: r.width, height: r.height });
             response.content.push({ type: "image", mimeType: "image/png", data: png });
           }
         }
@@ -269,7 +271,7 @@ export function createServer({
           const png = (await encode(r, "png")).toString("base64");
           content.push({ type: "text", text: `${r.artboard} ${r.width}×${r.height}${r.warnings.map((w) => `\nwarning: ${w}`).join("")}` });
           content.push({ type: "image", mimeType: "image/png", data: png });
-          previews.push({ artboard: r.artboard, width: r.width, height: r.height, png });
+          previews.push({ artboard: r.artboard, width: r.width, height: r.height });
         }
         return withCard({ content }, { kind: "render", doc, revision: d.revision, previews, warnings: rendered.flatMap((r) => r.warnings) });
       }),
@@ -295,12 +297,6 @@ export function createServer({
         await mkdir(dir, { recursive: true });
         const xmp = xmpPacket(d.id, d.revision);
         const files = [];
-        // Small thumbnails for the card, one per artboard.
-        const thumbs = new Map<string, string>();
-        for (const a of d.artboards) {
-          const t = await renderArtboard(d, a.id, { scale: Math.min(1, 320 / Math.max(a.frame.w, a.frame.h)), loader });
-          thumbs.set(a.id, (await encode(t, "png")).toString("base64"));
-        }
         if (format === "psd") {
           const { bytes, warnings } = await writePsd(d, { loader });
           const path = resolve(dir, `${d.id}.psd`);
@@ -325,14 +321,12 @@ export function createServer({
         for (const f of [...files, { path: manifestPath }]) {
           exported.add(f.path);
           const ext = extname(f.path).toLowerCase();
-          const thumb = "artboard" in f ? thumbs.get(f.artboard as string) : ext === ".psd" ? thumbs.get(d.artboards[0]!.id) : undefined;
           cardFiles.push({
             name: basename(f.path),
             path: f.path,
             kind: ext.slice(1).toUpperCase().replace("JPG", "JPEG"),
             mimeType: MIME[ext] ?? "application/octet-stream",
             bytes: (await stat(f.path)).size,
-            ...(thumb ? { thumb } : {}),
           });
         }
         return withCard(json(manifest), {
@@ -350,15 +344,19 @@ export function createServer({
     {
       title: "Download file",
       description: "Returns a file this Gesso server exported, for the result card's download buttons.",
-      inputSchema: { path: z.string() },
+      inputSchema: { path: z.string(), maxSize: z.number().int().positive().max(2048).optional().describe("Return images scaled to fit this many pixels, as PNG") },
       _meta: { ui: { visibility: ["app"] } },
     },
-    async ({ path }) =>
+    async ({ path, maxSize }) =>
       guard(async () => {
         if (!exported.has(path)) return error("Only files exported in this session can be downloaded");
         const ext = extname(path).toLowerCase();
-        const mimeType = MIME[ext] ?? "application/octet-stream";
-        const blob = (await readFile(path)).toString("base64");
+        const scale = maxSize !== undefined && [".png", ".jpg", ".webp"].includes(ext);
+        const mimeType = scale ? "image/png" : (MIME[ext] ?? "application/octet-stream");
+        const bytes = scale
+          ? await sharp(path).resize(maxSize, maxSize, { fit: "inside", withoutEnlargement: true }).png().toBuffer()
+          : await readFile(path);
+        const blob = bytes.toString("base64");
         return {
           content: [{ type: "resource", resource: { uri: pathToFileURL(path).href, mimeType, blob } }],
           structuredContent: { name: basename(path), mimeType, blob },
