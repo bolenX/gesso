@@ -59,3 +59,29 @@ describe("docIssues", () => {
     expect(issues.some((i) => i.startsWith('layer "g".children[0] "c" (text).content'))).toBe(true);
   });
 });
+
+describe("symbols", () => {
+  const layers = [{ id: "w", type: "text", content: "regular", style: { font: "F", size: 40 }, box: { kind: "point" }, frame: { x: 0, y: 0, w: 200, h: 50 } }];
+  const docWith = (symbol: object) => ({
+    id: "rot",
+    symbols: { word: symbol },
+    artboards: [{ id: "a", frame: { x: 0, y: 0, w: 400, h: 300 }, layers: [{ id: "s1", type: "smart", symbol: "word", quad: [[100, 50], [100, 250], [50, 250], [50, 50]], frame: { x: 50, y: 50, w: 50, h: 200 } }] }],
+  });
+
+  // The spellings agents used for a symbol's size, from real tool calls.
+  it.each([
+    ["size as {w, h} plus a frame", { id: "word", size: { w: 200, h: 50 }, frame: { x: 0, y: 0, w: 200, h: 50 }, layers }],
+    ["w/h and width/height", { id: "word", name: "word", w: 200, h: 50, width: 200, height: 50, layers }],
+    ["size as [w, h], no id or name", { size: [200, 50], layers }],
+  ])("accepts %s", (_, symbol) => {
+    const parsed = Doc.safeParse(normalizeDoc(docWith(symbol)));
+    expect(parsed.success).toBe(true);
+    expect(parsed.data!.symbols!.word).toMatchObject({ id: "word", name: "word", size: [200, 50] });
+  });
+
+  it("explains a symbol with no size, and bad symbol layers", () => {
+    const issues = docIssues(normalizeDoc(docWith({ layers: [{ id: "t", type: "text" }] })));
+    expect(issues).toContain('symbols["word"].size: needs [width, height] in pixels, e.g. [200, 50]');
+    expect(issues.some((i) => i.startsWith('symbols["word"].layers[0] "t" (text).content'))).toBe(true);
+  });
+});

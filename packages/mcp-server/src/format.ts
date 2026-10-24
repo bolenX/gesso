@@ -33,6 +33,8 @@ Layer types and their own fields:
 - image: "asset", "fit": cover|contain|fill, "focus": [x, y]
 - adjustment: "adjustment" { "kind": "curves", "points": [[in, out], …] } | levels | hue-saturation | brightness-contrast
 - group: "children" (layers), "isolation": pass-through|isolate
-- smart: "symbol" (an ID in doc.symbols), "quad": four [x, y] corners for perspective
+- smart: places a symbol: "symbol" (an ID in doc.symbols); optional "quad": four [x, y] corners (top-left, top-right, bottom-right, bottom-left) that pin it in perspective or rotate it, overriding the frame
+Symbols are reusable contents for smart layers; they export as Photoshop smart objects:
+"symbols": { "screen": { "size": [1600, 1000], "background": "#FFFFFF", "layers": [ ...layers, positioned within the size... ] } }
 Colours are "#RRGGBB" or "#RRGGBBAA"; gradients are { "kind": "linear-gradient", "angle", "stops": [{ "offset", "color" }] }.
 Text needs a font asset: point "uri" at a .ttf/.otf file and set "family" (and "postscriptName" so Photoshop finds it).`;
