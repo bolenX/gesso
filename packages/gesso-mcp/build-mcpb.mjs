@@ -35,6 +35,7 @@ run("npm", ["install", "--no-save", "--force", "--no-audit", "--no-fund", "--log
 await sharp(join(here, "assets/favicon.svg"), { density: 1200 }).resize(512, 512).png().toFile(join(stage, "icon.png"));
 
 const tools = [
+  ["canvas_list", "List saved documents"],
   ["canvas_create", "Create a layered document from a full spec"],
   ["canvas_outline", "Read the compact tree of artboards and layers"],
   ["canvas_get", "Read full JSON for layers matching selectors"],
@@ -44,7 +45,8 @@ const tools = [
   ["canvas_render", "Render preview images"],
   ["canvas_export", "Export PNG, JPEG, WebP or a layered PSD"],
   ["artboard_create", "Add an artboard (planned)"],
-  ["asset_import", "Import an asset (planned)"],
+  ["font_list", "Find installed fonts"],
+  ["asset_import", "Add an image or font from a path, URL or data"],
   ["gen_prepare", "Prepare a generative job (planned)"],
 ].map(([name, description]) => ({ name, description }));
 
