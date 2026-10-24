@@ -44,7 +44,7 @@ const tools = [
   ["canvas_patch", "Edit layers with atomic, ID-addressed operations"],
   ["canvas_history", "List revisions or revert to one"],
   ["canvas_render", "Render preview images"],
-  ["canvas_export", "Export PNG, JPEG, WebP or a layered PSD"],
+  ["canvas_export", "Export PNG, JPEG, WebP, a layered PSD, SVG or print-ready PDF"],
   ["artboard_create", "Add a size, or adapt an artboard to one"],
   ["font_list", "Find installed fonts"],
   ["skill_read", "Read a recipe, such as adapting a design to more sizes"],
