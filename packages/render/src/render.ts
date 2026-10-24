@@ -16,8 +16,8 @@ import type {
 import { paintColor } from "@gesso/core";
 import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
-import { directionField, samplePath, shaderEffect } from "./shaders.js";
-import type { CanvasKit, Canvas, Image, Paint, Paragraph, Surface, TypefaceFontProvider } from "canvaskit-wasm";
+import { directionField, samplePath, shaderEffect, shearRows, type ShaderName } from "./shaders.js";
+import type { CanvasKit, Canvas, Image, Paint, Paragraph, Shader, Surface, TypefaceFontProvider } from "canvaskit-wasm";
 import sharp from "sharp";
 import { applyAdjustment } from "./adjust.js";
 import { defaultAssetLoader, type AssetLoader } from "./assets.js";
@@ -428,7 +428,7 @@ class Compositor {
     const picture = recorder.finishRecordingAsPicture();
     recorder.delete();
     // A Gaussian blur reaches about three sigmas.
-    const margin = (layer.filters ?? []).reduce((m, f) => m + Math.ceil(filterReach(f) * this.scale), 0);
+    const margin = (layer.filters ?? []).reduce((m, f) => m + Math.ceil(filterReach(f, box) * this.scale), 0);
     const [l, t, r, b] = picture.cullRect();
     const x = Math.max(0, Math.floor(l! - margin));
     const y = Math.max(0, Math.floor(t! - margin));
@@ -677,36 +677,14 @@ class Compositor {
     const { x, y } = coverage;
     const [w, h] = [coverage.image.width(), coverage.image.height()];
     const backdrop = target.makeImageSnapshot([x, y, x + w, y + h] as unknown as Int32Array);
-    const sigma = radius * this.scale;
-    // Extend the backdrop's edge pixels by the blur's reach, so the blur sees only what's beneath
-    // the layer (a save-layer blur would pull in transparency from outside instead).
-    // Wide blurs run at reduced resolution: the result is smooth either way, and far cheaper.
-    const f = Math.max(1, sigma / 6);
-    const m = Math.ceil((3 * sigma) / f);
-    const [sw, sh] = [Math.ceil(w / f) + 2 * m, Math.ceil(h / f) + 2 * m];
-    const padded = ck.MakeSurface(sw, sh);
-    if (!padded) throw new Error("Could not allocate a render surface");
-    const pc = padded.getCanvas();
-    pc.clear(ck.TRANSPARENT);
-    const extend = new ck.Paint();
-    const local = ck.Matrix.multiply(ck.Matrix.translated(m, m), ck.Matrix.scaled(1 / f, 1 / f));
-    extend.setShader(backdrop.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None, local));
-    const blur = new ck.Paint();
-    blur.setImageFilter(ck.ImageFilter.MakeBlur(sigma / f, sigma / f, ck.TileMode.Decal, null));
-    pc.saveLayer(blur);
-    pc.drawRect(ck.XYWHRect(0, 0, sw, sh), extend);
-    pc.restore();
-    const blurred = padded.makeImageSnapshot();
-    padded.dispose();
+    // The blur repeats the backdrop's edge pixels, so it sees only what's beneath the layer.
+    const blurred = this.blur(backdrop, radius, true);
     const s = ck.MakeSurface(w, h);
     if (!s) throw new Error("Could not allocate a render surface");
     const c = s.getCanvas();
     c.clear(ck.TRANSPARENT);
-    const up = new ck.Paint();
-    c.drawImageRectOptions(blurred, ck.XYWHRect(m, m, w / f, h / f), ck.XYWHRect(0, 0, w, h), ck.FilterMode.Linear, ck.MipmapMode.None, up);
-    up.delete();
+    c.drawImage(blurred, 0, 0);
     blurred.delete();
-    extend.delete();
     const keep = new ck.Paint();
     keep.setBlendMode(ck.BlendMode.DstIn);
     c.drawImage(coverage.image, 0, 0, keep);
@@ -716,7 +694,7 @@ class Compositor {
     p.setAlphaf(layer.opacity ?? 1);
     target.getCanvas().drawImage(glass, x, y, p);
     this.backdrops.set(layer.id, { pixels: glass.readPixels(0, 0, this.info(ck.AlphaType.Unpremul, w, h)) as Uint8Array, x, y, w, h });
-    [blur, keep, p].forEach((paint) => paint.delete());
+    [keep, p].forEach((paint) => paint.delete());
     [backdrop, glass, coverage.image].forEach((image) => image.delete());
   }
 
@@ -1131,102 +1109,158 @@ class Compositor {
 
   /** Applies one smart filter to an image placed at (x, y) in output pixels; box is the layer's box in artboard units. */
   private filter(image: Image, filter: NonNullable<Layer["filters"]>[number], box: Box, x: number, y: number): Image {
-    if (filter.kind === "gaussian-blur") return this.blur(image, filter.radius);
     const { ck } = this;
     const k = this.scale;
-    let shader;
-    const child = image.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None);
-    if (filter.kind === "glass") {
-      const a = ((filter.angle ?? 0) * Math.PI) / 180;
-      shader = shaderEffect(ck, "glass").makeShaderWithChildren(
-        [Math.cos(a), Math.sin(a), x, y, filter.size * k, filter.amount * k, filter.profile === "wave" ? 1 : 0],
-        [child],
-      );
-    } else {
-      child.delete();
-      return this.directionalBlur(image, filter, box, x, y);
+    // Long blurs run at reduced resolution, where their reach is about 24 pixels: a long smear
+    // loses fine detail anyway, and this keeps large posters fast.
+    const reduce = (reach: number) => Math.max(1, Math.min(8, reach / 24));
+    const centre = (c: [number, number] | undefined, f: number): [number, number] => [
+      ((box.x + (c?.[0] ?? 0.5) * box.w) * k - x) / f,
+      ((box.y + (c?.[1] ?? 0.5) * box.h) * k - y) / f,
+    ];
+    const plain = (name: ShaderName, uniforms: number[]) => this.runShader(image, 1, (child) => ({ shader: shaderEffect(ck, name).makeShaderWithChildren(uniforms, [child]) }));
+    switch (filter.kind) {
+      case "gaussian-blur":
+        return this.blur(image, filter.radius);
+      case "glass": {
+        const a = ((filter.angle ?? 0) * Math.PI) / 180;
+        return plain("glass", [Math.cos(a), Math.sin(a), x, y, filter.size * k, filter.amount * k, filter.profile === "wave" ? 1 : 0]);
+      }
+      case "motion-blur": {
+        const f = reduce(filter.distance * k);
+        const a = (filter.angle * Math.PI) / 180;
+        const d = (filter.distance * k) / f;
+        return this.runShader(image, f, (child) => ({ shader: shaderEffect(ck, "motion").makeShaderWithChildren([Math.cos(a) * d, -Math.sin(a) * d], [child]) }));
+      }
+      case "path-blur": {
+        const f = reduce(filter.distance * k);
+        return this.runShader(image, f, (child, sw, sh) => {
+          // Path points are fractions of the layer's box; the field is built in the reduced image's pixels.
+          const path = samplePath(filter.path.map(([fx, fy]) => [((box.x + fx * box.w) * k - x) / f, ((box.y + fy * box.h) * k - y) / f] as [number, number]));
+          const field = ck.MakeImage(this.info(ck.AlphaType.Unpremul, sw, sh), directionField(path, sw, sh), sw * 4)!;
+          const fieldShader = field.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None);
+          return { shader: shaderEffect(ck, "path").makeShaderWithChildren([(filter.distance * k) / f], [child, fieldShader]), extras: [field, fieldShader] };
+        });
+      }
+      case "radial-blur": {
+        // How far the farthest corner moves sets the working resolution.
+        const [cx, cy] = centre(filter.center, 1);
+        const far = Math.max(...[[0, 0], [image.width(), 0], [0, image.height()], [image.width(), image.height()]].map(([px, py]) => Math.hypot(px! - cx, py! - cy)));
+        const angle = (Math.min(filter.amount, 360) * Math.PI) / 180;
+        const f = reduce(filter.mode === "spin" ? far * angle : far * Math.min(filter.amount, 1));
+        return this.runShader(image, f, (child) => ({
+          shader:
+            filter.mode === "spin"
+              ? shaderEffect(ck, "spin").makeShaderWithChildren([...centre(filter.center, f), angle], [child])
+              : shaderEffect(ck, "zoom").makeShaderWithChildren([...centre(filter.center, f), Math.min(filter.amount, 1)], [child]),
+        }));
+      }
+      case "noise":
+        return plain("noise", [filter.amount, Math.max(1, (filter.size ?? 1) * k), x, y, filter.monochrome === false ? 0 : 1, 0]);
+      case "sharpen": {
+        const soft = this.blur(image, filter.radius ?? 1, true);
+        const softShader = soft.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Nearest, ck.MipmapMode.None);
+        return this.runShader(image, 1, (child) => ({ shader: shaderEffect(ck, "sharpen").makeShaderWithChildren([filter.amount], [child, softShader]), extras: [softShader, soft] }));
+      }
+      case "twirl":
+        return plain("twirl", [...centre(filter.center, 1), (filter.angle * Math.PI) / 180, (filter.radius ?? 0.5) * Math.min(box.w, box.h) * k]);
+      case "wave": {
+        const a = ((filter.angle ?? 0) * Math.PI) / 180;
+        return plain("wave", [filter.amplitude * k, filter.wavelength * k, Math.cos(a), -Math.sin(a), x, y]);
+      }
+      case "shear": {
+        const h = image.height();
+        const range = Math.max(1, ...filter.offsets.map((o) => Math.abs(o) * k));
+        return this.runShader(image, 1, (child) => {
+          const rows = ck.MakeImage(this.info(ck.AlphaType.Unpremul, 1, h), shearRows(filter.offsets.map((o) => o * k), box.y * k - y, Math.max(1, box.h * k), h, range), 4)!;
+          const rowShader = rows.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Nearest, ck.MipmapMode.None);
+          return { shader: shaderEffect(ck, "shear").makeShaderWithChildren([range], [child, rowShader]), extras: [rowShader, rows] };
+        });
+      }
+      case "pixelate":
+        return plain("pixelate", [Math.max(1, filter.size * k), x, y]);
     }
-    const s = ck.MakeSurface(image.width(), image.height());
+  }
+
+  /**
+   * Draws a shader made from the image (its child) into a new image of the same size, working
+   * at 1/f resolution when f > 1. The image is consumed.
+   */
+  private runShader(image: Image, f: number, make: (child: Shader, w: number, h: number) => { shader: Shader; extras?: Array<{ delete(): void }> }): Image {
+    const { ck } = this;
+    const [w, h] = [image.width(), image.height()];
+    const [sw, sh] = [Math.max(1, Math.ceil(w / f)), Math.max(1, Math.ceil(h / f))];
+    const linear = new ck.Paint();
+    let source = image;
+    if (f > 1) {
+      const small = ck.MakeSurface(sw, sh);
+      if (!small) throw new Error("Could not allocate a render surface");
+      small.getCanvas().clear(ck.TRANSPARENT);
+      small.getCanvas().drawImageRectOptions(image, ck.XYWHRect(0, 0, w, h), ck.XYWHRect(0, 0, sw, sh), ck.FilterMode.Linear, ck.MipmapMode.None, linear);
+      source = small.makeImageSnapshot();
+      small.dispose();
+    }
+    const child = source.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None);
+    const { shader, extras } = make(child, sw, sh);
+    const s = ck.MakeSurface(sw, sh);
     if (!s) throw new Error("Could not allocate a render surface");
     const p = new ck.Paint();
     p.setShader(shader);
     p.setBlendMode(ck.BlendMode.Src);
     s.getCanvas().drawPaint(p);
-    p.delete();
-    shader.delete();
-    child.delete();
-    image.delete();
-    const out = s.makeImageSnapshot();
+    let out = s.makeImageSnapshot();
     s.dispose();
-    return out;
-  }
-
-  /**
-   * Motion and path blurs. They run at reduced resolution, where the blur distance is about 24
-   * pixels: a long smear loses fine detail anyway, and this keeps large posters fast.
-   */
-  private directionalBlur(image: Image, filter: Extract<NonNullable<Layer["filters"]>[number], { kind: "motion-blur" | "path-blur" }>, box: Box, x: number, y: number): Image {
-    const { ck } = this;
-    const k = this.scale;
-    const [w, h] = [image.width(), image.height()];
-    const f = Math.max(1, Math.min(8, (filter.distance * k) / 24));
-    const [sw, sh] = [Math.max(1, Math.ceil(w / f)), Math.max(1, Math.ceil(h / f))];
-    const small = ck.MakeSurface(sw, sh);
-    if (!small) throw new Error("Could not allocate a render surface");
-    small.getCanvas().clear(ck.TRANSPARENT);
-    const linear = new ck.Paint();
-    small.getCanvas().drawImageRectOptions(image, ck.XYWHRect(0, 0, w, h), ck.XYWHRect(0, 0, sw, sh), ck.FilterMode.Linear, ck.MipmapMode.None, linear);
-    const reduced = small.makeImageSnapshot();
-    small.dispose();
-    image.delete();
-    const child = reduced.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None);
-    const dist = (filter.distance * k) / f;
-    let shader;
-    let field: Image | undefined;
-    let fieldShader;
-    if (filter.kind === "motion-blur") {
-      const a = (filter.angle * Math.PI) / 180;
-      shader = shaderEffect(ck, "motion").makeShaderWithChildren([Math.cos(a) * dist, -Math.sin(a) * dist], [child]);
-    } else {
-      // Path points are fractions of the layer's box; the field is built in the reduced image's pixels.
-      const path = samplePath(filter.path.map(([fx, fy]) => [((box.x + fx * box.w) * k - x) / f, ((box.y + fy * box.h) * k - y) / f] as [number, number]));
-      field = ck.MakeImage(this.info(ck.AlphaType.Unpremul, sw, sh), directionField(path, sw, sh), sw * 4)!;
-      fieldShader = field.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None);
-      shader = shaderEffect(ck, "path").makeShaderWithChildren([dist], [child, fieldShader]);
+    if (f > 1) {
+      const full = ck.MakeSurface(w, h)!;
+      full.getCanvas().clear(ck.TRANSPARENT);
+      full.getCanvas().drawImageRectOptions(out, ck.XYWHRect(0, 0, sw, sh), ck.XYWHRect(0, 0, w, h), ck.FilterMode.Linear, ck.MipmapMode.None, linear);
+      out.delete();
+      out = full.makeImageSnapshot();
+      full.dispose();
+      source.delete();
     }
-    const blurred = ck.MakeSurface(sw, sh)!;
-    const p = new ck.Paint();
-    p.setShader(shader);
-    p.setBlendMode(ck.BlendMode.Src);
-    blurred.getCanvas().drawPaint(p);
-    const smallOut = blurred.makeImageSnapshot();
-    blurred.dispose();
-    const s = ck.MakeSurface(w, h)!;
-    s.getCanvas().clear(ck.TRANSPARENT);
-    s.getCanvas().drawImageRectOptions(smallOut, ck.XYWHRect(0, 0, sw, sh), ck.XYWHRect(0, 0, w, h), ck.FilterMode.Linear, ck.MipmapMode.None, linear);
-    const out = s.makeImageSnapshot();
-    s.dispose();
-    [p, linear].forEach((x) => x.delete());
-    [shader, child, fieldShader].forEach((x) => x?.delete());
-    [reduced, smallOut, field].forEach((x) => x?.delete());
+    [p, linear, shader, child, ...(extras ?? [])].forEach((x) => x.delete());
+    image.delete();
     return out;
   }
 
-  private blur(image: Image, radius: number): Image {
-    const s = this.ck.MakeSurface(image.width(), image.height());
-    if (!s) throw new Error("Could not allocate a render surface");
-    s.getCanvas().clear(this.ck.TRANSPARENT);
-    const p = new this.ck.Paint();
+  /** A Gaussian blur of the image; the input is consumed unless keep is set. */
+  private blur(image: Image, radius: number, keep = false): Image {
+    const { ck } = this;
     const sigma = radius * this.scale;
-    p.setImageFilter(this.ck.ImageFilter.MakeBlur(sigma, sigma, this.ck.TileMode.Decal, null));
+    const [w, h] = [image.width(), image.height()];
+    // Edges repeat, as in Photoshop, so a layer filling the artboard doesn't fade at its edges:
+    // the image is extended by the blur's reach before blurring (a save-layer blur would pull in
+    // transparency instead). Layers with room around them extend their transparent margin, so
+    // their edges soften as usual. Wide blurs run at reduced resolution: smooth either way, far cheaper.
+    // Small blurs stay at full resolution: resampling costs precision in nearly transparent edges.
+    const f = sigma >= 12 ? sigma / 6 : 1;
+    const m = Math.ceil((3 * sigma) / f);
+    const [sw, sh] = [Math.ceil(w / f) + 2 * m, Math.ceil(h / f) + 2 * m];
+    const padded = ck.MakeSurface(sw, sh);
+    if (!padded) throw new Error("Could not allocate a render surface");
+    const pc = padded.getCanvas();
+    pc.clear(ck.TRANSPARENT);
+    const extend = new ck.Paint();
+    const local = ck.Matrix.multiply(ck.Matrix.translated(m, m), ck.Matrix.scaled(1 / f, 1 / f));
+    extend.setShader(image.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None, local));
     // Blur through a save layer: drawImage with an image-filter paint double-premultiplies
     // in CanvasKit 0.40, which darkens soft edges into a grey halo.
-    const canvas = s.getCanvas();
-    canvas.saveLayer(p);
-    canvas.drawImage(image, 0, 0);
-    canvas.restore();
-    p.delete();
-    image.delete();
+    const blur = new ck.Paint();
+    blur.setImageFilter(ck.ImageFilter.MakeBlur(sigma / f, sigma / f, ck.TileMode.Decal, null));
+    pc.saveLayer(blur);
+    pc.drawRect(ck.XYWHRect(0, 0, sw, sh), extend);
+    pc.restore();
+    const blurred = padded.makeImageSnapshot();
+    padded.dispose();
+    const s = ck.MakeSurface(w, h);
+    if (!s) throw new Error("Could not allocate a render surface");
+    s.getCanvas().clear(ck.TRANSPARENT);
+    const up = new ck.Paint();
+    s.getCanvas().drawImageRectOptions(blurred, ck.XYWHRect(m, m, w / f, h / f), ck.XYWHRect(0, 0, w, h), ck.FilterMode.Linear, ck.MipmapMode.None, up);
+    [extend, blur, up].forEach((x) => x.delete());
+    blurred.delete();
+    if (!keep) image.delete();
     const out = s.makeImageSnapshot();
     s.dispose();
     return out;
@@ -1372,10 +1406,22 @@ function cropToContent(pixels: Uint8Array, width: number, height: number) {
   return { pixels: out, box: { x: minX, y: minY, w, h } };
 }
 
-/** How far a filter can move or spread pixels, in artboard units. */
-function filterReach(filter: NonNullable<Layer["filters"]>[number]): number {
-  if (filter.kind === "gaussian-blur") return 3 * filter.radius;
-  // Glass moves pixels within the layer, repeating its edges, as Photoshop's Glass filter does.
-  if (filter.kind === "glass") return 0;
-  return filter.distance / 2;
+/** How far a filter can move or spread pixels beyond the layer, in artboard units. */
+function filterReach(filter: NonNullable<Layer["filters"]>[number], box: Box): number {
+  switch (filter.kind) {
+    case "gaussian-blur":
+      return 3 * filter.radius;
+    case "motion-blur":
+    case "path-blur":
+      return filter.distance / 2;
+    case "radial-blur":
+      return (Math.hypot(box.w, box.h) / 2) * (filter.mode === "spin" ? Math.min(1, (filter.amount * Math.PI) / 180) : Math.min(1, filter.amount));
+    case "wave":
+      return Math.abs(filter.amplitude);
+    case "shear":
+      return Math.max(...filter.offsets.map(Math.abs));
+    default:
+      // Glass, twirl, noise, sharpen and pixelate stay within the layer, repeating its edges.
+      return 0;
+  }
 }

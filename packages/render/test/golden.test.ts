@@ -76,6 +76,12 @@ const scenes: Record<string, Layer[]> = {
       mask: { kind: "vector", shape: { kind: "ellipse" }, frame: { x: 30, y: 50, w: 40, h: 50 }, feather: 6, invert: true },
     } as Layer,
   ],
+  "more-filters": [
+    { id: "spin", name: "spin", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 100, h: 75 }, filters: [{ kind: "radial-blur", mode: "spin", amount: 30 }] } as Layer,
+    { id: "twirl", name: "twirl", type: "image", asset: "photo", fit: "cover", frame: { x: 100, y: 0, w: 100, h: 75 }, filters: [{ kind: "twirl", angle: 200 }] } as Layer,
+    { id: "wave", name: "wave", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 75, w: 100, h: 75 }, filters: [{ kind: "wave", amplitude: 6, wavelength: 30 }, { kind: "noise", amount: 0.2 }] } as Layer,
+    { id: "mosaic", name: "mosaic", type: "image", asset: "photo", fit: "cover", frame: { x: 100, y: 75, w: 100, h: 75 }, filters: [{ kind: "pixelate", size: 8 }] } as Layer,
+  ],
   adjustments: [
     { id: "photo", name: "photo", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
     { id: "warm", name: "warm", type: "adjustment", adjustment: { kind: "hue-saturation", hue: 25, saturation: -40, lightness: 0 }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,

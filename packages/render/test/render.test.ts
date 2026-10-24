@@ -56,6 +56,35 @@ describe("curveLut", () => {
 });
 
 describe("renderArtboard", () => {
+  it("runs every distortion and blur filter deterministically", async () => {
+    // Mid-tones, so sharpening has room to push values apart.
+    const pattern = [rect("bg", "#404040", { x: 0, y: 0, w: 100, h: 100 }), rect("bar", "#C0C0C0", { x: 40, y: 0, w: 20, h: 100 }), rect("dot", "#C04040", { x: 20, y: 20, w: 15, h: 15 })];
+    const filters = [
+      { kind: "radial-blur", mode: "spin", amount: 30 },
+      { kind: "radial-blur", mode: "zoom", amount: 0.4 },
+      { kind: "noise", amount: 0.3 },
+      { kind: "sharpen", amount: 2, radius: 2 },
+      { kind: "twirl", angle: 180 },
+      { kind: "wave", amplitude: 8, wavelength: 40 },
+      { kind: "shear", offsets: [0, 20, 0] },
+      { kind: "pixelate", size: 10 },
+    ];
+    const plain = await renderArtboard(docWith(pattern), "a");
+    for (const filter of filters) {
+      const doc = docWith([{ id: "g", name: "g", type: "group", isolation: "isolate", frame: { x: 0, y: 0, w: 100, h: 100 }, filters: [filter], children: pattern } as Layer]);
+      const [a, b] = [await renderArtboard(doc, "a"), await renderArtboard(doc, "a")];
+      expect(Buffer.from(a.pixels).equals(Buffer.from(b.pixels)), filter.kind).toBe(true);
+      expect(Buffer.from(a.pixels).equals(Buffer.from(plain.pixels)), `${filter.kind} changes the image`).toBe(false);
+      expect(px(a.pixels, 100, 99, 99)[3], `${filter.kind} keeps the layer opaque`).toBe(255);
+    }
+  });
+
+  it("pixelates into flat blocks aligned to the artboard", async () => {
+    const out = await renderArtboard(docWith([rect("bg", { kind: "linear-gradient", angle: 0, stops: [{ offset: 0, color: "#000000" }, { offset: 1, color: "#FFFFFF" }] }, { x: 0, y: 0, w: 100, h: 100 }, { filters: [{ kind: "pixelate", size: 10 }] })]), "a");
+    expect(px(out.pixels, 100, 21, 5)).toEqual(px(out.pixels, 100, 29, 95));
+    expect(px(out.pixels, 100, 29, 5)).not.toEqual(px(out.pixels, 100, 31, 5));
+  });
+
   it("smears along a motion blur's direction only", async () => {
     const dot = rect("dot", "#FFFFFF", { x: 45, y: 45, w: 10, h: 10 }, { filters: [{ kind: "motion-blur", angle: 0, distance: 40 }] });
     const out = await renderArtboard(docWith([rect("bg", "#000000", { x: 0, y: 0, w: 100, h: 100 }), dot]), "a");
