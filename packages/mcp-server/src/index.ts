@@ -19,6 +19,7 @@ export { DocStore };
 
 // The v0.1 tool surface. See docs/spec-v0.1.md, "Agent interface".
 export const TOOL_NAMES = [
+  "canvas_list",
   "canvas_create",
   "canvas_outline",
   "canvas_get",
@@ -84,6 +85,7 @@ const notImplemented = (tool: string) => async (): Promise<CallToolResult> => ({
 });
 
 export type ServerOptions = {
+  /** Defaults to a store that saves documents under baseDir/.gesso. */
   store?: DocStore;
   author?: string;
   /** Where relative asset paths and export directories resolve. */
@@ -92,9 +94,9 @@ export type ServerOptions = {
 };
 
 export function createServer({
-  store = new DocStore(),
   author = "agent",
   baseDir = process.cwd(),
+  store = new DocStore(baseDir),
   loader = defaultAssetLoader(baseDir),
 }: ServerOptions = {}): McpServer {
   const server = new McpServer(
@@ -133,6 +135,19 @@ export function createServer({
     );
 
   register(
+    "canvas_list",
+    {
+      description: "List saved documents (id, revision, artboards, last change), newest first. Documents are saved after every change and reopen by id in any tool.",
+      inputSchema: {},
+    },
+    async () =>
+      guard(() => {
+        const docs = store.list();
+        return docs.length ? json(docs) : text("No documents yet. Start one with canvas_create.");
+      }),
+  );
+
+  register(
     "canvas_create",
     {
       description: DOC_FORMAT,
@@ -147,9 +162,10 @@ export function createServer({
           })
           .passthrough()
           .describe("The full document; see the tool description for the format"),
+        replace: z.boolean().optional().describe("Overwrite a saved document with the same id, discarding its history"),
       },
     },
-    async ({ doc }) => {
+    async ({ doc, replace }) => {
       const input = normalizeDoc(doc);
       const parsed = Doc.safeParse(input);
       if (!parsed.success) {
@@ -160,6 +176,13 @@ export function createServer({
       }
       const problems = semanticErrors(parsed.data);
       if (problems.length > 0) return error(`The document isn't valid yet:\n- ${problems.join("\n- ")}`);
+      if (store.exists(parsed.data.id) && !replace) {
+        const existing = store.get(parsed.data.id);
+        return error(
+          `A document called "${existing.id}" already exists (rev ${existing.revision}). Change it with canvas_patch, read it with canvas_outline, ` +
+            `use a different id, or pass replace: true to start it over.`,
+        );
+      }
       store.put(parsed.data, author);
       const tree = outline(parsed.data);
       return withCard(text(tree), { kind: "create", doc: parsed.data.id, revision: parsed.data.revision, outline: tree });
@@ -220,6 +243,7 @@ export function createServer({
           };
         }
         if (patch.dryRun) return json({ ...result, dryRun: true });
+        store.save(patch.doc);
         const tree = outline(history.head);
         const card: CardData = { kind: "patch", doc: patch.doc, revision: result.revision, changed: result.changed, warnings: result.warnings, outline: tree };
         const response = json({ ...result, outline: tree });
@@ -247,6 +271,7 @@ export function createServer({
         const history = store.history(doc);
         if (revertTo !== undefined) {
           const reverted = history.revert(revertTo, author);
+          store.save(doc);
           return json({ revision: reverted.revision, outline: outline(reverted) });
         }
         return json(history.revisions());

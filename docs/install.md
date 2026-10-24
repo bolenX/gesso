@@ -21,6 +21,8 @@ Every route except the Claude Desktop extension runs Gesso with `npx`, so it nee
 
 Gesso reads the images and fonts you give it from one folder, and saves its exports there. The configs below use `~/Documents/Gesso`, set with `GESSO_WORKDIR`; Gesso creates the folder if it doesn't exist. Change the path to use a different folder. Without `GESSO_WORKDIR`, Gesso uses the folder the agent started in.
 
+Gesso also saves every document it's working on in a hidden `.gesso` folder inside your Gesso folder, with its full edit history. Close the agent, come back tomorrow, and ask it to continue the poster: it picks up where it left off. Delete a file in `.gesso` to forget that document.
+
 ## Claude Desktop (recommended)
 
 1. Download **`gesso-<version>.mcpb`**, the Gesso extension.

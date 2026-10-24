@@ -2,6 +2,7 @@
 // canvas_create description, so it is the one place agents learn the shape.
 
 export const DOC_FORMAT = `Create a layered document. Returns its outline. Change it afterwards with canvas_patch.
+Documents are saved in the Gesso folder (.gesso/<id>.json) after every change and survive restarts; canvas_list shows them. An existing id is refused unless you pass replace: true.
 
 Format (JSON). Layers are listed bottom to top; IDs are short and meaningful ("headline", not "layer1").
 {

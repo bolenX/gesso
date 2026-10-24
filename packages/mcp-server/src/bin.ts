@@ -22,7 +22,7 @@ if (httpFlag === -1) {
   await createServer({ baseDir }).connect(new StdioServerTransport());
 } else {
   const port = Number(process.argv[httpFlag + 1] ?? process.env.PORT ?? 3333);
-  const store = new DocStore();
+  const store = new DocStore(baseDir);
   createHttpServer(async (req, res) => {
     if (req.url !== "/mcp") {
       res.writeHead(req.url === "/" ? 200 : 404, { "content-type": "text/plain" }).end("Gesso MCP server. Connect to /mcp\n");
