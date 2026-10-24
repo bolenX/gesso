@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { AdjustmentLayer, Artboard, Doc, GroupLayer, ImageLayer, ShapeLayer, SmartLayer, TextLayer } from "./schema.js";
+import { AdjustmentLayer, Artboard, Doc, GroupLayer, ImageLayer, ShapeLayer, SmartLayer, SmartObject, TextLayer } from "./schema.js";
 
 // Agents write documents by hand, so input gets two kinds of help: forgiving
 // defaults for fields that have an obvious value, and errors that name the
@@ -31,9 +31,7 @@ export function normalizeDoc(input: unknown): unknown {
   const doc: Json = { revision: 0, assets: {}, ...input };
   if (Array.isArray(doc.artboards)) doc.artboards = doc.artboards.map(normalizeArtboard);
   if (isObject(doc.symbols)) {
-    doc.symbols = Object.fromEntries(
-      Object.entries(doc.symbols).map(([k, s]) => [k, isObject(s) && Array.isArray(s.layers) ? { ...s, layers: s.layers.map(normalizeLayer) } : s]),
-    );
+    doc.symbols = Object.fromEntries(Object.entries(doc.symbols).map(([key, symbol]) => [key, normalizeSymbol(symbol, key)]));
   }
   return doc;
 }
@@ -50,6 +48,24 @@ function normalizeArtboard(input: unknown): unknown {
   board.name ??= board.id;
   if (Array.isArray(board.layers)) board.layers = board.layers.map(normalizeLayer);
   return board;
+}
+
+/** A symbol's size as [w, h], from whichever spelling the agent used. */
+function normalizeSymbol(input: unknown, key: string): unknown {
+  if (!isObject(input)) return input;
+  const symbol: Json = { id: key, ...input };
+  symbol.name ??= symbol.id;
+  const pair = (w: unknown, h: unknown) => (typeof w === "number" && typeof h === "number" ? [w, h] : undefined);
+  if (!Array.isArray(symbol.size)) {
+    const size = isObject(symbol.size) ? symbol.size : undefined;
+    const frame = isObject(symbol.frame) ? symbol.frame : undefined;
+    const found =
+      pair(size?.w, size?.h) ?? pair(size?.width, size?.height) ?? pair(symbol.w, symbol.h) ?? pair(symbol.width, symbol.height) ?? pair(frame?.w, frame?.h);
+    if (found) symbol.size = found;
+  }
+  for (const k of ["w", "h", "width", "height", "frame"]) delete symbol[k];
+  if (Array.isArray(symbol.layers)) symbol.layers = symbol.layers.map(normalizeLayer);
+  return symbol;
 }
 
 export function normalizeLayer(input: unknown): unknown {
@@ -73,6 +89,20 @@ export function docIssues(input: unknown): string[] {
       if (!Array.isArray(board.layers)) issues.push(`${where}.layers: required, a list of layers (bottom to top)`);
       else board.layers.forEach((layer, j) => issues.push(...layerIssues(layer, `${where}.layers[${j}]`)));
     });
+  }
+  if (input.symbols !== undefined) {
+    if (!isObject(input.symbols)) issues.push('doc.symbols: must be an object of symbols by ID, e.g. { "word": { "size": [200, 50], "layers": [...] } }');
+    else
+      for (const [key, symbol] of Object.entries(input.symbols)) {
+        const where = `symbols["${key}"]`;
+        if (!isObject(symbol)) {
+          issues.push(`${where}: must be an object`);
+          continue;
+        }
+        issues.push(...describe(SmartObject.omit({ layers: true }).safeParse(symbol), where));
+        if (!Array.isArray(symbol.layers)) issues.push(`${where}.layers: required, a list of layers (bottom to top)`);
+        else symbol.layers.forEach((layer, j) => issues.push(...layerIssues(layer, `${where}.layers[${j}]`)));
+      }
   }
   return issues;
 }
@@ -99,6 +129,8 @@ const HINTS: Record<string, string> = {
   background: 'needs a colour like "#FFFFFF", or a gradient',
   shape: 'needs { "kind": "rect", "radius"? }, { "kind": "ellipse" } or { "kind": "path", "d": "<svg path>" }',
   style: 'needs { "font": "<family of a font asset>", "size", "weight"?, "fill"?, "align"? }',
+  size: "needs [width, height] in pixels, e.g. [200, 50]",
+  quad: "needs four [x, y] corners: top-left, top-right, bottom-right, bottom-left",
 };
 
 function describe(result: z.SafeParseReturnType<unknown, unknown>, where: string): string[] {

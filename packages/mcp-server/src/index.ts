@@ -154,7 +154,9 @@ export function createServer({
       const parsed = Doc.safeParse(input);
       if (!parsed.success) {
         const issues = docIssues(input);
-        return error(`The document isn't valid yet. Fix these and call canvas_create again:\n- ${(issues.length ? issues : [parsed.error.issues[0]!.message]).join("\n- ")}`);
+        // docIssues covers every part agents write; the fallback still says where the problem is.
+        const fallback = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".") || "doc"}: ${i.message}`);
+        return error(`The document isn't valid yet. Fix these and call canvas_create again:\n- ${(issues.length ? issues : fallback).join("\n- ")}`);
       }
       const problems = semanticErrors(parsed.data);
       if (problems.length > 0) return error(`The document isn't valid yet:\n- ${problems.join("\n- ")}`);
