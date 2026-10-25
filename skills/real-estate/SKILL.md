@@ -36,7 +36,7 @@ Tighten the mask edge with the window shapes as vector masks if light spills. Ma
 
 ## 25. Sky replacement
 
-1. Mask the sky out with a `channel` mask (the blue channel, `black` 120, `white` 200, inverted) or `color-range` on the sky colour.
+1. Mask the sky out. With a segmentation tool connected, use `gen_prepare` `segment` with `targets: ["sky"]` and `onto: "<photo id>"`, `invert: true`; it gets the gaps between branches and wires. Without one, use a `channel` mask (the blue channel, `black` 120, `white` 200, inverted) or `color-range` on the sky colour. Either way, add `refine` (`radius` 6–10) for the roofline and trees.
 2. Put the new sky image below it, `fit: "cover"`, anchored at the top.
 3. Ground colour shift: `photo-filter` in the sky's warmth (warm sunset `#EC8A00` at 20%), masked to the ground.
 4. Light wrap: the sky blurred 30 in `screen` at 0.2 along the roofline.

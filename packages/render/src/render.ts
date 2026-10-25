@@ -400,6 +400,8 @@ class Compositor {
   /** The surface the layer being composited goes onto: what's below it. */
   private below: Surface | undefined;
   private byId = new Map<string, Layer>();
+  /** Each layer's parent box, for masks that follow another layer. */
+  private parentBoxes = new Map<string, Box>();
   private typefaces = new Map<string, Typeface | null>();
 
   /** Frees the fonts this compositor made. */
@@ -426,10 +428,10 @@ class Compositor {
   render(artboard: Artboard): Rendered {
     this.width = Math.max(1, Math.round(artboard.frame.w * this.scale));
     this.height = Math.max(1, Math.round(artboard.frame.h * this.scale));
-    this.index(artboard.layers);
+    const box = { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h };
+    this.index(artboard.layers, box);
 
     const target = this.surface();
-    const box = { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h };
     if (artboard.background) {
       this.drawScaled(target.getCanvas(), (c) => c.drawRect(this.ck.XYWHRect(0, 0, box.w, box.h), this.paint(artboard.background!, box)));
     }
@@ -442,7 +444,7 @@ class Compositor {
   parts(artboard: Artboard): LayerParts {
     this.width = Math.max(1, Math.round(artboard.frame.w));
     this.height = Math.max(1, Math.round(artboard.frame.h));
-    this.index(artboard.layers);
+    this.index(artboard.layers, { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h });
     const parts = new Map<string, LayerPart>();
     const visit = (layers: Layer[], parent: Box, inherited: Affine | undefined) => {
       for (const layer of layers) {
@@ -659,10 +661,11 @@ class Compositor {
     return { box, image, x, y };
   }
 
-  private index(layers: Layer[]): void {
+  private index(layers: Layer[], parent: Box): void {
     for (const layer of layers) {
       this.byId.set(layer.id, layer);
-      if (layer.type === "group") this.index(layer.children);
+      this.parentBoxes.set(layer.id, parent);
+      if (layer.type === "group") this.index(layer.children, resolveFrame(layer.frame, parent));
     }
   }
 
@@ -1387,9 +1390,9 @@ class Compositor {
   renderSymbol(symbol: SmartObject): Rendered {
     this.width = Math.max(1, Math.round(symbol.size[0] * this.scale));
     this.height = Math.max(1, Math.round(symbol.size[1] * this.scale));
-    this.index(symbol.layers);
-    const target = this.surface();
     const box = { x: 0, y: 0, w: symbol.size[0], h: symbol.size[1] };
+    this.index(symbol.layers, box);
+    const target = this.surface();
     if (symbol.background) {
       this.drawScaled(target.getCanvas(), (c) => c.drawRect(this.ck.XYWHRect(0, 0, box.w, box.h), this.paint(symbol.background!, box)));
     }
@@ -1642,6 +1645,16 @@ class Compositor {
     return [refinedMask, ck.MakeImage(this.info(ck.AlphaType.Unpremul), result.content, this.width * 4)!];
   }
 
+  /** Renders another layer for a mask without losing the bounds of the layer being masked. */
+  private nested<T>(run: () => T): T {
+    const bounds = this.lastBounds;
+    try {
+      return run();
+    } finally {
+      this.lastBounds = bounds;
+    }
+  }
+
   private maskImage(mask: Mask, box: Box, parent: Box, layerId?: string, below?: Surface): Image {
     const { ck } = this;
     if (isComputedMask(mask)) {
@@ -1682,13 +1695,23 @@ class Compositor {
         this.drawScaled(canvas, (c) => c.drawRect(ck.XYWHRect(box.x, box.y, box.w, box.h), this.paint("#ffffff", box)));
         p.setBlendMode(ck.BlendMode.DstOut);
       }
-      const src = ck.XYWHRect(0, 0, image.width(), image.height());
-      this.drawScaled(canvas, (c) => c.drawImageRect(image, src, ck.XYWHRect(box.x, box.y, box.w, box.h), p));
+      if (mask.of) {
+        // A selection made on a photo: drawn as that photo would be, with the mask in place of its pixels.
+        const source = this.byId.get(mask.of);
+        if (source?.type !== "image") throw new Error(`Mask follows "${mask.of}", which isn't an image layer`);
+        if (source.fit === "content-aware") this.warnings.push(`The mask following "${source.id}" can't follow content-aware scaling; it's stretched instead`);
+        const matte = this.nested(() => this.renderLayer(matteOf(source, mask.asset), this.parentBoxes.get(source.id) ?? parent, false));
+        canvas.drawImage(matte, 0, 0, p);
+        matte.delete();
+      } else {
+        const src = ck.XYWHRect(0, 0, image.width(), image.height());
+        this.drawScaled(canvas, (c) => c.drawImageRect(image, src, ck.XYWHRect(box.x, box.y, box.w, box.h), p));
+      }
       p.delete();
     } else if (mask.kind === "luminance-of") {
       const source = this.byId.get(mask.layer);
       if (!source) throw new Error(`Mask refers to missing layer "${mask.layer}"`);
-      const image = this.renderLayer(source, parent, false);
+      const image = this.nested(() => this.renderLayer(source, parent, false));
       const p = new ck.Paint();
       p.setColorFilter(ck.ColorFilter.MakeLuma());
       canvas.drawImage(image, 0, 0, p);
@@ -2085,6 +2108,16 @@ export function warpMesh(grid: Array<Array<[number, number]>>, bx: number, by: n
       indices.push(v, v + 1, v + nx + 1, v + 1, v + nx + 2, v + nx + 1);
     }
   return { positions, texs, indices };
+}
+
+/** Filters that only move pixels: a mask made on the photo moves with them. */
+const MOVES_PIXELS = new Set<Filter["kind"]>(["liquify", "puppet-warp", "lens-correction", "twirl", "pinch", "spherize", "wave", "ripple", "ocean-ripple", "glass", "zigzag", "shear", "polar-coordinates", "offset", "displace"]);
+
+/** An image layer as a stand-in for its selection mask: the same placement and distortion, the mask's pixels, nothing else. */
+function matteOf(source: ImageLayer, asset: string): ImageLayer {
+  const filters = (source.filters ?? []).filter((f) => MOVES_PIXELS.has(f.kind)).map((f) => (f.kind === "lens-correction" ? { kind: f.kind, ...(f.distortion !== undefined ? { distortion: f.distortion } : {}) } : f));
+  const { id, name, type, frame, fit, focus, rotation, flip, skew, quad, warp } = source;
+  return { id: `${id}:matte`, name, type, asset, frame, ...(fit ? { fit } : {}), ...(focus ? { focus } : {}), ...(rotation ? { rotation } : {}), ...(flip ? { flip } : {}), ...(skew ? { skew } : {}), ...(quad ? { quad } : {}), ...(warp ? { warp } : {}), ...(filters.length ? { filters } : {}) } as ImageLayer;
 }
 
 function quadBounds(quad: Array<[number, number]>): Box {

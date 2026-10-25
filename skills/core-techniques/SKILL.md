@@ -97,6 +97,7 @@ Gesso is non-destructive by construction: filters, masks and adjustments are dat
 | technique | in Gesso |
 |---|---|
 | Generative fill and seeds | `gen_prepare` `fill` (regions plus prompt) or `generate`. Run it with the user's image tool; results land as new layers with provenance in `meta` |
-| Generative expand | `gen_prepare` `expand` |
+| Generative expand | `gen_prepare` `expand`. With `artboards`, one plate covers every size |
+| Select Subject, Select Sky, face parts | `gen_prepare` `segment` with `targets` (subject, person, sky, background, skin, face, hair, eyes, brows, lips, teeth, clothes, or a description). Run it with the user's segmentation or background-removal tool and import each result with `kind: "mask"`. Each mask (`{ "kind": "raster", "asset": "…", "of": "<photo>" }`) follows the photo on any layer: an adjustment, a group or the photo itself |
 | AI blending | generated layers get feathered vector masks, plus `match-color` to the plate and grain matching |
 | Neural filters, depth | depth maps from an image tool become `lens-blur` `depth` assets. Skin smoothing is `surface-blur` masked to the skin |

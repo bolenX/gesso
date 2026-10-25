@@ -8,7 +8,7 @@ description: Advanced photo manipulation and digital art workflows in Gesso (key
 ## 31. Key visual composite
 
 1. Background plate (`fit: "cover"`).
-2. Extract each subject: `remove-background` jobs, or channel and vector masks.
+2. Extract each subject: `gen_prepare` `segment` (`targets: ["subject"]`, `onto` the subject's layer) or `remove-background` jobs, or channel and vector masks.
 3. Place the subjects with frames scaled to match the plate's perspective: people's eye level should sit near the horizon line for a camera at eye height.
 
 Group each subject with its own fixes (clipped curves, shadows), so it moves as one.

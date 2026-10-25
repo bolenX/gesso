@@ -273,10 +273,13 @@ export function semanticErrors(doc: Doc): string[] {
   const errors: string[] = [];
   let seen = new Set<string>();
   let lumaRefs: Array<[string, string]> = [];
+  let imageRefs: Array<[string, string]> = [];
+  let images = new Set<string>();
   const checkLayers = (layers: Layer[], where: string) => {
     layers.forEach((layer, i) => {
       if (seen.has(layer.id)) errors.push(`duplicate layer id "${layer.id}" in ${where}`);
       seen.add(layer.id);
+      if (layer.type === "image") images.add(layer.id);
       if (layer.clip && (i === 0 || layers.slice(0, i).every((l) => l.clip))) {
         errors.push(`layer "${layer.id}" clips but has no base layer below it in ${where}`);
       }
@@ -286,6 +289,7 @@ export function semanticErrors(doc: Doc): string[] {
       if (layer.mask?.kind === "raster" && !(layer.mask.asset in doc.assets)) {
         errors.push(`mask on "${layer.id}" uses missing asset "${layer.mask.asset}"`);
       }
+      if (layer.mask?.kind === "raster" && layer.mask.of) imageRefs.push([layer.id, layer.mask.of]);
       if (layer.type === "adjustment") {
         for (const id of adjustmentAssets(layer.adjustment)) {
           if (!(id in doc.assets)) errors.push(`adjustment "${layer.id}" uses missing LUT asset "${id}"`);
@@ -316,9 +320,14 @@ export function semanticErrors(doc: Doc): string[] {
   for (const { layers, where } of scopes) {
     seen = new Set();
     lumaRefs = [];
+    imageRefs = [];
+    images = new Set();
     checkLayers(layers, where);
     for (const [id, ref] of lumaRefs) {
       if (!seen.has(ref)) errors.push(`mask on "${id}" in ${where} refers to missing layer "${ref}"`);
+    }
+    for (const [id, ref] of imageRefs) {
+      if (!images.has(ref)) errors.push(`mask on "${id}" in ${where} follows "${ref}", which isn't an image layer there`);
     }
   }
   return errors;

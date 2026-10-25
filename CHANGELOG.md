@@ -4,6 +4,11 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
 
 ## Unreleased
 
+- **Select Subject, Select Sky and face parts:** `gen_prepare` has a new `segment` job. It takes `targets` like subject, person, sky, background, skin, face, hair, eyes, brows, lips, teeth or clothes, or a short description, and returns one mask per target with a prompt for the user's segmentation, face-parsing or background-removal tool. With `onto`, the ops put the first mask on a layer straight away.
+- **Masks that follow a photo:** raster masks take `of`, the image layer they were made from. The mask then follows that photo's frame, crop, focus, rotation, flips, skew, distortion and warp, so one selection lines up on an adjustment, a group or the photo itself. They export to PSD as pixel masks.
+- **Mask import:** `asset_import` with `kind: "mask"` saves a grey mask, from a cut-out's transparency or a black-and-white image's brightness.
+- **One plate for every size:** an `expand` job with `artboards` sizes one plate for all of them and places it in each, lined up with the photo. That's one generation, and the same background in every size. Where a frame doesn't fill its artboard, the plate is masked to the frame.
+- **Fix:** job ops are scoped to their artboard, so they work on adapted sizes that share layer ids.
 - **Select and Mask:** every raster, vector and computed mask takes `refine`, Photoshop's Refine Edge. It snaps a rough mask's edge to hair, fur and leaves by estimating each edge pixel's coverage from the nearby subject and background colours. It has `radius`, `smooth`, `contrast`, `shift` and Decontaminate Colors, which replaces the old background's colour in the edge with the subject's own.
 - **Calculations:** a new `calculations` mask blends two channels (red, green, blue or gray, from any layer or from everything below) in one of 10 modes, then applies levels. It stays live, like the other computed masks.
 - **Auto-Align and Auto-Blend:**

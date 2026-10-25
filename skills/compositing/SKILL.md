@@ -51,6 +51,16 @@ These masks recompute from pixels on every render. `source` is `"below"` (everyt
 
 All of them take `feather` and `invert`. In a PSD they're written as pixel masks.
 
+## Selections from a model (Select Subject, Select Sky)
+
+`gen_prepare` with `job: "segment"` and `targets` (subject, sky, skin, eyes, lips, hair, or a short description) prepares a job for the user's segmentation or background-removal tool. Import each result with `asset_import` and `kind: "mask"`: a cut-out's transparency or a black-and-white image's brightness becomes a grey mask. Then use it on any layer:
+
+```json
+"mask": { "kind": "raster", "asset": "segment-photo-r4-sky", "of": "photo", "invert": true }
+```
+
+`of` names the photo the mask was made from, so the mask follows that photo's frame, crop, focus, rotation, distortion and warp. That way it lines up on an adjustment layer, a group or the photo itself. It takes `invert`, `feather` and `refine` like any mask.
+
 ## Refining edges (Select and Mask)
 
 Any raster, vector or computed mask takes `refine`. It works in a band around the mask's soft edge: each pixel's coverage is estimated from the subject's and the background's nearby colours, so a rough mask snaps to hair, fur and leaves.
