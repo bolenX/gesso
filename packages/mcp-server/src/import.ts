@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { extname, isAbsolute, join, resolve } from "node:path";
+import { extname, join } from "node:path";
 import type { Asset } from "@gesso/core";
 import { fontUri, parseCube, readFontFaces } from "@gesso/render";
 import sharp from "sharp";
+import { download, resolvePath } from "./paths.js";
 
 // Brings an image, font or colour lookup table (.cube) into a document. Downloads and pasted data are saved in the
 // Gesso folder under assets/, so the document keeps working offline and after restarts;
@@ -24,7 +25,8 @@ export type ImportRequest = {
 
 const FONT_TYPES: Record<string, string> = { "font/ttf": ".ttf", "font/otf": ".otf", "font/collection": ".ttc", "application/font-sfnt": ".ttf" };
 
-export async function importAsset(request: ImportRequest, baseDir: string): Promise<Asset> {
+/** Confined (hosted), local paths must be inside baseDir and downloads must reach public addresses. */
+export async function importAsset(request: ImportRequest, baseDir: string, confined = false): Promise<Asset> {
   const { id, source, data } = request;
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) throw new Error(`Asset id "${id}" should be short letters, digits, - or _, e.g. "hero-photo"`);
   if (!source && !data) throw new Error("asset_import needs a source (path or URL) or data (base64)");
@@ -36,13 +38,14 @@ export async function importAsset(request: ImportRequest, baseDir: string): Prom
     bytes = Buffer.from(data.replace(/^data:[^,]*,/, ""), "base64");
     if (bytes.length === 0) throw new Error("data is empty or isn't base64");
   } else if (/^https?:\/\//i.test(source!)) {
-    const res = await fetch(source!);
-    if (!res.ok) throw new Error(`Couldn't download ${source}: HTTP ${res.status}`);
-    bytes = new Uint8Array(await res.arrayBuffer());
-    extension = FONT_TYPES[res.headers.get("content-type")?.split(";")[0] ?? ""] ?? extname(new URL(source!).pathname).toLowerCase();
+    const res = await download(source!, confined);
+    bytes = res.bytes;
+    extension = FONT_TYPES[res.type?.split(";")[0] ?? ""] ?? extname(new URL(source!).pathname).toLowerCase();
   } else {
-    const path = source!.startsWith("~/") ? join(process.env.HOME ?? "", source!.slice(2)) : isAbsolute(source!) ? source! : resolve(baseDir, source!);
-    if (!existsSync(path)) throw new Error(`No file at ${path}. Paths are relative to the Gesso folder (${baseDir}) unless absolute.`);
+    const path = resolvePath(baseDir, source!, confined);
+    if (!existsSync(path)) {
+      throw new Error(confined ? `No file "${source}" in your workspace. Upload it first, or pass a URL or data.` : `No file at ${path}. Paths are relative to the Gesso folder (${baseDir}) unless absolute.`);
+    }
     bytes = await readFile(path);
     uri = fontUri(path, baseDir);
   }

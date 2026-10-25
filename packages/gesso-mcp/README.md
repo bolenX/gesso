@@ -20,7 +20,7 @@ Claude Desktop (`claude_desktop_config.json`):
 
 Requires Node 22 or later. Assets and exports resolve relative to the folder the agent runs in, or to `GESSO_WORKDIR` when it's set (a leading `~` means your home folder).
 
-Run it as a hosted connector with `npx -y gesso-mcp --http 3333`, then add `https://your-host/mcp` as a custom connector.
+Host it for claude.ai or ChatGPT with `npx -y gesso-mcp --hosted`: each user gets a private workspace and connector URL. See the [hosting guide](https://github.com/bolenX/gesso/blob/main/docs/hosting.md).
 
 ## Tools
 

@@ -69,7 +69,7 @@ Or install the Claude Desktop extension: download `gesso-<version>.mcpb` and dou
 
 Then ask for a design, for example: "Make a 1080×1350 poster that says Hello from Gesso, show me a preview, then export a PSD to out/." Assets and exports resolve relative to the folder Claude runs in. Requires Node 22 or later.
 
-To host Gesso as a connector, run `npx -y gesso-mcp --http 3333` behind HTTPS and add `https://your-host/mcp` as a custom connector.
+To host Gesso for claude.ai or ChatGPT, run `npx -y gesso-mcp --hosted` (or the Dockerfile) behind HTTPS. Each user gets a private workspace and connector URL. See [docs/hosting.md](docs/hosting.md).
 
 Working on Gesso itself? The repo's `.mcp.json` loads your local checkout as the `gesso` server in any Claude Code session opened here.
 

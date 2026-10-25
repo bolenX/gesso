@@ -45,3 +45,45 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Attaches the Claude Desktop extension to a GitHub release for each version, as gesso-<version>.mcpb
+  # and gesso.mcpb, so releases/latest/download/gesso.mcpb always points at the newest one. The notes
+  # come from the version's section in CHANGELOG.md. Versions that already have a release are skipped.
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Skip if this version already has a release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./packages/gesso-mcp/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "gesso-mcp-v$version" >/dev/null 2>&1; then
+            echo "gesso-mcp-v$version is already released"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.check.outputs.skip != 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Build the extension
+        if: steps.check.outputs.skip != 'true'
+        run: node packages/gesso-mcp/build.mjs && node packages/gesso-mcp/build-mcpb.mjs
+      - name: Release
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          cp "packages/gesso-mcp/gesso-$VERSION.mcpb" packages/gesso-mcp/gesso.mcpb
+          awk -v v="$VERSION" 'index($0, "## " v) == 1 { found = 1; next } /^## / { found = 0 } found' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Gesso $VERSION" > notes.md
+          gh release create "gesso-mcp-v$VERSION" "packages/gesso-mcp/gesso-$VERSION.mcpb" packages/gesso-mcp/gesso.mcpb \
+            --title "Gesso $VERSION" --notes-file notes.md --target "$GITHUB_SHA"
