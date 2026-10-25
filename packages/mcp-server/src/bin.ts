@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { availableParallelism, homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { startHttp } from "./http.js";
 import { createServer } from "./index.js";
+import { startWorker } from "./workers.js";
 
 // stdio by default (Claude Code, Desktop). `--http [port]` serves Streamable HTTP at /mcp on this
 // computer; add `--hosted` to serve claude.ai and ChatGPT connectors, with OAuth sign-in and a private
@@ -35,7 +37,12 @@ const secret = () => {
   return bytes;
 };
 
-if (httpFlag === -1 && !hosted) {
+if (process.argv.includes("--hosted-worker")) {
+  // Started by a hosted server to run tool calls; it passes the settings and gets the port back.
+  const port = await startWorker(JSON.parse(process.env.GESSO_WORKER ?? "{}"));
+  process.send?.({ ready: port });
+  process.on("disconnect", () => process.exit(0));
+} else if (httpFlag === -1 && !hosted) {
   await createServer({ baseDir }).connect(new StdioServerTransport());
 } else {
   const arg = process.argv[httpFlag + 1];
@@ -43,6 +50,8 @@ if (httpFlag === -1 && !hosted) {
   const github = credentials("GESSO_GITHUB");
   const google = credentials("GESSO_GOOGLE");
   const key = secret();
+  // Tool calls run in worker processes, one per core up to 4, so one long render doesn't hold up everyone.
+  const workers = number("GESSO_WORKERS") ?? Math.min(availableParallelism(), 4);
   const { url } = await startHttp({
     port,
     baseDir,
@@ -63,6 +72,7 @@ if (httpFlag === -1 && !hosted) {
     ...(off("GESSO_KEY_URLS") ? { keyUrls: false } : {}),
     ...(process.env.GESSO_BLOCKLIST ? { blocklist: process.env.GESSO_BLOCKLIST } : {}),
     ...(hosted && !off("GESSO_LOG") ? { log: (entry: Record<string, unknown>) => console.log(JSON.stringify(entry)) } : {}),
+    ...(hosted && workers >= 2 ? { workers: { count: workers, entry: fileURLToPath(import.meta.url), ...(number("GESSO_WORKER_MB") ? { memoryMb: number("GESSO_WORKER_MB")! } : {}) } } : {}),
   });
   if (hosted && !process.env.GESSO_PUBLIC_URL) console.error("Set GESSO_PUBLIC_URL to the server's https address: sign-in and links use it.");
   if (hosted && off("GESSO_ANONYMOUS") && !github && !google) console.error("GESSO_ANONYMOUS is off but no GitHub or Google sign-in is set up, so nobody can connect over /mcp.");

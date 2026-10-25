@@ -7,9 +7,10 @@ import { basename, extname, join, relative, sep } from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { FAVICON_SVG } from "./brand.js";
 import { createServer, DocStore, newServerState, type ServerState } from "./index.js";
-import { OAuth } from "./oauth.js";
+import { OAuth, type Sealer } from "./oauth.js";
 import { escape, html, page } from "./pages.js";
 import { inside, resolvePath } from "./paths.js";
+import { Pool } from "./workers.js";
 
 // Gesso over Streamable HTTP, at /mcp.
 //
@@ -59,6 +60,8 @@ export type HttpOptions = {
   limits?: { burst?: number; perSecond?: number; concurrent?: number; total?: number };
   /** Gets one line per MCP request: no content, no keys, only a short hash of the workspace. */
   log?: (entry: Record<string, unknown>) => void;
+  /** Hosted: run tool calls in this many worker processes (2 or more), started from `entry` with --hosted-worker. */
+  workers?: { count: number; entry: string; memoryMb?: number };
 };
 
 const MIME: Record<string, string> = {
@@ -80,18 +83,20 @@ const MIME: Record<string, string> = {
 };
 
 /** Workspace keys: 24 URL-safe characters (144 random bits) from /new, or 32 for accounts. */
-const KEY = /^[A-Za-z0-9_-]{24,64}$/;
+export const KEY = /^[A-Za-z0-9_-]{24,64}$/;
 
 /** Kept out of file listings and downloads: the documents' history and the activity marker. */
 const PRIVATE = new Set([".gesso", ".last"]);
 
 type Workspace = { key: string; dir: string; store: DocStore; state: ServerState; seen: number; touched: number };
+/** How a request reached the workspace: signed in, a key URL, or the local server's one folder. */
+export type Via = "oauth" | "key" | "local";
 type Meter = { tokens: number; at: number; busy: number };
 
 /** A short, one-way name for a workspace in logs. */
 const tag = (key: string) => createHash("sha256").update(key).digest("hex").slice(0, 10);
 
-export async function startHttp(options: HttpOptions): Promise<{ server: Server; url: string; close: () => Promise<void> }> {
+export async function startHttp(options: HttpOptions): Promise<{ server: Server; url: string; close: () => Promise<void>; workers: () => number[] }> {
   const { hosted = false } = options;
   const root = hosted ? join(options.baseDir, "workspaces") : options.baseDir;
   await mkdir(root, { recursive: true });
@@ -172,9 +177,10 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
 
   // ── Sign-in ────────────────────────────────────────────────────────────────────────────────
   let oauth: OAuth | undefined;
+  const secret = hosted ? (options.secret ?? (await loadSecret(join(options.baseDir, "oauth")))) : undefined;
   if (hosted) {
     oauth = new OAuth({
-      secret: options.secret ?? (await loadSecret(join(options.baseDir, "oauth"))),
+      secret: secret!,
       dir: join(options.baseDir, "oauth"),
       origin,
       workspaceDays: days,
@@ -189,12 +195,15 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
     await oauth.start();
   }
   const sealer = oauth?.sealer;
-  /** A link to one exported file that works for as long as the workspace is kept, without giving away its key. */
-  const signedFile = (base: string, ws: Workspace) => (path: string) =>
-    inside(ws.dir, path) ? `${base}/dl/${sealer!.seal("gdl", { ws: ws.key, p: relative(ws.dir, path), exp: Math.floor(Date.now() / 1000) + days * 86_400 })}/${encodeURIComponent(basename(path))}` : undefined;
-  const keyFile = (base: string, ws: Workspace) => (path: string) =>
-    inside(ws.dir, path) ? `${base}/files/${ws.key}/${relative(ws.dir, path).split(sep).map(encodeURIComponent).join("/")}` : undefined;
-  const uploadPage = (base: string, ws: Workspace) => `${base}/u/${sealer!.seal("gul", { ws: ws.key, exp: Math.floor(Date.now() / 1000) + 86_400 })}`;
+
+  // ── Workers ────────────────────────────────────────────────────────────────────────────────
+  // Renders run synchronously, so with workers each workspace's tool calls go to one of several processes,
+  // and a long render only holds up the workspaces that share its worker.
+  const pool =
+    hosted && options.workers && options.workers.count >= 2
+      ? new Pool({ ...options.workers, config: { baseDir: options.baseDir, secret: secret!.toString("hex"), days, ...(maxPixels ? { maxPixels } : {}), requestMb: options.requestMb ?? 32 } })
+      : undefined;
+  await pool?.start();
 
   // ── Limits ─────────────────────────────────────────────────────────────────────────────────
   const limits = { burst: 120, perSecond: 2, concurrent: 4, total: 64, ...options.limits };
@@ -225,65 +234,30 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
       }, 600_000).unref()
     : undefined;
 
-  const rpcError = (res: ServerResponse, status: number, message: string, headers: Record<string, string> = {}) =>
-    void res.writeHead(status, { "content-type": "application/json", ...headers }).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
-
-  /** Reads and parses an MCP request body within the size limit, so it can be logged and limited before it runs. */
-  const readJson = async (req: IncomingMessage, res: ServerResponse): Promise<{ body?: unknown; ok: boolean }> => {
-    if (req.method !== "POST") return { ok: true };
-    const limit = (options.requestMb ?? 32) * 1024 * 1024;
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for await (const chunk of req) {
-      size += (chunk as Buffer).length;
-      if (size > limit) {
-        rpcError(res, 413, `Requests are limited to ${options.requestMb ?? 32} MB. Upload large images instead of passing them as data.`);
-        req.destroy();
-        return { ok: false };
-      }
-      chunks.push(chunk as Buffer);
-    }
-    try {
-      return { body: JSON.parse(Buffer.concat(chunks).toString()), ok: true };
-    } catch {
-      void res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }));
-      return { ok: false };
-    }
-  };
-
-  const mcp = async (req: IncomingMessage, res: ServerResponse, ws: { dir: string; store: DocStore; state: ServerState }, extra: { fileUrl?: (path: string) => string | undefined; uploadUrl?: string; key?: string }) => {
+  /** Serves an MCP request for a workspace: read and limit it here, then run it in a worker or in this process. */
+  const mcp = async (req: IncomingMessage, res: ServerResponse, ws: Workspace | undefined, via: Via) => {
     let body: unknown;
     if (hosted) {
-      const read = await readJson(req, res);
+      const read = await readJson(req, res, options.requestMb ?? 32);
       if (!read.ok) return;
       body = read.body;
     }
     // Only POSTs carry work; a GET for an event stream is refused by the stateless transport right away.
-    if (hosted && req.method === "POST") {
-      const verdict = admit(extra.key!);
+    if (hosted && ws && req.method === "POST") {
+      const verdict = admit(ws.key);
       if (verdict !== "ok") {
         return rpcError(res, verdict === "rate" ? 429 : 503, verdict === "rate" ? "Too many requests for this workspace; slow down and retry shortly." : "The server is busy; retry in a few seconds.", { "retry-after": verdict === "rate" ? "5" : "2" });
       }
       const started = Date.now();
       const calls = (Array.isArray(body) ? body : [body]) as Array<{ method?: string; params?: { name?: string } }>;
       res.on("close", () => {
-        release(extra.key!);
-        options.log?.({ t: new Date().toISOString(), ws: tag(extra.key!), via: extra.uploadUrl ? "oauth" : "key", method: calls.map((c) => c?.method).join(","), tool: calls.map((c) => c?.params?.name).filter(Boolean).join(",") || undefined, status: res.statusCode, ms: Date.now() - started });
+        release(ws.key);
+        options.log?.({ t: new Date().toISOString(), ws: tag(ws.key), via, method: calls.map((c) => c?.method).join(","), tool: calls.map((c) => c?.params?.name).filter(Boolean).join(",") || undefined, status: res.statusCode, ms: Date.now() - started });
       });
     }
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    res.on("close", () => void transport.close());
-    const server = createServer({
-      store: ws.store,
-      state: ws.state,
-      baseDir: ws.dir,
-      confined: hosted,
-      ...(extra.fileUrl ? { fileUrl: extra.fileUrl } : {}),
-      ...(extra.uploadUrl ? { uploadUrl: extra.uploadUrl } : {}),
-      ...(maxPixels ? { maxPixels } : {}),
-    });
-    await server.connect(transport);
-    await transport.handleRequest(req, res, body);
+    if (pool && ws) return pool.forward(req, res, ws.key, body, { base: origin(req), via });
+    const target = ws ?? { key: "", dir: options.baseDir, ...local };
+    return serveMcp(req, res, target, body, linksFor(sealer, days, origin(req), target, via), maxPixels, hosted);
   };
 
   const sendFile = async (req: IncomingMessage, res: ServerResponse, file: string) => {
@@ -314,7 +288,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
     if (url.pathname === "/health") return void res.writeHead(200, { "content-type": "text/plain" }).end("ok\n");
     if (url.pathname === "/favicon.svg") return void res.writeHead(200, { "content-type": "image/svg+xml" }).end(FAVICON_SVG);
     if (!hosted) {
-      if (url.pathname === "/mcp") return mcp(req, res, { dir: options.baseDir, ...local }, {});
+      if (url.pathname === "/mcp") return mcp(req, res, undefined, "local");
       return void res.writeHead(url.pathname === "/" ? 200 : 404, { "content-type": "text/plain" }).end("Gesso MCP server. Connect to /mcp\n");
     }
 
@@ -329,8 +303,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
       const ws = await open(auth.workspace);
       if (!ws) return oauth!.challenge(req, res, "invalid_token");
       await touch(ws);
-      const base = origin(req);
-      return mcp(req, res, ws, { key: ws.key, fileUrl: signedFile(base, ws), uploadUrl: uploadPage(base, ws) });
+      return mcp(req, res, ws, "oauth");
     }
 
     if (url.pathname === "/") return html(res, 200, home(origin(req), options.keyUrls !== false));
@@ -380,7 +353,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
         return void res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message }, id: null }));
       }
       await touch(ws);
-      return mcp(req, res, ws, { key: ws.key, fileUrl: keyFile(origin(req), ws) });
+      return mcp(req, res, ws, "key");
     }
     if (!ws) return html(res, 404, page("Workspace not found", `<p>There's no workspace at this address. It may have expired after ${days} idle days.</p><p><a class="button" href="/new">Create a workspace</a></p>`));
     await touch(ws);
@@ -417,14 +390,75 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
   return {
     server,
     url: `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`,
+    workers: () => pool?.pids() ?? [],
     close: () =>
       new Promise((done) => {
         if (sweeper) clearInterval(sweeper);
         if (meterSweeper) clearInterval(meterSweeper);
+        pool?.stop();
         server.closeAllConnections();
         server.close(() => void (oauth ? oauth.stop() : Promise.resolve()).then(() => done()));
       }),
   };
+}
+
+export const rpcError = (res: ServerResponse, status: number, message: string, headers: Record<string, string> = {}) =>
+  void res.writeHead(status, { "content-type": "application/json", ...headers }).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
+
+/** Reads and parses an MCP request body within the size limit, so it can be logged and limited before it runs. */
+export async function readJson(req: IncomingMessage, res: ServerResponse, limitMb: number): Promise<{ body?: unknown; ok: boolean }> {
+  if (req.method !== "POST") return { ok: true };
+  const limit = limitMb * 1024 * 1024;
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > limit) {
+      rpcError(res, 413, `Requests are limited to ${limitMb} MB. Upload large images instead of passing them as data.`);
+      req.destroy();
+      return { ok: false };
+    }
+    chunks.push(chunk as Buffer);
+  }
+  try {
+    return { body: JSON.parse(Buffer.concat(chunks).toString()), ok: true };
+  } catch {
+    void res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }));
+    return { ok: false };
+  }
+}
+
+/**
+ * Where a workspace's files are linked from. Signed in, downloads and the upload page are signed links that
+ * don't reveal the workspace; with a key URL, the key is already the person's to hold.
+ */
+export function linksFor(sealer: Sealer | undefined, days: number, base: string, ws: { key: string; dir: string }, via: Via): { fileUrl?: (path: string) => string | undefined; uploadUrl?: string } {
+  const expires = (seconds: number) => Math.floor(Date.now() / 1000) + seconds;
+  if (via === "oauth" && sealer) {
+    return {
+      fileUrl: (path) => (inside(ws.dir, path) ? `${base}/dl/${sealer.seal("gdl", { ws: ws.key, p: relative(ws.dir, path), exp: expires(days * 86_400) })}/${encodeURIComponent(basename(path))}` : undefined),
+      uploadUrl: `${base}/u/${sealer.seal("gul", { ws: ws.key, exp: expires(86_400) })}`,
+    };
+  }
+  if (via === "key") return { fileUrl: (path) => (inside(ws.dir, path) ? `${base}/files/${ws.key}/${relative(ws.dir, path).split(sep).map(encodeURIComponent).join("/")}` : undefined) };
+  return {};
+}
+
+/** Runs one MCP request against a workspace, with a server made for it (the transport is stateless). */
+export async function serveMcp(req: IncomingMessage, res: ServerResponse, ws: { dir: string; store: DocStore; state: ServerState }, body: unknown, links: ReturnType<typeof linksFor>, maxPixels: number | undefined, confined: boolean) {
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  res.on("close", () => void transport.close());
+  const server = createServer({
+    store: ws.store,
+    state: ws.state,
+    baseDir: ws.dir,
+    confined,
+    ...(links.fileUrl ? { fileUrl: links.fileUrl } : {}),
+    ...(links.uploadUrl ? { uploadUrl: links.uploadUrl } : {}),
+    ...(maxPixels ? { maxPixels } : {}),
+  });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, body);
 }
 
 /** The signing secret: kept in the data folder, made on first start. */

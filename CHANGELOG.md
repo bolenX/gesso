@@ -16,6 +16,7 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
   - a ban list for workspaces and accounts
   - rate limits use the address the nearest proxy saw, so a forged `X-Forwarded-For` doesn't get around them
   - one JSON log line per request, never with content or keys
+- **Worker processes for hosted servers:** tool calls run in worker processes, one per core up to 4. Each workspace always goes to the same worker, so one long render no longer holds up everyone else, and sign-in, pages and downloads keep answering. A worker that crashes is restarted, and only its requests in flight fail.
 - **Tool hints:** every tool has a title and says whether it only reads, or changes documents and files, so hosts can let read-only tools run without asking.
 - **Directory readiness:**
   - Gesso no longer asks agents to credit it when handing over files. Exported files still carry Gesso in their metadata.
