@@ -3,6 +3,7 @@ import type { CanvasKit, Image, RuntimeEffect, Shader } from "canvaskit-wasm";
 import {
   blank,
   boxBlur,
+  boxPlane,
   clamp,
   copyRaster,
   discBlur,
@@ -21,6 +22,9 @@ import {
   readRaster,
   reduced,
   remap,
+  rgbToLab,
+  labToRgb,
+  shiftHsl,
   sample,
   samplePlane,
   smoothstep,
@@ -323,6 +327,21 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
       return js((r) => offset(r, filter.x * k, filter.y * k, filter.edges ?? "wrap"));
     case "camera-raw":
       return cameraRaw(ctx, image, filter);
+    // ── Image › Adjustments
+    case "shadows-highlights":
+      return js((r) => shadowsHighlights(r, filter, k));
+    case "desaturate":
+      return js((r) =>
+        mapColor(r, (c) => {
+          c.fill((Math.max(c[0]!, c[1]!, c[2]!) + Math.min(c[0]!, c[1]!, c[2]!)) / 2);
+        }),
+      );
+    case "equalize":
+      return js(equalize);
+    case "match-color":
+      return matchColor(ctx, image, filter);
+    case "replace-color":
+      return js((r) => replaceColor(r, filter));
   }
 }
 
@@ -358,6 +377,8 @@ export function filterReach(filter: Filter, box: Box): number {
       return Math.max(Math.abs(filter.scale[0]), Math.abs(filter.scale[1]));
     case "wind":
       return filter.method === "blast" ? 40 : 14;
+    case "shadows-highlights":
+      return 0;
     default:
       // The rest work within the layer, repeating its edges.
       return 0;
@@ -1437,4 +1458,115 @@ function cameraRaw(ctx: Ctx, image: Image, filter: Of<"camera-raw">): Image {
       c[2] = (l + (b0 - l) * s) * vg + n;
     }),
   );
+}
+
+// ── Image › Adjustments ──────────────────────────────────────────────────────────────────
+
+function shadowsHighlights(r: Raster, filter: Of<"shadows-highlights">, k: number): Raster {
+  const { w, h } = r;
+  const n = w * h;
+  const { rgb, a } = planes(r);
+  const L = luma(rgb, n);
+  // Each pixel's surroundings decide how much it lifts or falls: dark neighbourhoods open up,
+  // bright ones come down, so local contrast survives (a 3-box Gaussian of the brightness).
+  const radius = (filter.radius ?? 30) * k;
+  const rr = Math.sqrt((12 * radius * radius) / 9 + 1) / 2 - 0.5;
+  const local = boxPlane(boxPlane(boxPlane(L, w, h, rr), w, h, rr), w, h, rr);
+  const [s, hl, color] = [filter.shadows / 100, (filter.highlights ?? 0) / 100, (filter.color ?? 20) / 100];
+  const out: Float32Array[] = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+  for (let i = 0; i < n; i++) {
+    const [l, b] = [L[i]!, local[i]!];
+    let t = l ** (1 / (1 + 2.5 * s * (1 - b) ** 2));
+    t = 1 - (1 - t) ** (1 / (1 + 2.5 * hl * b * b));
+    const gain = l > 0.0001 ? t / l : 1;
+    const sat = 1 + color * Math.min(1, Math.abs(t - l) * 4);
+    for (let c = 0; c < 3; c++) out[c]![i] = t + (rgb[c]![i]! * gain - t) * sat;
+  }
+  return fromPlanes(w, h, out, a);
+}
+
+function equalize(r: Raster): Raster {
+  // One brightness histogram over all three channels (where the layer has coverage), flattened.
+  const hist = new Float64Array(256);
+  const { rgb, a } = planes(r);
+  const n = r.w * r.h;
+  for (let i = 0; i < n; i++) if (a[i]! > 0) for (let c = 0; c < 3; c++) hist[Math.round(rgb[c]![i]! * 255)]! += 1;
+  const total = hist.reduce((x, y) => x + y, 0) || 1;
+  const map = new Float32Array(256);
+  let acc = 0;
+  const first = hist.findIndex((v) => v > 0);
+  const base = first >= 0 ? hist[first]! : 0;
+  for (let v = 0; v < 256; v++) {
+    acc += hist[v]!;
+    map[v] = clamp((acc - base) / Math.max(1, total - base), 0, 1);
+  }
+  return fromPlanes(r.w, r.h, rgb.map((p) => p.map((v) => map[Math.round(v * 255)]!)), a);
+}
+
+/** Mean and spread of each Lab channel over the covered pixels. */
+function labStats(r: Raster): { mean: number[]; sd: number[] } {
+  const lab = new Float64Array(3);
+  const [sum, sq] = [[0, 0, 0], [0, 0, 0]];
+  let count = 0;
+  for (let i = 0; i < r.d.length; i += 4) {
+    const al = r.d[i + 3]!;
+    if (al < 1) continue;
+    rgbToLab(r.d[i]! / al, r.d[i + 1]! / al, r.d[i + 2]! / al, lab);
+    for (let c = 0; c < 3; c++) {
+      sum[c]! += lab[c]!;
+      sq[c]! += lab[c]! * lab[c]!;
+    }
+    count++;
+  }
+  const mean = sum.map((v) => v / Math.max(1, count));
+  return { mean, sd: sq.map((v, c) => Math.sqrt(Math.max(0, v / Math.max(1, count) - mean[c]! ** 2))) };
+}
+
+function matchColor(ctx: Ctx, image: Image, filter: Of<"match-color">): Image {
+  const { kit } = ctx;
+  const sourceImage = filter.source ? kit.images.get(filter.source) : undefined;
+  if (filter.source && !sourceImage) {
+    kit.warnings.push(`match color: source "${filter.source}" isn't loaded`);
+    return image;
+  }
+  const r = readRaster(kit.ck, image);
+  const target = labStats(r);
+  // Without a source, Neutralize pulls the colour cast (the a/b means) to grey.
+  const source = sourceImage ? labStats(readRaster(kit.ck, sourceImage, false)) : { mean: [target.mean[0]!, 0, 0], sd: target.sd };
+  const lum = (filter.luminance ?? 100) / 100;
+  const intensity = (filter.intensity ?? 100) / 100;
+  const keep = (filter.fade ?? 0) / 100;
+  const goal = filter.neutralize && sourceImage ? { mean: [source.mean[0]!, (source.mean[1]! + 0) / 2, (source.mean[2]! + 0) / 2], sd: source.sd } : source;
+  const lab = new Float64Array(3);
+  const rgbOut = new Float64Array(3);
+  return writeRaster(
+    kit.ck,
+    mapColor(r, (c) => {
+      rgbToLab(c[0]!, c[1]!, c[2]!, lab);
+      // Reinhard transfer: shift and scale each channel's spread to the goal's.
+      const L = (lab[0]! - target.mean[0]!) * (goal.sd[0]! / (target.sd[0]! || 1)) + goal.mean[0]!;
+      const A = ((lab[1]! - target.mean[1]!) * (goal.sd[1]! / (target.sd[1]! || 1)) + goal.mean[1]!) * intensity;
+      const B = ((lab[2]! - target.mean[2]!) * (goal.sd[2]! / (target.sd[2]! || 1)) + goal.mean[2]!) * intensity;
+      labToRgb(clamp(L * lum, 0, 100), A, B, rgbOut);
+      for (let j = 0; j < 3; j++) c[j] = rgbOut[j]! + (c[j]! - rgbOut[j]!) * keep;
+    }),
+  );
+}
+
+function replaceColor(r: Raster, filter: Of<"replace-color">): Raster {
+  const target = new Float64Array(3);
+  rgbToLab(...(rgb01(filter.color) as [number, number, number]), target);
+  const lab = new Float64Array(3);
+  const shifted = new Float64Array(3);
+  // Fuzziness is the colour distance (ΔE) at which the change has faded out.
+  const reach = Math.max(1, filter.fuzziness * 0.5);
+  return mapColor(r, (c) => {
+    rgbToLab(c[0]!, c[1]!, c[2]!, lab);
+    const d = Math.sqrt((lab[0]! - target[0]!) ** 2 + (lab[1]! - target[1]!) ** 2 + (lab[2]! - target[2]!) ** 2);
+    const weight = clamp(1 - d / reach, 0, 1);
+    if (!weight) return;
+    shifted.set(c);
+    shiftHsl(shifted, filter.hue ?? 0, filter.saturation ?? 0, filter.lightness ?? 0);
+    for (let j = 0; j < 3; j++) c[j] = c[j]! + (shifted[j]! - c[j]!) * weight;
+  });
 }

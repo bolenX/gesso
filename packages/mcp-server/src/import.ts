@@ -3,10 +3,10 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import type { Asset } from "@gesso/core";
-import { fontUri, readFontFaces } from "@gesso/render";
+import { fontUri, parseCube, readFontFaces } from "@gesso/render";
 import sharp from "sharp";
 
-// Brings an image or font into a document. Downloads and pasted data are saved in the
+// Brings an image, font or colour lookup table (.cube) into a document. Downloads and pasted data are saved in the
 // Gesso folder under assets/, so the document keeps working offline and after restarts;
 // local files are referenced where they are.
 
@@ -16,7 +16,7 @@ export type ImportRequest = {
   source?: string;
   /** Base64 file contents, for hosts that can't share a path. */
   data?: string;
-  kind?: "image" | "font" | "mask";
+  kind?: "image" | "font" | "mask" | "lut";
   /** Face in a .ttc collection. */
   face?: number;
   description?: string;
@@ -50,8 +50,8 @@ export async function importAsset(request: ImportRequest, baseDir: string): Prom
   const asset = await describe(bytes, request);
   if (uri === undefined) {
     // Downloaded or pasted: keep a copy in the Gesso folder.
-    const format = asset.kind === "font" ? undefined : (await sharp(bytes).metadata()).format;
-    const ext = format ? `.${format === "jpeg" ? "jpg" : format}` : /^\.(ttf|otf|ttc|otc)$/.test(extension) ? extension : ".ttf";
+    const format = asset.kind === "font" || asset.kind === "lut" ? undefined : (await sharp(bytes).metadata()).format;
+    const ext = asset.kind === "lut" ? ".cube" : format ? `.${format === "jpeg" ? "jpg" : format}` : /^\.(ttf|otf|ttc|otc)$/.test(extension) ? extension : ".ttf";
     const dir = join(baseDir, "assets");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, `${id}${ext}`), bytes);
@@ -63,6 +63,15 @@ export async function importAsset(request: ImportRequest, baseDir: string): Prom
 async function describe(bytes: Uint8Array, request: ImportRequest): Promise<Omit<Asset, "uri">> {
   const hash = `sha256:${createHash("sha256").update(bytes).digest("hex").slice(0, 16)}`;
   const description = request.description ? { description: request.description } : {};
+  const text = request.kind === "lut" || request.kind === undefined ? new TextDecoder().decode(bytes.subarray(0, 4096)) : "";
+  if (request.kind === "lut" || /^\s*(#.*\n\s*)*(TITLE|LUT_3D_SIZE|LUT_1D_SIZE|DOMAIN_M)/m.test(text)) {
+    try {
+      parseCube(new TextDecoder().decode(bytes));
+    } catch (err) {
+      throw new Error(`That file isn't a 3D colour lookup table Gesso can read (.cube): ${(err as Error).message}`);
+    }
+    return { kind: "lut", hash, ...description };
+  }
   if (request.kind !== "image" && request.kind !== "mask") {
     const faces = await readFontFaces(async (offset, length) => bytes.subarray(offset, offset + length)).catch(() => []);
     if (faces.length) {

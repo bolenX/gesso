@@ -159,6 +159,33 @@ export const Filter = z.discriminatedUnion("kind", [
   f("maximum", { radius: z.number().positive() }),
   f("minimum", { radius: z.number().positive() }),
   f("offset", { x: z.number(), y: z.number(), edges: z.enum(["wrap", "repeat", "transparent"]).optional() }),
+  // ── Image › Adjustments that Photoshop applies to pixels (or as smart filters) ─────────
+  /** Shadows/Highlights: lightens dark areas and darkens bright ones by their surroundings (`radius` px); `color` adjusts saturation where tones change. */
+  f("shadows-highlights", {
+    shadows: z.number().min(0).max(100),
+    highlights: z.number().min(0).max(100).optional(),
+    radius: z.number().positive().optional(),
+    color: z.number().min(-100).max(100).optional(),
+  }),
+  f("desaturate", {}),
+  /** Equalize: spreads the layer's tones evenly from black to white. */
+  f("equalize", {}),
+  /** Match Color: moves the layer's colour and tone towards a source image's (asset); `neutralize` removes a colour cast instead. */
+  f("match-color", {
+    source: z.string().optional(),
+    luminance: z.number().min(1).max(200).optional(),
+    intensity: z.number().min(1).max(200).optional(),
+    fade: z.number().min(0).max(100).optional(),
+    neutralize: z.boolean().optional(),
+  }),
+  /** Replace Color: shifts hue, saturation and lightness of colours within `fuzziness` of `color`. */
+  f("replace-color", {
+    color: Color,
+    fuzziness: z.number().min(0).max(200),
+    hue: z.number().min(-180).max(180).optional(),
+    saturation: z.number().min(-100).max(100).optional(),
+    lightness: z.number().min(-100).max(100).optional(),
+  }),
   // ── Camera Raw ────────────────────────────────────────────────────────────────────────
   /** Camera Raw Filter: the Basic panel and more, each −100..100 (exposure in stops, −5..5). */
   f("camera-raw", {
@@ -182,9 +209,10 @@ export const Filter = z.discriminatedUnion("kind", [
 export type Filter = z.infer<typeof Filter>;
 export type FilterKind = Filter["kind"];
 
-/** Image assets a filter reads (displacement and depth maps). */
+/** Image assets a filter reads (displacement and depth maps, Match Color sources). */
 export function filterAssets(filter: Filter): string[] {
   if (filter.kind === "displace") return [filter.map];
   if (filter.kind === "lens-blur" && filter.depth) return [filter.depth];
+  if (filter.kind === "match-color" && filter.source) return [filter.source];
   return [];
 }

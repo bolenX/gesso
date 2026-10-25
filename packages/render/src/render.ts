@@ -14,14 +14,14 @@ import type {
   SmartObject,
   TextLayer,
 } from "@gesso/core";
-import { filterAssets, paintColor } from "@gesso/core";
+import { adjustmentAssets, filterAssets, paintColor } from "@gesso/core";
 import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
 import { gaussBlur, readRaster, writeRaster } from "./cpu.js";
 import { applyFilter, filterReach, type FilterKit } from "./filters.js";
 import type { CanvasKit, Canvas, Font, Image, Paint, Paragraph, Shader, Surface, Typeface, TypefaceFontProvider } from "canvaskit-wasm";
 import sharp from "sharp";
-import { applyAdjustment } from "./adjust.js";
+import { applyAdjustment, parseCube, type Lut3D } from "./adjust.js";
 import { defaultAssetLoader, type AssetLoader } from "./assets.js";
 import { loadCanvasKit } from "./canvaskit.js";
 import { resolveFrame, type Box } from "./layout.js";
@@ -190,6 +190,8 @@ type Resources = {
   families: Set<string>;
   /** Font file bytes by family, for text that's laid out glyph by glyph (text on a path). */
   fontData: Map<string, Uint8Array>;
+  /** Parsed colour lookup tables (.cube) by asset id. */
+  luts: Map<string, Lut3D>;
   warnings: string[];
   dispose(): void;
 };
@@ -251,11 +253,13 @@ async function decodeImage(ck: CanvasKit, id: string, asset: Asset, bytes: Uint8
 
 async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loader: AssetLoader): Promise<Resources> {
   const used = new Set<string>();
+  const lutIds = new Set<string>();
   const visit = (layers: Layer[]) => {
     for (const layer of layers) {
       if (layer.type === "image") used.add(layer.asset);
       if (layer.mask?.kind === "raster") used.add(layer.mask.asset);
       for (const filter of layer.filters ?? []) filterAssets(filter).forEach((id) => used.add(id));
+      if (layer.type === "adjustment") adjustmentAssets(layer.adjustment).forEach((id) => lutIds.add(id));
       if (layer.type === "group") visit(layer.children);
       if (layer.type === "smart" && doc.symbols?.[layer.symbol]) visit(doc.symbols[layer.symbol]!.layers);
     }
@@ -274,6 +278,18 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
       cached.users++;
       held.push(cached);
       images.set(id, cached.image);
+    }
+  } catch (err) {
+    release();
+    throw err;
+  }
+
+  const luts = new Map<string, Lut3D>();
+  try {
+    for (const id of lutIds) {
+      const asset = doc.assets[id];
+      if (!asset) throw new Error(`Missing asset "${id}": import the .cube file with asset_import, or change the Color Lookup that uses it`);
+      luts.set(id, parseCube(new TextDecoder().decode(await loadAsset(loader, id, asset))));
     }
   } catch (err) {
     release();
@@ -302,6 +318,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
     fonts,
     families,
     fontData,
+    luts,
     warnings,
     dispose() {
       release();
@@ -1164,7 +1181,7 @@ class Compositor {
   private adjust(layer: Extract<Layer, { type: "adjustment" }>, parent: Box, target: Surface, clipBase: Image | null): void {
     const pixels = this.readPixels(target);
     const adjusted = pixels.slice();
-    applyAdjustment(adjusted, layer.adjustment);
+    applyAdjustment(adjusted, layer.adjustment, this.res.luts);
 
     const opacity = layer.opacity ?? 1;
     const mask = layer.mask ? this.readImageAlpha(this.maskImage(layer.mask, resolveFrame(layer.frame, parent), parent)) : null;

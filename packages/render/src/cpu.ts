@@ -482,6 +482,60 @@ export function median(px: Uint8Array, w: number, h: number, r: number): Uint8Ar
   return out;
 }
 
+// ── Colour spaces ────────────────────────────────────────────────────────────────────────
+
+const toLinear = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+const toSrgb = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.max(v, 0) ** (1 / 2.4) - 0.055);
+const labF = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+const labInv = (t: number) => (t ** 3 > 216 / 24389 ? t ** 3 : (116 * t - 16) / (24389 / 27));
+
+/** sRGB (0..1) to CIE Lab (D65), written into out. */
+export function rgbToLab(r: number, g: number, b: number, out: Float64Array): void {
+  const [lr, lg, lb] = [toLinear(r), toLinear(g), toLinear(b)];
+  const x = (0.4124 * lr + 0.3576 * lg + 0.1805 * lb) / 0.95047;
+  const y = 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+  const z = (0.0193 * lr + 0.1192 * lg + 0.9505 * lb) / 1.08883;
+  const [fx, fy, fz] = [labF(x), labF(y), labF(z)];
+  out[0] = 116 * fy - 16;
+  out[1] = 500 * (fx - fy);
+  out[2] = 200 * (fy - fz);
+}
+
+/** CIE Lab (D65) to sRGB (0..1, unclamped), written into out. */
+export function labToRgb(L: number, a: number, b: number, out: Float64Array): void {
+  const fy = (L + 16) / 116;
+  const [x, y, z] = [labInv(fy + a / 500) * 0.95047, labInv(fy), labInv(fy - b / 200) * 1.08883];
+  out[0] = toSrgb(3.2406 * x - 1.5372 * y - 0.4986 * z);
+  out[1] = toSrgb(-0.9689 * x + 1.8758 * y + 0.0415 * z);
+  out[2] = toSrgb(0.0557 * x - 0.204 * y + 1.057 * z);
+}
+
+/** Shifts a colour (0..1, in place) by hue (degrees) and saturation and lightness (−100..100), like Hue/Saturation. */
+export function shiftHsl(c: Float64Array, hue: number, saturation: number, lightness: number): void {
+  const [r, g, b] = [c[0]!, c[1]!, c[2]!];
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  const l = (mx + mn) / 2;
+  const d = mx - mn;
+  let h = 0;
+  let s = 0;
+  if (d > 0) {
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) / 6;
+  }
+  h = (h + hue / 360 + 1) % 1;
+  s = clamp(s * (1 + saturation / 100), 0, 1);
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const ch = (t: number) => {
+    t = (t + 1) % 1;
+    return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p;
+  };
+  const out = s === 0 ? [l, l, l] : [ch(h + 1 / 3), ch(h), ch(h - 1 / 3)];
+  const k = lightness / 100;
+  for (let j = 0; j < 3; j++) c[j] = k > 0 ? out[j]! + (1 - out[j]!) * k : out[j]! * (1 + k);
+}
+
 // ── Noise ────────────────────────────────────────────────────────────────────────────────
 
 /** A deterministic hash of integer lattice coordinates to [0, 1). */

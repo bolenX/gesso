@@ -145,7 +145,7 @@ async function convertLayer(layer: PsdLayer, origin: Box, ctx: Ctx): Promise<Lay
   }
 
   if (layer.adjustment) {
-    const adjustment = convertAdjustment(layer.adjustment);
+    const adjustment = await convertAdjustment(layer.adjustment, id, ctx);
     if (!adjustment) {
       ctx.warnings.push(`layer "${name}": ${layer.adjustment.type} adjustments aren't supported yet; left out`);
       return undefined;
@@ -353,20 +353,83 @@ function isWarped(warp: NonNullable<PsdLayer["placedLayer"]>["warp"]): boolean {
   return mesh.some((p, i) => Math.abs(p.x - (l + ((r - l) * (i % 4)) / 3)) > 0.5 || Math.abs(p.y - (t + ((btm - t) * Math.floor(i / 4)) / 3)) > 0.5);
 }
 
-function convertAdjustment(adj: NonNullable<PsdLayer["adjustment"]>): Adjustment | undefined {
-  if (adj.type === "brightness/contrast") return { kind: "brightness-contrast", brightness: adj.brightness ?? 0, contrast: adj.contrast ?? 0 };
-  if (adj.type === "hue/saturation") return { kind: "hue-saturation", hue: adj.master?.hue ?? 0, saturation: adj.master?.saturation ?? 0, lightness: adj.master?.lightness ?? 0 };
-  if (adj.type === "curves" && adj.rgb?.length) return { kind: "curves", points: adj.rgb.map((p) => [p.input, p.output] as [number, number]) };
-  if (adj.type === "gradient map" && adj.gradientType === "solid" && (adj.colorStops?.length ?? 0) >= 2) {
-    return {
-      kind: "gradient-map",
-      stops: adj.colorStops!.map((s) => ({ offset: round(s.location, 4), color: hex(s.color) })),
-      ...(adj.reverse ? { reverse: true } : {}),
-    };
-  }
-  if (adj.type === "levels" && adj.rgb) {
-    const l = adj.rgb;
-    return { kind: "levels", inputBlack: l.shadowInput, inputWhite: l.highlightInput, gamma: l.midtoneInput, outputBlack: l.shadowOutput, outputWhite: l.highlightOutput };
+async function convertAdjustment(adj: NonNullable<PsdLayer["adjustment"]>, id: string, ctx: Ctx): Promise<Adjustment | undefined> {
+  const balance = (v?: { cyanRed: number; magentaGreen: number; yellowBlue: number }) => (v && (v.cyanRed || v.magentaGreen || v.yellowBlue) ? ([v.cyanRed, v.magentaGreen, v.yellowBlue] as [number, number, number]) : undefined);
+  const cmyk = (v?: { c: number; m: number; y: number; k: number }) => (v && (v.c || v.m || v.y || v.k) ? ([v.c, v.m, v.y, v.k] as [number, number, number, number]) : undefined);
+  const mix = (v?: { red: number; green: number; blue: number; constant: number }) => (v ? ([v.red, v.green, v.blue, v.constant] as [number, number, number, number]) : undefined);
+  const defined = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+  switch (adj.type) {
+    case "brightness/contrast":
+      return { kind: "brightness-contrast", brightness: adj.brightness ?? 0, contrast: adj.contrast ?? 0 };
+    case "hue/saturation": {
+      const ranges = defined(
+        Object.fromEntries(
+          (["reds", "yellows", "greens", "cyans", "blues", "magentas"] as const).map((r) => {
+            const c = adj[r];
+            return [r, c && (c.hue || c.saturation || c.lightness) ? { hue: c.hue, saturation: c.saturation, lightness: c.lightness } : undefined];
+          }),
+        ),
+      );
+      return { kind: "hue-saturation", hue: adj.master?.hue ?? 0, saturation: adj.master?.saturation ?? 0, lightness: adj.master?.lightness ?? 0, ...(Object.keys(ranges).length ? { ranges } : {}) };
+    }
+    case "curves": {
+      const curve = (c?: Array<{ input: number; output: number }>) => (c && c.length >= 2 ? c.map((p) => [p.input, p.output] as [number, number]) : undefined);
+      const extra = defined({ red: curve(adj.red), green: curve(adj.green), blue: curve(adj.blue) });
+      return { kind: "curves", points: curve(adj.rgb) ?? [[0, 0], [255, 255]], ...extra };
+    }
+    case "gradient map":
+      if (adj.gradientType !== "solid" || (adj.colorStops?.length ?? 0) < 2) return undefined;
+      return {
+        kind: "gradient-map",
+        stops: adj.colorStops!.map((s) => ({ offset: round(s.location, 4), color: hex(s.color) })),
+        ...(adj.reverse ? { reverse: true } : {}),
+      };
+    case "levels": {
+      // Photoshop writes every channel; the edited one is the one that isn't left at its defaults.
+      const edited = (l?: { shadowInput: number; highlightInput: number; midtoneInput: number; shadowOutput: number; highlightOutput: number }) =>
+        !!l && (l.shadowInput !== 0 || l.highlightInput !== 255 || Math.abs(l.midtoneInput - 1) > 0.001 || l.shadowOutput !== 0 || l.highlightOutput !== 255);
+      const channel = (["rgb", "red", "green", "blue"] as const).find((c) => edited(adj[c])) ?? (adj.rgb ? "rgb" : undefined);
+      if (!channel) return undefined;
+      const l = adj[channel]!;
+      return { kind: "levels", ...(channel === "rgb" ? {} : { channel }), inputBlack: l.shadowInput, inputWhite: l.highlightInput, gamma: round(l.midtoneInput, 4), outputBlack: l.shadowOutput, outputWhite: l.highlightOutput };
+    }
+    case "exposure":
+      return {
+        kind: "exposure",
+        exposure: round(adj.exposure ?? 0, 4),
+        ...defined({ offset: adj.offset ? round(adj.offset, 4) : undefined, gamma: adj.gamma && Math.abs(adj.gamma - 1) > 0.0001 ? round(adj.gamma, 4) : undefined }),
+      };
+    case "vibrance":
+      return { kind: "vibrance", vibrance: adj.vibrance ?? 0, ...(adj.saturation ? { saturation: adj.saturation } : {}) };
+    case "color balance":
+      return { kind: "color-balance", ...defined({ shadows: balance(adj.shadows), midtones: balance(adj.midtones), highlights: balance(adj.highlights) }), preserveLuminosity: adj.preserveLuminosity ?? true };
+    case "black & white":
+      return {
+        kind: "black-white",
+        ...defined({ reds: adj.reds, yellows: adj.yellows, greens: adj.greens, cyans: adj.cyans, blues: adj.blues, magentas: adj.magentas }),
+        ...(adj.useTint && adj.tintColor ? { tint: hex(adj.tintColor) } : {}),
+      };
+    case "photo filter":
+      return { kind: "photo-filter", color: hex(adj.color), density: adj.density ?? 25, preserveLuminosity: adj.preserveLuminosity ?? true };
+    case "channel mixer":
+      return adj.monochrome ? { kind: "channel-mixer", monochrome: mix(adj.gray) ?? [40, 40, 20, 0] } : { kind: "channel-mixer", ...defined({ red: mix(adj.red), green: mix(adj.green), blue: mix(adj.blue) }) };
+    case "color lookup": {
+      if (!adj.lut3DFileData || (adj.lutFormat && adj.lutFormat !== "cube")) return undefined;
+      const assetId = `${ctx.options.idPrefix ?? ""}${id}-lut`;
+      await writeFile(join(ctx.options.assetDir, `${assetId}.cube`), adj.lut3DFileData);
+      ctx.assets[assetId] = { uri: `${ctx.options.uriBase}/${assetId}.cube`, kind: "lut", ...(adj.lut3DFileName ? { description: adj.lut3DFileName } : {}) };
+      return { kind: "color-lookup", lut: assetId };
+    }
+    case "invert":
+      return { kind: "invert" };
+    case "posterize":
+      return { kind: "posterize", levels: Math.max(2, adj.levels ?? 4) };
+    case "threshold":
+      return { kind: "threshold", level: Math.min(255, Math.max(1, adj.level ?? 128)) };
+    case "selective color": {
+      const ranges = defined(Object.fromEntries((["reds", "yellows", "greens", "cyans", "blues", "magentas", "whites", "neutrals", "blacks"] as const).map((r) => [r, cmyk(adj[r])])));
+      return { kind: "selective-color", mode: adj.mode ?? "relative", ...ranges };
+    }
   }
   return undefined;
 }

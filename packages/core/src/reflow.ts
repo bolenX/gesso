@@ -155,6 +155,8 @@ function scaleFilter(f: Filter, s: number): Filter {
       return f.scale ? { ...f, scale: by(f.scale, 0.1) } : f;
     case "offset":
       return { ...f, x: f.x * s, y: f.y * s };
+    case "shadows-highlights":
+      return f.radius ? { ...f, radius: by(f.radius, 0.1) } : f;
     default:
       // Radial blurs, twirl, pinch and the like are relative to the layer; the rest have no size.
       return f;
