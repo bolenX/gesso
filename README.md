@@ -3,7 +3,7 @@
 
 **A headless, agent-first image engine: "Remotion for Photoshop".**
 
-Agents create and edit layered compositions as data, and every output opens in Photoshop as a fully editable PSD. The headless core ships first. A human-facing canvas UI follows later as a client of the same API.
+Agents create and edit layered compositions as data, and every output opens in Photoshop as a layered, editable PSD. The headless core ships first. A human-facing canvas UI follows later as a client of the same API.
 
 > Status: alpha. See [docs/spec-v0.1.md](docs/spec-v0.1.md).
 
@@ -24,7 +24,7 @@ What works today:
 - **Agent-first.** Agents change structured data through small, ID-addressed patches. There is no mouse emulation.
 - **Non-destructive.** Source assets stay untouched. Every change is a patch in an event log, so every change can be undone and traced to its author.
 - **The document IR is the product.** Renderers and file formats, PSD included, are backends that can be swapped out.
-- **Lossless PSD round-trip.** PSD data Gesso can't render is kept as opaque blocks and written back unchanged.
+- **Lossless PSD round-trip.** PSD data Gesso can't render is kept as opaque blocks on import. Writing those blocks back unchanged is still to come; until then, PSD export warns when it drops them.
 - **Skills carry the craft.** The engine makes edits possible. The bundled skills make them good.
 - **The project never pays per generation.** Generative work goes to the user's own connected tools, API keys or hardware.
 
