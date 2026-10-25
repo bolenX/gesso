@@ -5,7 +5,19 @@
 
 Agents create and edit layered compositions as data, and every output opens in Photoshop as a fully editable PSD. The headless core ships first. A human-facing canvas UI follows later as a client of the same API.
 
-> Status: pre-alpha. The document IR, atomic patches, revision history, the renderer (PNG/JPEG/WebP via Skia) and layered PSD export work. PSD import and the generative broker are not built yet. See [docs/spec-v0.1.md](docs/spec-v0.1.md).
+> Status: alpha. See [docs/spec-v0.1.md](docs/spec-v0.1.md).
+
+What works today:
+
+- **Document and editing:** the document IR, atomic patches with revision history, and PSD import and export (artboards, live text, shapes, adjustments, layer styles, smart objects).
+- **Exports:** SVG, print PDF, and PNG/JPEG/WebP/TIFF, in RGB or CMYK with ICC profiles.
+- **Filters:** Photoshop's whole Filter menu as smart filters, including Blur Gallery, Liquify, Puppet Warp and Camera Raw.
+- **Adjustments:** every adjustment layer, plus the Image › Adjustments commands as filters.
+- **Compositing:** all blend modes, Blend If, luminosity, colour-range and channel masks, and every layer style.
+- **Shapes and transforms:** boolean shapes, skew, distort, perspective and warp.
+- **Retouching:** content-aware fill, healing, clone stamp and content-aware scale.
+- **Production:** batch runs, slices, and jobs prepared for the user's own image models.
+- **Skills:** workflow recipes for beauty, product, real estate, manipulation and restoration work.
 
 ## Principles
 
