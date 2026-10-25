@@ -1,6 +1,6 @@
 # Install Gesso
 
-Gesso is an MCP server. Once it's connected to your agent, the agent can build layered designs, show you previews, and export PNG, JPEG, WebP or PSD files that stay editable in Photoshop.
+Gesso is an MCP server. Once it's connected to your agent, the agent can build layered designs, edit and retouch photos, show you previews, and export PSD files that stay editable in Photoshop, as well as PNG, JPEG, WebP, TIFF, SVG and print PDF.
 
 Pick the agent you use:
 
@@ -150,7 +150,7 @@ Text uses fonts installed on your computer or put in your Gesso folder. The agen
 
 ## For the landing page
 
-Copy for the **Install** or **Get started** section, matching the guide above. The logos are in [`brand/agents/`](../brand/agents/), from Lobe Icons, Iconify and Devicon: colour and mono icons for every agent, plus wordmarks. Use the colour icon where there is one, otherwise the mono icon, inlined so it follows the text colour.
+Copy for the **Install** or **Get started** section, matching the guide above. For the rest of the page (features, positioning and claims to avoid), see [landing-page-brief.md](landing-page-brief.md). The logos are in [`brand/agents/`](../brand/agents/), from Lobe Icons, Iconify and Devicon: colour and mono icons for every agent, plus wordmarks. Use the colour icon where there is one, otherwise the mono icon, inlined so it follows the text colour.
 
 ### Section copy
 
@@ -180,7 +180,7 @@ With eight tabs, let the tab row scroll sideways on phones rather than wrapping.
 ### Facts to keep accurate
 
 - npm package: `gesso-mcp`. Every config runs `npx -y gesso-mcp`.
-- Extension file: `gesso-<version>.mcpb`, about 55 MB, built with `node packages/gesso-mcp/build-mcpb.mjs`. Includes macOS (Apple silicon and Intel), Windows and Linux support.
+- Extension file: `gesso-<version>.mcpb`, about 62 MB, built with `node packages/gesso-mcp/build-mcpb.mjs`. Includes macOS (Apple silicon and Intel), Windows and Linux support.
 - Default Gesso folder: `~/Documents/Gesso`, set with `GESSO_WORKDIR`.
 - claude.ai and ChatGPT: not available yet. Don't say they're supported.
 - Logos are the official marks from Lobe Icons, Iconify and Devicon (see `brand/agents/README.md`). Don't redraw or recolour them.

@@ -61,7 +61,7 @@ const manifest = {
   version: pkg.version,
   description: "Layered images as data. Agents build designs and export PSDs that stay editable in Photoshop.",
   long_description:
-    "Gesso is an open-source, agent-first image engine. Claude builds layered compositions through small patches to named layers, renders previews to check its work, and exports PNG, JPEG, WebP or PSD files with live text, shape and adjustment layers, artboards and smart objects.",
+    "Gesso is an open-source, agent-first image engine. Claude builds layered compositions through small patches to named layers, renders previews to check its work, and exports PNG, JPEG, WebP, TIFF, SVG, print PDF or PSD files, in RGB or CMYK. It includes Photoshop's Filter menu as smart filters, every adjustment layer, all blend modes and layer styles, masks and retouching. PSDs keep live text, shape and adjustment layers, layer styles, artboards and smart objects.",
   author: { name: "Gesso", url: pkg.homepage },
   homepage: pkg.homepage,
   repository: { type: "git", url: "https://github.com/bolenX/gesso" },
