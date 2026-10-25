@@ -1,29 +1,58 @@
 # Running mcp.gesso.run
 
-This folder runs hosted Gesso at `https://mcp.gesso.run`, the server claude.ai and ChatGPT connect to. [docs/hosting.md](../docs/hosting.md) explains what hosted Gesso does and lists every setting. This page covers the official server: first-time setup, deploys, and day-to-day operations.
+This folder runs hosted Gesso at `https://mcp.gesso.run`, a shared server that claude.ai and ChatGPT can connect to without anyone installing anything. It's also what the Claude and ChatGPT directories need to list Gesso, because they need a fixed address. [docs/hosting.md](../docs/hosting.md) explains what hosted Gesso does and lists every setting.
 
-Two ways to run it:
-- **Fly.io** (`fly.toml`) is the default, and GitHub Actions can deploy to it.
-- **Any Linux server** with Docker (`compose.yaml` and `Caddyfile`), for example a small VPS.
+People don't need this server to use Gesso from claude.ai or ChatGPT today: `npx -y gesso-mcp --tunnel` runs it on their own computer, for free (see [install.md](../docs/install.md#claudeai-and-chatgpt)).
 
-## Sizing and cost
+## Free: any always-on machine and a Cloudflare Tunnel
 
-| | Fly.io (as configured) | VPS |
+Gesso needs a few seconds of real CPU per render. Free serverless plans don't allow that: Cloudflare Workers get 10 ms of CPU per request, and Hugging Face Docker Spaces now need a paid plan. So the server runs on a machine. A Cloudflare Tunnel, free on the Cloudflare account that already serves gesso.run, gives that machine the address `mcp.gesso.run`:
+- no open ports, router setup or certificates
+- HTTPS and DDoS protection from Cloudflare
+
+**The machine can be:**
+- **A computer that's always on:** an old laptop, a Mac mini, a home server or NAS. A Raspberry Pi 5 with 8 GB works too, though renders are slower.
+- **Oracle Cloud's Always Free VM:** an Ampere A1 instance with 2 or more cores and 12 GB, free with no time limit. Oracle asks for a card to verify the account, but doesn't charge for Always Free resources unless you upgrade the account. Two caveats from Oracle's terms:
+  - an instance that stays almost idle for a week can be reclaimed
+  - the free allowance has been reduced before
+
+  Keep backups of `gesso.env` and the ban list.
+
+**Setup, about 20 minutes:**
+
+1. **Create the tunnel.** In the Cloudflare dashboard, go to **Zero Trust › Networks › Tunnels › Create a tunnel**. Choose **Cloudflared**, name it `gesso`, and copy the token from the install command it shows. Don't run that command: the Compose file runs cloudflared for you.
+2. **Give it the address.** On the tunnel's **Public hostname** tab, add hostname `mcp`, domain `gesso.run`, service type `HTTP`, and URL `gesso:8080`.
+3. **On the machine,** with Docker installed, clone this repository and run:
+   ```sh
+   cp deploy/gesso.env.example deploy/gesso.env      # set GESSO_SECRET: openssl rand -hex 32
+   TUNNEL_TOKEN=<token from step 1> docker compose -f deploy/compose.tunnel.yaml up -d --build
+   ```
+   Keep the token out of chats and the repository. It lets anyone run your tunnel.
+4. **Check it:** `https://mcp.gesso.run/health` should answer `ok`. Then add `https://mcp.gesso.run/mcp` as a custom connector in claude.ai.
+
+**Without Docker,** for example on a Mac, run the two parts as background services:
+```sh
+GESSO_PUBLIC_URL=https://mcp.gesso.run GESSO_WORKDIR=~/gesso-data GESSO_SECRET=… GESSO_CLIENT_IP_HEADER=cf-connecting-ip npx -y gesso-mcp --hosted
+cloudflared tunnel run --token <token>    # with the public hostname's service set to http://localhost:3333
+```
+
+**To update:** `git pull`, then run the same `docker compose … up -d --build` command.
+
+**What it can handle:** a 4-core machine with 8 GB serves a handful of people rendering at once. Each render takes a core while it runs. If the machine is busy or off, connectors show an error until it's back.
+
+## Paid hosts (optional)
+
+If Gesso ever outgrows a free machine, the same server runs on any paid host.
+
+| | Fly.io (`fly.toml`) | VPS (`compose.yaml` with Caddy) |
 | --- | --- | --- |
 | Machine | 2 shared CPUs, 4 GB, always on | 2–4 vCPUs, 4–8 GB |
 | Disk | 20 GB volume for workspaces | the server's disk |
 | Rough cost | about $25–35 a month | about €5–15 a month |
 
-Check current prices with the provider: these change.
+Check current prices with the provider: these change. The first limit you'll hit is CPU. Raise `GESSO_WORKERS` to match the machine's cores.
 
-What to watch as use grows:
-- **CPU:** each render takes a core while it runs.
-- **Memory:** large photos with stacked filters can use 1 GB or more per worker.
-- **Disk:** workspaces stay for 7 idle days, and each can hold up to 2 GB.
-
-The first limit you'll hit is CPU. Scale up the machine and raise `GESSO_WORKERS` to match its cores, up to about one worker per core.
-
-## First-time setup from GitHub (nothing to install)
+### Fly.io from GitHub (nothing to install)
 
 1. **Create a Fly.io account** at fly.io and add a payment method.
 2. **Create a token.** In the Fly.io dashboard, go to **Account › Access Tokens** and create one.
@@ -41,7 +70,7 @@ The first limit you'll hit is CPU. Scale up the machine and raise `GESSO_WORKERS
 
 After that, every new release deploys itself. Afterwards you can swap the account token for one limited to this app (`fly tokens create deploy --app gesso-mcp`).
 
-## First-time setup on Fly.io from your computer
+### Fly.io from your computer
 
 You need a Fly.io account and `flyctl`, and you run these from the repository root.
 
@@ -67,13 +96,22 @@ You need a Fly.io account and `flyctl`, and you run these from the repository ro
    ```
    Then add `https://mcp.gesso.run/mcp` as a custom connector in claude.ai, approve on Gesso's page, and ask for a poster.
 
-### Deploy from GitHub
+#### Deploy from GitHub
 
 Create a deploy token with `fly tokens create deploy --app gesso-mcp`, and save it as the `FLY_API_TOKEN` repository secret under Settings › Secrets and variables › Actions. After that:
 - every new release deploys automatically, after the npm package and the GitHub release
 - **Actions › Deploy mcp.gesso.run › Run workflow** deploys by hand
 
 The workflow uses `superfly/flyctl-actions/setup-flyctl@master`, as Fly's docs recommend. To lock it down, pin it to a commit SHA.
+
+### On a VPS with Caddy
+
+```sh
+cp deploy/gesso.env.example deploy/gesso.env    # fill in GESSO_SECRET and the rest
+GESSO_DOMAIN=mcp.gesso.run docker compose -f deploy/compose.yaml up -d --build
+```
+
+Point `mcp.gesso.run`'s A and AAAA records at the server first: Caddy gets the HTTPS certificate when it starts. To update, pull the repository and run the same command again.
 
 ## Sign in with GitHub or Google (optional)
 
@@ -82,19 +120,13 @@ Without these, people connect without an account and get a new workspace each ti
 **GitHub:**
 1. Go to Settings › Developer settings › OAuth Apps › New OAuth App.
 2. Use the homepage `https://gesso.run` and the callback URL `https://mcp.gesso.run/oauth/github/callback`.
-3. Save the credentials:
-   ```sh
-   fly secrets set --app gesso-mcp GESSO_GITHUB_CLIENT_ID=… GESSO_GITHUB_CLIENT_SECRET=…
-   ```
+3. Add `GESSO_GITHUB_CLIENT_ID` and `GESSO_GITHUB_CLIENT_SECRET` to `deploy/gesso.env` and restart, or use `fly secrets set` on Fly.io.
 
 **Google:**
 1. In Google Cloud Console, go to APIs & Services › Credentials › Create credentials › OAuth client ID.
 2. Choose **Web application**, with the authorized redirect URI `https://mcp.gesso.run/oauth/google/callback`.
 3. Set up the consent screen with the `openid` scope only. Use the app name Gesso, the homepage `https://gesso.run`, and the privacy policy and terms URLs.
-4. Save the credentials:
-   ```sh
-   fly secrets set --app gesso-mcp GESSO_GOOGLE_CLIENT_ID=… GESSO_GOOGLE_CLIENT_SECRET=…
-   ```
+4. Add `GESSO_GOOGLE_CLIENT_ID` and `GESSO_GOOGLE_CLIENT_SECRET` to `deploy/gesso.env` and restart, or use `fly secrets set` on Fly.io.
 
 Gesso asks GitHub and Google for nothing but the account's id. It doesn't ask for email, repositories or files. It turns the id into a workspace key with the secret, and doesn't store the id.
 
@@ -103,7 +135,7 @@ To require an account, set `GESSO_ANONYMOUS=0`. That cuts down on throwaway work
 ## Running it
 
 **Logs.**
-- `fly logs --app gesso-mcp` shows one JSON line per MCP request: time, method, tool, status, duration and a short hash of the workspace.
+- `docker compose -f deploy/compose.tunnel.yaml logs -f gesso` (or `fly logs` on Fly.io) shows one JSON line per MCP request: time, method, tool, status, duration and a short hash of the workspace.
 - Content and keys are never logged.
 - Worker restarts show up as `Gesso worker N stopped`.
 
@@ -111,7 +143,7 @@ To require an account, set `GESSO_ANONYMOUS=0`. That cuts down on throwaway work
 - Add its key, or `github:<id>` or `google:<sub>`, as a line in `/data/blocklist.txt`. Lines starting with `#` are comments.
 - Gesso rereads the file within a minute:
   ```sh
-  fly ssh console --app gesso-mcp -C "sh -c 'echo github:12345 >> /data/blocklist.txt'"
+  docker compose -f deploy/compose.tunnel.yaml exec gesso sh -c 'echo github:12345 >> /data/blocklist.txt'
   ```
 
 **Find a workspace from a log line.** The log's `ws` is the first 10 hex characters of `sha256(key)`. On the server:
@@ -121,15 +153,6 @@ for k in /data/workspaces/*; do echo "$(printf %s "$(basename $k)" | sha256sum |
 
 **Delete everything for someone who asks.** Delete their workspace folder under `/data/workspaces/`. Their tokens stop finding files right away. A signed-in account gets a new, empty workspace the next time it connects.
 
-**Backups.** Workspaces are meant to be temporary, so they aren't backed up. The two things to keep are the secret (`GESSO_SECRET`, set as a Fly secret) and the ban list.
+**Backups.** Workspaces are meant to be temporary, so they aren't backed up. The two things to keep are the secret (`GESSO_SECRET`, in `deploy/gesso.env` or Fly's secrets) and the ban list.
 
-**Restarts and deploys.** A deploy restarts the machine, which takes a few seconds. Exports still running are lost and need running again. Documents and files are on the volume, so they stay.
-
-## On a VPS instead
-
-```sh
-cp deploy/gesso.env.example deploy/gesso.env    # fill in GESSO_SECRET and the rest
-GESSO_DOMAIN=mcp.gesso.run docker compose -f deploy/compose.yaml up -d --build
-```
-
-Point `mcp.gesso.run`'s A and AAAA records at the server first: Caddy gets the HTTPS certificate when it starts. To update, pull the repository and run the same command again.
+**Restarts and updates.** An update restarts Gesso, which takes a few seconds. Exports still running are lost and need running again. Documents and files are on the volume, so they stay.

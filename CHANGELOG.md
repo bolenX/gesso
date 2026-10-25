@@ -16,6 +16,12 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
   - a ban list for workspaces and accounts
   - rate limits use the address the nearest proxy saw, so a forged `X-Forwarded-For` doesn't get around them
   - one JSON log line per request, never with content or keys
+- **claude.ai and ChatGPT from your own computer, free:** `npx -y gesso-mcp --tunnel` runs Gesso on your computer and opens a free Cloudflare quick tunnel, with no account and no server anyone pays for. It prints the address to add as a custom connector, and a pairing code. Connecting signs in with that code, so only you can use it. After 10 wrong codes, pairing pauses for 15 minutes.
+  - Tools work in your Gesso folder and can't reach outside it.
+  - Answers are plain JSON, which every tunnel passes through.
+  - Gesso waits until Cloudflare is actually connected before printing the address, and says so if a firewall blocks the tunnel.
+  - `--personal` does the same behind a tunnel you run yourself, such as a named Cloudflare tunnel with a fixed address.
+- **`mcp.gesso.run` for free:** `deploy/compose.tunnel.yaml` runs hosted Gesso on any always-on machine behind a Cloudflare Tunnel (no open ports, and HTTPS from Cloudflare). `GESSO_CLIENT_IP_HEADER` reads the visitor's address from Cloudflare's header. The runbook puts this first; paid hosts are optional.
 - **Worker processes for hosted servers:** tool calls run in worker processes, one per core up to 4. Each workspace always goes to the same worker, so one long render no longer holds up everyone else, and sign-in, pages and downloads keep answering. A worker that crashes is restarted, and only its requests in flight fail.
 - **Deploying hosted Gesso:** `deploy/` has a Fly.io configuration and a Docker Compose setup with Caddy for HTTPS, plus a runbook for `mcp.gesso.run`. It covers the volume, the secret, DNS, GitHub and Google sign-in, logs, bans and costs. A new workflow deploys each release when a `FLY_API_TOKEN` secret is set.
 - **Hosted settings:**

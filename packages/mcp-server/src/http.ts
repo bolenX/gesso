@@ -1,8 +1,9 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { homedir } from "node:os";
 import { basename, extname, join, relative, sep } from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { FAVICON_SVG } from "./brand.js";
@@ -56,6 +57,11 @@ export type HttpOptions = {
   blocklist?: string;
   /** Hosted: how many proxies in front of Gesso append to X-Forwarded-For (default 1). 0 uses the socket address. */
   proxyHops?: number;
+  /**
+   * Hosted: a header that carries the visitor's address, set by a proxy Gesso can only be reached through,
+   * such as `cf-connecting-ip` behind a Cloudflare Tunnel. Only use it when nothing can reach Gesso directly.
+   */
+  clientIpHeader?: string;
   /** Hosted: per-workspace limits. */
   limits?: { burst?: number; perSecond?: number; concurrent?: number; total?: number };
   /** Gets one line per MCP request: no content, no keys, only a short hash of the workspace. */
@@ -64,6 +70,15 @@ export type HttpOptions = {
   workers?: { count: number; entry: string; memoryMb?: number };
   /** Tools to leave out, by name. */
   disabledTools?: string[];
+  /**
+   * Gesso on someone's own computer, reached through a tunnel (`--tunnel`): one workspace, their Gesso folder,
+   * opened by signing in with this pairing code. Implies hosted's confinement and sign-in.
+   */
+  personal?: { code: string };
+  /** Where sign-in state is kept: the data folder's oauth/ hosted, ~/.gesso/tunnel for a personal server. */
+  oauthDir?: string;
+  /** Answer MCP requests with plain JSON instead of event streams, for tunnels and proxies that buffer. */
+  jsonResponse?: boolean;
   /** Plain-text files to serve, by path, such as a domain verification token: { "/.well-known/x": "token" }. */
   verification?: Record<string, string>;
 };
@@ -100,10 +115,15 @@ type Meter = { tokens: number; at: number; busy: number };
 /** A short, one-way name for a workspace in logs. */
 const tag = (key: string) => createHash("sha256").update(key).digest("hex").slice(0, 10);
 
-export async function startHttp(options: HttpOptions): Promise<{ server: Server; url: string; close: () => Promise<void>; workers: () => number[] }> {
-  const { hosted = false } = options;
-  const root = hosted ? join(options.baseDir, "workspaces") : options.baseDir;
+/** The one workspace of a personal server: the user's Gesso folder. */
+const PERSONAL = "personal-gesso-workspace";
+
+export async function startHttp(options: HttpOptions): Promise<{ server: Server; url: string; close: () => Promise<void>; workers: () => number[]; setPublicUrl: (url: string) => void }> {
+  const { personal } = options;
+  const hosted = options.hosted === true || personal !== undefined;
+  const root = hosted && !personal ? join(options.baseDir, "workspaces") : options.baseDir;
   await mkdir(root, { recursive: true });
+  let publicUrl = options.publicUrl;
   const workspaces = new Map<string, Workspace>();
   const local = { store: new DocStore(options.baseDir), state: newServerState() };
   const maxPixels = hosted ? (options.maxMegapixels ?? 40) * 1e6 : undefined;
@@ -111,7 +131,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
   const days = options.workspaceDays ?? 7;
 
   const origin = (req: IncomingMessage) => {
-    if (options.publicUrl) return options.publicUrl.replace(/\/$/, "");
+    if (publicUrl) return publicUrl.replace(/\/$/, "");
     const proto = String(req.headers["x-forwarded-proto"] ?? "http").split(",")[0]!.trim();
     const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost").split(",")[0]!.trim();
     return `${proto}://${host}`;
@@ -119,6 +139,8 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
 
   /** The visitor's address, as the nearest trusted proxy saw it: the entry it appended to X-Forwarded-For. */
   const address = (req: IncomingMessage) => {
+    const reported = options.clientIpHeader ? req.headers[options.clientIpHeader.toLowerCase()] : undefined;
+    if (typeof reported === "string" && reported.trim()) return reported.trim();
     const hops = options.proxyHops ?? 1;
     const chain = String(req.headers["x-forwarded-for"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     return (hops > 0 && chain.length ? chain[Math.max(0, chain.length - hops)] : undefined) ?? req.socket.remoteAddress ?? "";
@@ -141,26 +163,26 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
 
   /** The workspace for a key, if it exists. */
   const open = async (key: string): Promise<Workspace | undefined> => {
-    if (!KEY.test(key) || blocked(key)) return undefined;
+    if (!KEY.test(key) || blocked(key) || (personal && key !== PERSONAL)) return undefined;
     const known = workspaces.get(key);
     if (known) {
       known.seen = Date.now();
       return known;
     }
-    const dir = join(root, key);
+    const dir = personal ? options.baseDir : join(root, key);
     if (!(await stat(dir).catch(() => undefined))?.isDirectory()) return undefined;
     const ws = { key, dir, store: new DocStore(dir), state: newServerState(), seen: Date.now(), touched: 0 };
     workspaces.set(key, ws);
     return ws;
   };
   const ensure = async (key: string) => {
-    if (!KEY.test(key)) throw new Error("Bad workspace key");
-    await mkdir(join(root, key), { recursive: true });
+    if (!KEY.test(key) || (personal && key !== PERSONAL)) throw new Error("Bad workspace key");
+    if (!personal) await mkdir(join(root, key), { recursive: true });
   };
 
   /** Marks the workspace as used, at most once a minute, so cleanup knows what's idle. */
   const touch = async (ws: Workspace) => {
-    if (Date.now() - ws.touched < 60_000) return;
+    if (personal || Date.now() - ws.touched < 60_000) return;
     ws.touched = Date.now();
     const marker = join(ws.dir, ".last");
     const now = new Date();
@@ -176,16 +198,30 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
       if (Date.now() - last > days * 86_400_000) await rm(dir, { recursive: true, force: true });
     }
   };
-  const sweeper = hosted ? setInterval(() => void cleanup(), 3_600_000).unref() : undefined;
-  if (hosted) await cleanup();
+  // Never on a personal server: its workspace is the user's own folder.
+  const sweeper = hosted && !personal ? setInterval(() => void cleanup(), 3_600_000).unref() : undefined;
+  if (hosted && !personal) await cleanup();
+
+  // A personal server's pairing code, with a pause after too many wrong tries.
+  let wrongCodes: number[] = [];
+  const digits = (code: string) => code.replace(/\D/g, "");
+  const checkCode = (code: string): "ok" | "wrong" | "locked" => {
+    wrongCodes = wrongCodes.filter((t) => Date.now() - t < 15 * 60_000);
+    if (wrongCodes.length >= 10) return "locked";
+    const [given, expected] = [Buffer.from(digits(code)), Buffer.from(digits(personal!.code))];
+    if (given.length === expected.length && timingSafeEqual(given, expected)) return "ok";
+    wrongCodes.push(Date.now());
+    return "wrong";
+  };
 
   // ── Sign-in ────────────────────────────────────────────────────────────────────────────────
   let oauth: OAuth | undefined;
-  const secret = hosted ? (options.secret ?? (await loadSecret(join(options.baseDir, "oauth")))) : undefined;
+  const oauthDir = options.oauthDir ?? (personal ? join(homedir(), ".gesso", "tunnel") : join(options.baseDir, "oauth"));
+  const secret = hosted ? (options.secret ?? (await loadSecret(oauthDir))) : undefined;
   if (hosted) {
     oauth = new OAuth({
       secret: secret!,
-      dir: join(options.baseDir, "oauth"),
+      dir: oauthDir,
       origin,
       workspaceDays: days,
       ...(options.anonymous === false ? { anonymous: false } : {}),
@@ -195,6 +231,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
       workspaceExists: async (key) => (await open(key)) !== undefined,
       allowNew: (req) => allowCreate(created, address(req)),
       blocked,
+      ...(personal ? { anonymous: false, pairing: { workspace: PERSONAL, check: checkCode } } : {}),
     });
     await oauth.start();
   }
@@ -205,7 +242,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
   // and a long render only holds up the workspaces that share its worker.
   const disabled = options.disabledTools?.length ? new Set(options.disabledTools) : undefined;
   const pool =
-    hosted && options.workers && options.workers.count >= 2
+    hosted && !personal && options.workers && options.workers.count >= 2
       ? new Pool({ ...options.workers, config: { baseDir: options.baseDir, secret: secret!.toString("hex"), days, ...(maxPixels ? { maxPixels } : {}), requestMb: options.requestMb ?? 32, ...(disabled ? { disabledTools: [...disabled] } : {}) } })
       : undefined;
   await pool?.start();
@@ -262,7 +299,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
     }
     if (pool && ws) return pool.forward(req, res, ws.key, body, { base: origin(req), via });
     const target = ws ?? { key: "", dir: options.baseDir, ...local };
-    return serveMcp(req, res, target, body, linksFor(sealer, days, origin(req), target, via), maxPixels, hosted, disabled);
+    return serveMcp(req, res, target, body, linksFor(sealer, days, origin(req), target, via), maxPixels, hosted, disabled, options.jsonResponse);
   };
 
   const sendFile = async (req: IncomingMessage, res: ServerResponse, file: string) => {
@@ -313,7 +350,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
       return mcp(req, res, ws, "oauth");
     }
 
-    if (url.pathname === "/") return html(res, 200, home(origin(req), options.keyUrls !== false));
+    if (url.pathname === "/") return html(res, 200, home(origin(req), options.keyUrls !== false && !personal));
 
     const [route, token, ...rest] = parts;
 
@@ -342,7 +379,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
     }
 
     // Private key URLs, for connectors without OAuth.
-    if (options.keyUrls === false) return void res.writeHead(404, { "content-type": "text/plain" }).end("Not found\n");
+    if (options.keyUrls === false || personal) return void res.writeHead(404, { "content-type": "text/plain" }).end("Not found\n");
     if (url.pathname === "/new") {
       if (!allowCreate(created, address(req))) {
         return html(res, 429, page("Slow down", "<p>Too many workspaces from this address in the last hour. Try again later.</p>"));
@@ -398,6 +435,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
     server,
     url: `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`,
     workers: () => pool?.pids() ?? [],
+    setPublicUrl: (url: string) => void (publicUrl = url),
     close: () =>
       new Promise((done) => {
         if (sweeper) clearInterval(sweeper);
@@ -452,8 +490,8 @@ export function linksFor(sealer: Sealer | undefined, days: number, base: string,
 }
 
 /** Runs one MCP request against a workspace, with a server made for it (the transport is stateless). */
-export async function serveMcp(req: IncomingMessage, res: ServerResponse, ws: { dir: string; store: DocStore; state: ServerState }, body: unknown, links: ReturnType<typeof linksFor>, maxPixels: number | undefined, confined: boolean, disabledTools?: ReadonlySet<string>) {
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+export async function serveMcp(req: IncomingMessage, res: ServerResponse, ws: { dir: string; store: DocStore; state: ServerState }, body: unknown, links: ReturnType<typeof linksFor>, maxPixels: number | undefined, confined: boolean, disabledTools?: ReadonlySet<string>, jsonResponse = false) {
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, ...(jsonResponse ? { enableJsonResponse: true } : {}) });
   res.on("close", () => void transport.close());
   const server = createServer({
     store: ws.store,

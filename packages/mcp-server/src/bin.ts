@@ -1,23 +1,29 @@
 #!/usr/bin/env node
+import { randomInt } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { availableParallelism, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { startHttp } from "./http.js";
 import { createServer } from "./index.js";
+import { startTunnel } from "./tunnel.js";
 import { startWorker } from "./workers.js";
 
 // stdio by default (Claude Code, Desktop). `--http [port]` serves Streamable HTTP at /mcp on this
 // computer; add `--hosted` to serve claude.ai and ChatGPT connectors, with OAuth sign-in and a private
-// workspace per user (see docs/hosting.md).
+// workspace per user (see docs/hosting.md). `--tunnel` makes this computer reachable from claude.ai and
+// ChatGPT through a free Cloudflare tunnel, for one person, with a pairing code; `--personal` does the same
+// behind a tunnel you run yourself (GESSO_PUBLIC_URL).
 const httpFlag = process.argv.indexOf("--http");
 const hosted = process.argv.includes("--hosted");
+const tunnel = process.argv.includes("--tunnel");
+const personal = tunnel || process.argv.includes("--personal");
 
 // GESSO_WORKDIR is where assets resolve and exports land. The Claude Desktop extension sets it
 // (hosts often start servers in a folder that isn't writable); otherwise it's the current folder.
 // A leading "~" is expanded, since configs often say "~/Documents/Gesso" and the shell isn't there to do it.
 // Hosted, it's the folder that holds every workspace.
-const workdir = process.env.GESSO_WORKDIR?.trim();
+const workdir = process.env.GESSO_WORKDIR?.trim() || (personal ? "~/Documents/Gesso" : undefined);
 const baseDir = workdir ? workdir.replace(/^~(?=$|[\\/])/, homedir()) : process.cwd();
 mkdirSync(baseDir, { recursive: true });
 
@@ -51,6 +57,56 @@ if (process.argv.includes("--hosted-worker")) {
   const port = await startWorker(JSON.parse(process.env.GESSO_WORKER ?? "{}"));
   process.send?.({ ready: port });
   process.on("disconnect", () => process.exit(0));
+} else if (personal) {
+  const code = String(randomInt(0, 100_000_000)).padStart(8, "0").replace(/^(\d{4})/, "$1-");
+  const port = Number(process.env.PORT ?? 0);
+  const started = await startHttp({
+    port,
+    host: "127.0.0.1",
+    baseDir,
+    personal: { code },
+    // Quick tunnels don't pass event streams through reliably; plain JSON answers always work.
+    jsonResponse: true,
+    ...(process.env.GESSO_PUBLIC_URL ? { publicUrl: process.env.GESSO_PUBLIC_URL } : {}),
+    ...(number("GESSO_MAX_MEGAPIXELS") ? { maxMegapixels: number("GESSO_MAX_MEGAPIXELS")! } : {}),
+  });
+  let address = process.env.GESSO_PUBLIC_URL?.replace(/\/$/, "");
+  if (tunnel) {
+    try {
+      const opened = await startTunnel(Number(new URL(started.url).port), {
+        onClose: (why) => {
+          console.error(`\nThe Cloudflare tunnel closed (${why}). Start Gesso again to get a new address.`);
+          process.exit(1);
+        },
+      });
+      address = opened.url;
+      started.setPublicUrl(opened.url);
+      for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => (opened.stop(), process.exit(0)));
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  } else if (!address) {
+    console.error("--personal needs GESSO_PUBLIC_URL: the https address your tunnel gives this computer. Or use --tunnel for a free Cloudflare one.");
+    process.exit(1);
+  }
+  console.error(
+    [
+      "",
+      "Gesso is running on this computer. Connect claude.ai or ChatGPT to:",
+      "",
+      `    ${address}/mcp`,
+      "",
+      "  claude.ai: Settings › Connectors › Add custom connector, and paste the address.",
+      "  ChatGPT:   Settings › Apps › Advanced settings › Developer mode › Create app, with the address and OAuth.",
+      "",
+      `When Gesso asks for a pairing code, enter:  ${code}`,
+      "",
+      `Your files are in ${baseDir}.`,
+      tunnel ? "Keep this window open. The address changes each time you start Gesso, so update the connector then." : "Keep this window open.",
+      "",
+    ].join("\n"),
+  );
 } else if (httpFlag === -1 && !hosted) {
   await createServer({ baseDir }).connect(new StdioServerTransport());
 } else {
@@ -73,6 +129,7 @@ if (process.argv.includes("--hosted-worker")) {
     ...(number("GESSO_MAX_MEGAPIXELS") ? { maxMegapixels: number("GESSO_MAX_MEGAPIXELS")! } : {}),
     ...(number("GESSO_REQUEST_MB") ? { requestMb: number("GESSO_REQUEST_MB")! } : {}),
     ...(number("GESSO_PROXY_HOPS") !== undefined ? { proxyHops: number("GESSO_PROXY_HOPS")! } : {}),
+    ...(process.env.GESSO_CLIENT_IP_HEADER ? { clientIpHeader: process.env.GESSO_CLIENT_IP_HEADER } : {}),
     ...(number("GESSO_MAX_REQUESTS") ? { limits: { total: number("GESSO_MAX_REQUESTS")! } } : {}),
     ...(key ? { secret: key } : {}),
     ...(github ? { github } : {}),

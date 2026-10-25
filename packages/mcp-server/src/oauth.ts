@@ -34,6 +34,11 @@ export type OAuthOptions = {
   allowNew: (req: IncomingMessage) => boolean;
   /** True for workspace keys or accounts ("github:<id>", "google:<sub>") that are banned. */
   blocked: (id: string) => boolean;
+  /**
+   * Gesso on someone's own computer, reached through a tunnel: instead of choosing a workspace, the person
+   * types the pairing code shown where they started Gesso, which opens their one workspace.
+   */
+  pairing?: { workspace: string; check: (code: string) => "ok" | "wrong" | "locked" };
   /** Reads a Client ID Metadata Document; downloads it from the public internet by default. */
   fetchClient?: (url: string) => Promise<unknown>;
   accessSeconds?: number;
@@ -384,6 +389,19 @@ export class OAuth {
   private consent(client: Client, ru: string, pending: string, note = "") {
     const name = escape(client.client_name ?? "An app");
     const host = escape(new URL(ru).host);
+    if (this.o.pairing) {
+      return page(
+        "Connect to Gesso",
+        `<h1>Connect ${name} to Gesso on your computer</h1>
+${note ? `<p class="warn">${escape(note)}</p>` : ""}
+<p>${name} will be able to create, edit and export images in your Gesso folder on this computer.</p>
+<p>Enter the pairing code shown where you started Gesso.</p>
+<form method="post" action="/authorize"><input type="hidden" name="request" value="${escape(pending)}"><div class="stack">
+<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="1234-5678" autofocus>
+<button name="action" value="pair">Connect</button></div></form>
+<p class="small">You'll go back to <b>${host}</b>. Only continue if you started connecting there.</p>`,
+      );
+    }
     const days = this.o.workspaceDays ?? 7;
     const field = `<input type="hidden" name="request" value="${escape(pending)}">`;
     const buttons = [
@@ -412,6 +430,13 @@ ${this.o.github || this.o.google ? "<p>Signing in with an account gives you the 
     const client = await this.client(pending.cid);
     if (!client) return html(res, 400, page("Can't connect", "<h1>Can't connect</h1><p>The app isn't registered any more. Start again from the app.</p>"));
     const action = body.action;
+    if (this.o.pairing) {
+      if (action !== "pair") return html(res, 400, this.consent(client, pending.ru, body.request!, "Enter the pairing code."));
+      const verdict = this.o.pairing.check(body.code ?? "");
+      if (verdict === "locked") return html(res, 429, page("Too many tries", "<h1>Too many wrong codes</h1><p>For safety, pairing is paused for 15 minutes. Restart Gesso on your computer to get a new code.</p>"));
+      if (verdict === "wrong") return html(res, 400, this.consent(client, pending.ru, body.request!, "That code isn't right. Check the code shown where you started Gesso."));
+      return this.finish(req, res, pending, this.o.pairing.workspace);
+    }
     if (action === "anonymous" && this.o.anonymous !== false) {
       if (!this.o.allowNew(req)) return html(res, 429, this.consent(client, pending.ru, body.request!, "Too many new workspaces from this address in the last hour. Try again later, or use a workspace you already have."));
       const key = randomBytes(18).toString("base64url");

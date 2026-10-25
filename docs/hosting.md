@@ -8,6 +8,8 @@ npx -y gesso-mcp --hosted
 
 or with the Docker image in this repository.
 
+**Just want claude.ai or ChatGPT for yourself?** You don't need a server: `npx -y gesso-mcp --tunnel` runs Gesso on your computer and reaches it through a free Cloudflare tunnel. It uses the same sign-in, with a pairing code, so only you can connect. See [install.md](install.md#claudeai-and-chatgpt). This page is about a shared server for many people.
+
 ## What hosting gives you
 
 **One connector URL, with sign-in.** Everyone adds the same address, `https://<your server>/mcp`. The first time, claude.ai or ChatGPT opens Gesso's consent page. The person approves, and gets a private workspace. Under the hood this is OAuth 2.1, as the MCP spec describes:
@@ -83,10 +85,12 @@ Any host that runs a Docker image with a persistent disk works the same way, suc
 | `GESSO_ANONYMOUS` | on | Set to `0` so people must sign in with GitHub or Google |
 | `GESSO_KEY_URLS` | on | Set to `0` to turn off `/new` and the private key URLs |
 | `GESSO_BLOCKLIST` | none | A file of banned workspace keys and accounts (`github:<id>`, `google:<sub>`), one per line. It's reread within a minute of changing |
+| `GESSO_CLIENT_IP_HEADER` | none | A header with the visitor's address, set by a proxy that is the only way to reach Gesso, such as `cf-connecting-ip` behind a Cloudflare Tunnel. Rate limits use it instead of `X-Forwarded-For` |
 | `GESSO_PROXY_HOPS` | `1` | How many proxies in front of Gesso add to `X-Forwarded-For`. The address the nearest one saw is used for rate limits; `0` uses the connection's own address |
 | `GESSO_WORKERS` | CPU cores, at most 4 | Worker processes for tool calls. `0` or `1` runs everything in one process |
 | `GESSO_WORKER_MB` | Node's default | JavaScript heap limit for each worker |
 | `GESSO_MAX_REQUESTS` | `64` | Requests the whole server works on at once before answering "busy" |
+| `GESSO_CLOUDFLARED`, `GESSO_TUNNEL_PROTOCOL` | `cloudflared`, Cloudflare's default | For `--tunnel`: where `cloudflared` is, and `http2` to tunnel over TCP when UDP is blocked |
 | `GESSO_DISABLE_TOOLS` | none | Tools to leave out, comma-separated, such as `gen_prepare` |
 | `GESSO_VERIFY` | none | Plain-text files to serve, for domain verification: `/path=content` pairs, separated by commas |
 | `GESSO_LOG` | on | One JSON line per MCP request: time, method, tool name, status, duration and a short one-way hash of the workspace. Never content or keys. Set to `0` to turn it off |
