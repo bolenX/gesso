@@ -69,6 +69,7 @@ const manifest = {
   author: { name: "Gesso", url: pkg.homepage },
   homepage: pkg.homepage,
   repository: { type: "git", url: "https://github.com/bolenX/gesso" },
+  support: pkg.bugs.url,
   icon: "icon.png",
   license: pkg.license,
   keywords: pkg.keywords,

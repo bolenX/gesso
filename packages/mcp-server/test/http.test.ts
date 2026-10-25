@@ -68,9 +68,10 @@ describe("hosted HTTP server", () => {
     const page = await (await fetch(`${base}/w/${key}`)).text();
     expect(page).toContain(`/mcp/${key}`);
     expect((await fetch(`${base}/w/${"x".repeat(24)}`)).status).toBe(404);
+    // Without a key, /mcp asks the app to sign in.
     const missing = await fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    expect(missing.status).toBe(404);
-    expect(await missing.text()).toMatch(/\/new/);
+    expect(missing.status).toBe(401);
+    expect(missing.headers.get("www-authenticate")).toContain("resource_metadata=");
   });
 
   it("uploads into the workspace, exports with download links, and keeps workspaces apart", async () => {

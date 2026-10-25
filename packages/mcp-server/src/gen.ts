@@ -6,7 +6,7 @@ import sharp from "sharp";
 
 // Gesso never calls an image model. gen_prepare writes a provider-neutral job (images,
 // mask, sizes, prompt) to the Gesso folder; the agent runs it with whatever tool the
-// user has connected (Magnific, Higgsfield, an API), imports the result with
+// user has connected (an image service, an API, a local model), imports the result with
 // asset_import under the id given here, and applies the patch ops returned with the job.
 
 export type JobKind = "expand" | "generate" | "remove-background" | "upscale" | "fill" | "segment";
@@ -335,7 +335,7 @@ export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string,
 
 function steps(run: string, id: string): string[] {
   return [
-    `${run}, with an image tool the user has connected (for example Magnific or Higgsfield) or one they name. Gesso doesn't generate images itself.`,
+    `${run}, with an image tool the user has connected or names. Gesso doesn't generate images itself.`,
     `Save or download the result, then call asset_import with id "${id}" and the result's path or URL.`,
     'Apply `ops` with canvas_patch at the current revision, replacing "<the tool you used>" with the tool and model.',
     "Render with canvas_render and check the seams, the subject and that nothing new appeared.",

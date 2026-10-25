@@ -4,7 +4,7 @@
 
 export const GESSO_VERSION = "0.11.0";
 export const GENERATOR = `Gesso ${GESSO_VERSION}`;
-export const GESSO_URL = "https://github.com/bolenX/gesso";
+export const GESSO_URL = "https://gesso.run";
 
 /** A minimal XMP packet recording Gesso as the creator tool, plus the document ID. */
 export function xmpPacket(docId: string, revision: number): string {

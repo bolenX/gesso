@@ -26,7 +26,8 @@ export type ImportRequest = {
 const FONT_TYPES: Record<string, string> = { "font/ttf": ".ttf", "font/otf": ".otf", "font/collection": ".ttc", "application/font-sfnt": ".ttf" };
 
 /** Confined (hosted), local paths must be inside baseDir and downloads must reach public addresses. */
-export async function importAsset(request: ImportRequest, baseDir: string, confined = false): Promise<Asset> {
+/** Hosted, `uploadUrl` is the page where the user can upload files into their workspace. */
+export async function importAsset(request: ImportRequest, baseDir: string, confined = false, uploadUrl?: string): Promise<Asset> {
   const { id, source, data } = request;
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) throw new Error(`Asset id "${id}" should be short letters, digits, - or _, e.g. "hero-photo"`);
   if (!source && !data) throw new Error("asset_import needs a source (path or URL) or data (base64)");
@@ -44,7 +45,7 @@ export async function importAsset(request: ImportRequest, baseDir: string, confi
   } else {
     const path = resolvePath(baseDir, source!, confined);
     if (!existsSync(path)) {
-      throw new Error(confined ? `No file "${source}" in your workspace. Upload it first, or pass a URL or data.` : `No file at ${path}. Paths are relative to the Gesso folder (${baseDir}) unless absolute.`);
+      throw new Error(confined ? `No file "${source}" in your workspace. Upload it first${uploadUrl ? ` at ${uploadUrl}` : ""}, or pass a URL or data.` : `No file at ${path}. Paths are relative to the Gesso folder (${baseDir}) unless absolute.`);
     }
     bytes = await readFile(path);
     uri = fontUri(path, baseDir);

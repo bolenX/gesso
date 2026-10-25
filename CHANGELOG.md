@@ -2,6 +2,26 @@
 
 Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each version's notes become its GitHub release.
 
+## Unreleased
+
+- **Sign-in for hosted Gesso:** claude.ai and ChatGPT connect to one URL, `/mcp`, and sign in with OAuth 2.1:
+  - Dynamic Client Registration and Client ID Metadata Documents
+  - PKCE
+  - one-hour access tokens, and refresh tokens that rotate, with reuse detection and revocation
+  The consent page gives each person a private workspace. They can connect without an account, sign in with GitHub or Google (if the server sets them up) to get the same workspace each time, or reconnect with a workspace key. Tested end to end with the MCP SDK's own OAuth client.
+- **Signed links:** exports come back as `/dl/…` links that open one file without revealing the workspace, and Gesso's instructions give the agent a private upload page for the workspace.
+- **Limits and safety for hosted servers:**
+  - each workspace has a request rate and concurrency limit, and the whole server has a cap
+  - requests are limited in size
+  - a ban list for workspaces and accounts
+  - rate limits use the address the nearest proxy saw, so a forged `X-Forwarded-For` doesn't get around them
+  - one JSON log line per request, never with content or keys
+- **Tool hints:** every tool has a title and says whether it only reads, or changes documents and files, so hosts can let read-only tools run without asking.
+- **Directory readiness:**
+  - Gesso no longer asks agents to credit it when handing over files. Exported files still carry Gesso in their metadata.
+  - Job instructions no longer name third-party image services.
+  - The npm and extension pages link to gesso.run and to GitHub issues for support.
+
 ## 0.11.0 (2026-10-25)
 
 0.11.0 gives the agent ways to check its own work, tested recipes for 30 skills, Photoshop's selection and merging tools, and PSDs that keep more of the work live.
