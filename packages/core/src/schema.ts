@@ -24,28 +24,8 @@ export const Role = z.enum([
 ]);
 export type Role = z.infer<typeof Role>;
 
-/** The 16 standard W3C/PDF blend modes Skia provides. Photoshop-only modes arrive in v0.2. */
-export const BlendMode = z.enum([
-  "normal",
-  "multiply",
-  "screen",
-  "overlay",
-  "darken",
-  "lighten",
-  "color-dodge",
-  "color-burn",
-  "hard-light",
-  "soft-light",
-  "difference",
-  "exclusion",
-  "hue",
-  "saturation",
-  "color",
-  "luminosity",
-]);
-export type BlendMode = z.infer<typeof BlendMode>;
-
-export const Color = z.string().regex(/^#([0-9a-f]{6}|[0-9a-f]{8})$/i, "Colours are #RRGGBB or #RRGGBBAA");
+export { BlendMode, Color } from "./primitives.js";
+import { BlendMode, Color } from "./primitives.js";
 
 export const GradientStop = z.object({ offset: z.number().min(0).max(1), color: Color });
 
@@ -167,68 +147,8 @@ export const Mask = z.discriminatedUnion("kind", [
 ]);
 export type Mask = z.infer<typeof Mask>;
 
-/** Smart filters run in order, before mask and blend. More filter kinds arrive in v0.2. */
-export const Filter = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("gaussian-blur"), radius: z.number().nonnegative() }),
-  /**
-   * Ribbed glass refraction (Photoshop's Glass filter with a stripe texture): the layer is cut
-   * into parallel ribs and each one shows a shifted, squeezed slice of what's beneath.
-   */
-  z.object({
-    kind: z.literal("glass"),
-    /** Rib width in pixels. */
-    size: z.number().positive(),
-    /** How far each rib shifts the image, in pixels. */
-    amount: z.number(),
-    /** 0 gives vertical ribs; 90 horizontal. */
-    angle: z.number().optional(),
-    /** "ramp": hard-edged ribs like reeded glass (default); "wave": smooth flutes. */
-    profile: z.enum(["ramp", "wave"]).optional(),
-  }),
-  /** A straight motion blur, as in Photoshop: distance in pixels along the angle (0 is horizontal). */
-  z.object({ kind: z.literal("motion-blur"), angle: z.number(), distance: z.number().positive() }),
-  /** Photoshop's Radial Blur: "spin" turns around the centre by `amount` degrees; "zoom" streaks towards it (`amount` 0..1). */
-  z.object({
-    kind: z.literal("radial-blur"),
-    mode: z.enum(["spin", "zoom"]),
-    amount: z.number().positive(),
-    /** [x, y] fractions of the layer's box; the middle when left out. */
-    center: z.tuple([z.number(), z.number()]).optional(),
-  }),
-  /** Film grain: `amount` 0..1 is its strength; `size` in pixels; colour grain unless monochrome. */
-  z.object({
-    kind: z.literal("noise"),
-    amount: z.number().min(0).max(1),
-    size: z.number().positive().optional(),
-    monochrome: z.boolean().optional(),
-  }),
-  /** Unsharp mask: `amount` 0..5 (1 is Photoshop's 100%), `radius` in pixels. */
-  z.object({ kind: z.literal("sharpen"), amount: z.number().min(0).max(5), radius: z.number().positive().optional() }),
-  /** Swirls the layer around a centre: `angle` degrees at the centre, fading to none at `radius` (fraction of the box's shorter side). */
-  z.object({
-    kind: z.literal("twirl"),
-    angle: z.number(),
-    radius: z.number().positive().optional(),
-    center: z.tuple([z.number(), z.number()]).optional(),
-  }),
-  /** Sine-wave distortion: shifts pixels by up to `amplitude` px, repeating every `wavelength` px; angle 0 shifts sideways, waving down the layer. */
-  z.object({ kind: z.literal("wave"), amplitude: z.number(), wavelength: z.number().positive(), angle: z.number().optional() }),
-  /** Photoshop's Shear: bends the layer sideways along a curve through `offsets` (px), spaced evenly from top to bottom. */
-  z.object({ kind: z.literal("shear"), offsets: z.array(z.number()).min(2).max(16) }),
-  /** Mosaic blocks `size` px wide. */
-  z.object({ kind: z.literal("pixelate"), size: z.number().positive() }),
-  /**
-   * Photoshop's Path Blur: everything smears along a curved path. Points are [x, y] fractions of
-   * the layer's box, at least two, drawn in the direction of motion; distance is the blur length
-   * in pixels. Pair it with an inverted, feathered vector mask to keep a subject sharp.
-   */
-  z.object({
-    kind: z.literal("path-blur"),
-    path: z.array(z.tuple([z.number(), z.number()])).min(2).max(16),
-    distance: z.number().positive(),
-  }),
-]);
-export type Filter = z.infer<typeof Filter>;
+export { Filter, filterAssets, type FilterKind } from "./filters.js";
+import { Filter } from "./filters.js";
 
 /**
  * Layer effects, as in Photoshop's Layer Style. They follow the layer's content and mask,

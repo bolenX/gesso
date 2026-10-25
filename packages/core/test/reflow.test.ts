@@ -31,6 +31,12 @@ describe("reflowArtboard", () => {
     expect(layers[1]).toMatchObject({ frame: { anchor: "top", margin: 20, w: "80%", h: 60 }, style: { size: 50 } });
   });
 
+  it("scales filter sizes with the layout, within each parameter's range", () => {
+    const card = { ...rect("card", { x: 100, y: 100, w: 200, h: 200 }), filters: [{ kind: "box-blur", radius: 8 }, { kind: "crystallize", size: 4 }, { kind: "displace", map: "m", scale: [20, 10] }, { kind: "pinch", amount: 50 }] } as Layer;
+    const { layers } = reflowArtboard(board([card]), { w: 500, h: 500 });
+    expect(layers[0]!.filters).toEqual([{ kind: "box-blur", radius: 4 }, { kind: "crystallize", size: 3 }, { kind: "displace", map: "m", scale: [10, 5] }, { kind: "pinch", amount: 50 }]);
+  });
+
   it("adds and removes artboards through the artboard op", () => {
     const extra = { id: "story", name: "Story", frame: { x: 2000, y: 0, w: 1080, h: 1920 }, layers: [] };
     const added = applyOps(promo, [{ op: "artboard", id: "story", artboard: extra }]).doc;
