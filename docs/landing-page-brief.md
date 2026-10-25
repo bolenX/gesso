@@ -38,10 +38,12 @@ Before you start, read the current site and compare it with this brief. Keep the
 | Agent tools | 21 |
 | Bundled skills | 30, with 51 recipes |
 | Licence | Apache-2.0, open source |
-| Repository | `github.com/bolenX/gesso`, still **private** |
+| Repository | `github.com/bolenX/gesso`, **public**. Link to it from the hero or footer. |
 | Cost | Gesso is free. It never calls or pays for an image model: generative jobs go to the user's own connected tools. |
 
-**Download button.** Link it to `https://github.com/bolenX/gesso/releases/latest/download/gesso.mcpb`. Every release attaches the extension under that name, so the link always gives the newest version. The repo is still private, so the link only works for people with access. Until the repo is public, host the `.mcpb` with the site (outside its git repo), or tell the user rather than shipping a link visitors can't open.
+**Download button.** Link it to `https://github.com/bolenX/gesso/releases/latest/download/gesso.mcpb`. Every release attaches the extension under that name, so the link always gives the newest version, and it works for every visitor now the repo is public. There's no need to host the `.mcpb` with the site.
+
+**Open source.** Now that the repo is public, the site can link to the source, the [changelog](../CHANGELOG.md) and the issues page, and invite contributions.
 
 ## Positioning
 
