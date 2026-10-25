@@ -22,13 +22,13 @@ import { DISSOLVE, setBlend } from "./blend.js";
 import { blendIfWeights, computeMask } from "./masks.js";
 import { boxPlane, gaussBlur, readRaster, writeRaster } from "./cpu.js";
 import { applyFilter, filterReach, type FilterKit } from "./filters.js";
-import type { CanvasKit, Canvas, Font, Image, ImageFilter, Paint, Paragraph, RuntimeEffect, Shader, Surface, Typeface, TypefaceFontProvider } from "canvaskit-wasm";
+import type { CanvasKit, Canvas, Font, Image, ImageFilter, Paint, Paragraph, Path, RuntimeEffect, Shader, Surface, Typeface, TypefaceFontProvider } from "canvaskit-wasm";
 import sharp from "sharp";
 import { applyAdjustment, parseCube, type Lut3D } from "./adjust.js";
 import { defaultAssetLoader, type AssetLoader } from "./assets.js";
 import { loadCanvasKit } from "./canvaskit.js";
 import { resolveFrame, type Box } from "./layout.js";
-import { rectToQuad } from "./perspective.js";
+import { rectToQuad, type Point } from "./perspective.js";
 
 // The evaluator. Composites each group bottom up, following docs/spec-v0.1.md,
 // "Compositing order within a group": content, smart filters, mask, then clip
@@ -83,6 +83,8 @@ export type LayerPart = {
   paths?: Array<{ points: number[]; closed: boolean }>;
   /** Rotation and flips from this layer and its groups, in artboard pixels. Absent when there are none. */
   matrix?: Affine;
+  /** A compound shape's combined outline as SVG path data in artboard pixels. */
+  svgPath?: string;
   /** Pattern overlays as pixels clipped to the layer (Photoshop files can't carry Gesso's patterns): straight RGBA in pixelBox-style boxes. */
   overlays?: Array<{ pixels: Uint8Array; box: { x: number; y: number; w: number; h: number }; opacity: number; blend?: BlendMode }>;
 };
@@ -90,14 +92,17 @@ export type LayerPart = {
 /** A 2D affine transform: x' = a·x + c·y + e, y' = b·x + d·y + f. */
 export type Affine = [a: number, b: number, c: number, d: number, e: number, f: number];
 
-/** The layer's rotation and flip around the centre of its box, or undefined when it has neither. */
-export function layerTransform(layer: { rotation?: number; flip?: "horizontal" | "vertical" | "both" }, box: Box): Affine | undefined {
-  if (!layer.rotation && !layer.flip) return undefined;
+/** The layer's flip, skew and rotation around the centre of its box, or undefined when it has none. */
+export function layerTransform(layer: { rotation?: number; flip?: "horizontal" | "vertical" | "both"; skew?: [number, number] }, box: Box): Affine | undefined {
+  if (!layer.rotation && !layer.flip && !layer.skew) return undefined;
   const rad = ((layer.rotation ?? 0) * Math.PI) / 180;
   const sx = layer.flip === "horizontal" || layer.flip === "both" ? -1 : 1;
   const sy = layer.flip === "vertical" || layer.flip === "both" ? -1 : 1;
+  const [tx, ty] = (layer.skew ?? [0, 0]).map((deg) => Math.tan((deg * Math.PI) / 180)) as [number, number];
   const [cos, sin] = [Math.cos(rad), Math.sin(rad)];
-  const [a, b, c, d] = [cos * sx, sin * sx, -sin * sy, cos * sy];
+  // Rotation × skew × flip.
+  const [a2, b2, c2, d2] = [sx, ty * sx, tx * sy, sy];
+  const [a, b, c, d] = [cos * a2 - sin * b2, sin * a2 + cos * b2, cos * c2 - sin * d2, sin * c2 + cos * d2];
   const [cx, cy] = [box.x + box.w / 2, box.y + box.h / 2];
   return [a, b, c, d, cx - (a * cx + c * cy), cy - (b * cx + d * cy)];
 }
@@ -402,6 +407,13 @@ class Compositor {
           }
         }
         if (layer.type === "shape" && layer.shape.kind === "path") part.paths = this.cubicPaths(layer.shape.d, part.box);
+        if (layer.type === "shape" && layer.shape.kind === "compound") {
+          // The combined outline, in artboard pixels: vector in SVG and PSD.
+          const combined = this.shapePath(layer.shape, part.box);
+          part.svgPath = combined.toSVGString();
+          combined.delete();
+          part.paths = this.cubicPaths(part.svgPath, { x: 0, y: 0, w: 0, h: 0 });
+        }
         part.matrix = compose(inherited, layerTransform(layer, part.box));
         if (part.quad && part.matrix) part.quad = part.quad.map(([x, y]) => transformPoint(part.matrix, x, y));
         if (layer.mask) part.mask = this.readImageAlpha(this.maskImage(layer.mask, part.box, parent, layer.id));
@@ -1079,7 +1091,8 @@ class Compositor {
   /** Draws the layer's content, rotated and flipped as the layer says. */
   /** `s` is needed only for groups, which composite their children onto it. */
   private drawContent(layer: Layer, parent: Box, s: Surface | undefined, canvas: Canvas = s!.getCanvas()): Box {
-    if (!layer.rotation && !layer.flip) return this.drawUntransformed(layer, parent, s, canvas);
+    if ((layer.quad && layer.type !== "smart") || layer.warp) return this.drawDistorted(layer, parent, s, canvas);
+    if (!layer.rotation && !layer.flip && !layer.skew) return this.drawUntransformed(layer, parent, s, canvas);
     const p = new this.ck.Paint();
     p.setAntiAlias(true);
     let box: Box;
@@ -1108,6 +1121,48 @@ class Compositor {
       picture.delete();
     }
     p.delete();
+    return box;
+  }
+
+  /**
+   * Distort / Perspective (a corner pin) or Warp (a smooth mesh): the layer is drawn flat, then
+   * mapped onto the quad with a homography, or through a mesh interpolated from the warp grid.
+   */
+  private drawDistorted(layer: Layer, parent: Box, s: Surface | undefined, canvas: Canvas): Box {
+    const { ck } = this;
+    const k = this.scale;
+    const flat = this.surface();
+    const box = this.drawUntransformed(layer, parent, layer.type === "group" ? flat : s, flat.getCanvas());
+    const image = this.snapshot(flat);
+    const [bx, by, bw, bh] = [box.x * k, box.y * k, box.w * k, box.h * k];
+    if (layer.quad && layer.type !== "smart") {
+      const corners = layer.quad.map(([x, y]) => [(parent.x + x) * k, (parent.y + y) * k] as [number, number]) as [Point, Point, Point, Point];
+      const h = rectToQuad(bw, bh, corners);
+      // Homography after moving the box's corner to the origin.
+      const m = [h[0]!, h[1]!, h[2]! - h[0]! * bx - h[1]! * by, h[3]!, h[4]!, h[5]! - h[3]! * bx - h[4]! * by, h[6]!, h[7]!, h[8]! - h[6]! * bx - h[7]! * by];
+      const p = new ck.Paint();
+      p.setAntiAlias(true);
+      canvas.save();
+      canvas.concat(m);
+      canvas.drawImageRectOptions(image, ck.XYWHRect(bx, by, bw, bh), ck.XYWHRect(bx, by, bw, bh), ck.FilterMode.Linear, ck.MipmapMode.None, p);
+      canvas.restore();
+      p.delete();
+    } else {
+      const { positions, texs, indices } = warpMesh(layer.warp!, bx, by, bw, bh);
+      const vertices = ck.MakeVertices(ck.VertexMode.Triangles, positions, texs, null, indices);
+      const shader = image.makeShaderOptions(ck.TileMode.Decal, ck.TileMode.Decal, ck.FilterMode.Linear, ck.MipmapMode.None);
+      const p = new ck.Paint();
+      p.setAntiAlias(true);
+      p.setShader(shader);
+      // Rotation, flip and skew still apply, after the warp.
+      const turn = layerTransform(layer, box);
+      canvas.save();
+      if (turn) canvas.concat(this.deviceMatrix(turn));
+      canvas.drawVertices(vertices, ck.BlendMode.Dst, p);
+      canvas.restore();
+      [p, shader, vertices].forEach((x) => x.delete());
+    }
+    image.delete();
     return box;
   }
 
@@ -1383,13 +1438,47 @@ class Compositor {
     } else if (shape.kind === "ellipse") {
       c.drawOval(rect, paint);
     } else {
-      const path = this.ck.Path.MakeFromSVGString(shape.d);
-      if (!path) throw new Error(`Invalid SVG path "${shape.d}"`);
-      path.offset(box.x, box.y);
+      const path = this.shapePath(shape, box);
       c.drawPath(path, paint);
       path.delete();
     }
     paint.delete();
+  }
+
+  /** A shape as a path placed in the box; compound shapes are combined part by part. */
+  private shapePath(shape: Shape, box: Box): Path {
+    const { ck } = this;
+    if (shape.kind === "compound") {
+      const ops = { add: ck.PathOp.Union, subtract: ck.PathOp.Difference, intersect: ck.PathOp.Intersect, exclude: ck.PathOp.XOR };
+      let result: Path | undefined;
+      for (const part of shape.parts) {
+        const piece = this.shapePath(part.shape, part.frame ? resolveFrame(part.frame, box) : box);
+        if (!result) {
+          result = piece;
+          continue;
+        }
+        const combined = ck.Path.MakeFromOp(result, piece, ops[part.op ?? "add"]);
+        result.delete();
+        piece.delete();
+        result = combined ?? new ck.Path();
+      }
+      return result ?? new ck.Path();
+    }
+    const path = new ck.Path();
+    const rect = ck.XYWHRect(box.x, box.y, box.w, box.h);
+    if (shape.kind === "rect") {
+      if (shape.radius) path.addRRect(ck.RRectXY(rect, shape.radius, shape.radius));
+      else path.addRect(rect);
+    } else if (shape.kind === "ellipse") {
+      path.addOval(rect);
+    } else {
+      path.delete();
+      const parsed = ck.Path.MakeFromSVGString(shape.d);
+      if (!parsed) throw new Error(`Invalid SVG path "${shape.d}"`);
+      parsed.offset(box.x, box.y);
+      return parsed;
+    }
+    return path;
   }
 
   /** Builds a coverage image whose alpha is the mask. */
@@ -1759,6 +1848,43 @@ function copyImage(ck: CanvasKit, image: Image): Image {
   const out = s.makeImageSnapshot();
   s.dispose();
   return out;
+}
+
+/**
+ * A triangle mesh through a warp grid (fractions of the box), smoothed with Catmull-Rom splines
+ * between the grid points and subdivided finely enough to curve. Texture coordinates are the
+ * undistorted box.
+ */
+export function warpMesh(grid: Array<Array<[number, number]>>, bx: number, by: number, bw: number, bh: number) {
+  const rows = grid.length;
+  const cols = Math.min(...grid.map((r) => r.length));
+  const pt = (r: number, c: number) => grid[Math.max(0, Math.min(rows - 1, r))]![Math.max(0, Math.min(cols - 1, c))]!;
+  const cr = (p0: number, p1: number, p2: number, p3: number, t: number) =>
+    0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
+  const at = (u: number, v: number): [number, number] => {
+    // u, v in grid units: spline along each nearby row, then down the column.
+    const [c, r] = [Math.min(cols - 2, Math.floor(u)), Math.min(rows - 2, Math.floor(v))];
+    const [tu, tv] = [u - c, v - r];
+    const rowAt = (rr: number) => [0, 1].map((axis) => cr(pt(rr, c - 1)[axis]!, pt(rr, c)[axis]!, pt(rr, c + 1)[axis]!, pt(rr, c + 2)[axis]!, tu)) as [number, number];
+    const [a, b, d, e] = [rowAt(r - 1), rowAt(r), rowAt(r + 1), rowAt(r + 2)];
+    return [cr(a[0], b[0], d[0], e[0], tv), cr(a[1], b[1], d[1], e[1], tv)];
+  };
+  const [nx, ny] = [(cols - 1) * 8, (rows - 1) * 8];
+  const positions: number[] = [];
+  const texs: number[] = [];
+  for (let j = 0; j <= ny; j++)
+    for (let i = 0; i <= nx; i++) {
+      const [fx, fy] = at((i / nx) * (cols - 1), (j / ny) * (rows - 1));
+      positions.push(bx + fx * bw, by + fy * bh);
+      texs.push(bx + (i / nx) * bw, by + (j / ny) * bh);
+    }
+  const indices: number[] = [];
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      const v = j * (nx + 1) + i;
+      indices.push(v, v + 1, v + nx + 1, v + 1, v + nx + 2, v + nx + 1);
+    }
+  return { positions, texs, indices };
 }
 
 function quadBounds(quad: Array<[number, number]>): Box {

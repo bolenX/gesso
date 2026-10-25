@@ -90,8 +90,8 @@ function needsBackdrop(layer: Layer, pdf = false): boolean {
 /** True when the layer (or something inside it) has to be drawn by the renderer. */
 function needsRaster(layer: Layer, pdf = false): boolean {
   if (layer.filters?.length || layer.effects?.length) return true;
-  if (layer.mask && (layer.mask.kind !== "vector" || (pdf && layer.mask.feather))) return true;
-  if (layer.type === "smart") return true;
+  if (layer.mask && (layer.mask.kind !== "vector" || layer.mask.shape.kind === "compound" || (pdf && layer.mask.feather))) return true;
+  if (layer.type === "smart" || layer.quad || layer.warp) return true;
   if (layer.type === "shape" && (isMesh(layer.fill) || isMesh(layer.stroke?.paint))) return true;
   if (layer.type === "group") return layer.children.some((c, i) => needsRaster(c, pdf) || needsBackdrop(c, pdf) || (c.clip && i > 0));
   return false;
@@ -147,6 +147,8 @@ function shape(layer: Extract<Layer, { type: "shape" }>, box: Box, ctx: Ctx): st
   const attrs = [`fill="${fill}"`];
   if (layer.fillOpacity !== undefined && layer.fillOpacity < 1) attrs.push(`fill-opacity="${layer.fillOpacity}"`);
   if (layer.stroke) attrs.push(`stroke="${paintRef(layer.stroke.paint, box, ctx)}"`, `stroke-width="${num(layer.stroke.width)}"`);
+  const combined = layer.shape.kind === "compound" ? ctx.parts.get(layer.id)?.svgPath : undefined;
+  if (combined !== undefined) return `<path d="${esc(combined)}" ${attrs.join(" ")}/>`;
   return shapeElement(layer.shape, box, attrs.join(" "));
 }
 
@@ -156,6 +158,7 @@ function shapeElement(s: Extract<Layer, { type: "shape" }>["shape"], box: Box, a
     return `<rect x="${num(box.x)}" y="${num(box.y)}" width="${num(box.w)}" height="${num(box.h)}"${r ? ` rx="${num(r)}"` : ""} ${attrs}/>`;
   }
   if (s.kind === "ellipse") return `<ellipse cx="${num(box.x + box.w / 2)}" cy="${num(box.y + box.h / 2)}" rx="${num(box.w / 2)}" ry="${num(box.h / 2)}" ${attrs}/>`;
+  if (s.kind === "compound") return ""; // drawn from its combined outline (see shape) or rendered
   return `<path d="${esc(s.d)}" transform="translate(${num(box.x)} ${num(box.y)})" ${attrs}/>`;
 }
 

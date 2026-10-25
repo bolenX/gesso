@@ -85,6 +85,17 @@ function axis(start: number, length: number, from: number, to: number, s: number
 function scaleContent(layer: Layer, s: number): void {
   if (s === 1) return;
   if (layer.filters) layer.filters = layer.filters.map((f) => scaleFilter(f, s));
+  if (layer.effects) {
+    // Pixel sizes in layer styles scale with the layout; angles, opacities and percentages don't.
+    const px = (v: number | undefined) => (v === undefined ? undefined : round(v * s));
+    layer.effects = layer.effects.map((e) => {
+      const out: Record<string, unknown> = { ...e };
+      for (const key of ["size", "distance", "width", "soften"] as const) if (key in e) out[key] = px((e as unknown as Record<string, number | undefined>)[key]);
+      if (e.kind === "background-blur") out.radius = Math.max(0.1, e.radius * s);
+      if (e.kind === "stroke") out.width = Math.max(0.1, e.width * s);
+      return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined)) as typeof e;
+    });
+  }
   if (layer.mask && "feather" in layer.mask && layer.mask.feather) layer.mask = { ...layer.mask, feather: layer.mask.feather * s };
   if (layer.type === "text") {
     layer.style = { ...layer.style, size: round(layer.style.size * s), ...(layer.style.leading ? { leading: round(layer.style.leading * s) } : {}) };

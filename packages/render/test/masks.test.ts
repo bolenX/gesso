@@ -71,3 +71,98 @@ describe("Blend If", () => {
     expect(warnings.join(" ")).toMatch(/flattened/);
   });
 });
+
+describe("compound shapes", () => {
+  const ring = (op: "add" | "subtract" | "intersect" | "exclude"): Doc => ({
+    id: "c",
+    revision: 0,
+    assets: {},
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 20, h: 10 },
+        background: "#FFFFFF",
+        layers: [
+          {
+            id: "s",
+            name: "s",
+            type: "shape",
+            fill: "#000000",
+            frame: { x: 0, y: 0, w: 20, h: 10 },
+            shape: { kind: "compound", parts: [{ shape: { kind: "rect" }, frame: { x: 0, y: 0, w: 14, h: 10 } }, { shape: { kind: "rect" }, frame: { x: 6, y: 0, w: 14, h: 10 }, op }] },
+          } as Layer,
+        ],
+      },
+    ],
+  });
+  // Two overlapping bars, 0..14 and 6..20: probe the left-only, overlap and right-only parts.
+  const probe = async (op: "add" | "subtract" | "intersect" | "exclude") => {
+    const out = (await renderArtboard(ring(op), "a")).pixels;
+    return [px(out, 2, 5)[0], px(out, 10, 5)[0], px(out, 17, 5)[0]];
+  };
+  it("adds, subtracts, intersects and excludes", async () => {
+    expect(await probe("add")).toEqual([0, 0, 0]);
+    expect(await probe("subtract")).toEqual([0, 255, 255]);
+    expect(await probe("intersect")).toEqual([255, 0, 255]);
+    expect(await probe("exclude")).toEqual([0, 255, 0]);
+  });
+
+  it("writes the combined outline as an SVG path", async () => {
+    const { svg } = await writeSvg(ring("subtract"), "a");
+    expect(svg).toMatch(/<path d="M0 0L6 0L6 10L0 10L0 0Z"|<path d="M[^"]+" fill="#000000"/);
+    expect(svg).not.toMatch(/<image/);
+  });
+});
+
+describe("transforms", () => {
+  const square = (extra: object): Doc => ({
+    id: "t",
+    revision: 0,
+    assets: {},
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 20, h: 10 },
+        background: "#FFFFFF",
+        layers: [{ id: "s", name: "s", type: "shape", shape: { kind: "rect" }, fill: "#000000", frame: { x: 5, y: 0, w: 10, h: 10 }, ...extra } as Layer],
+      },
+    ],
+  });
+  const ink = async (extra: object) => {
+    const out = (await renderArtboard(square(extra), "a")).pixels;
+    return (x: number, y: number) => px(out, x, y)[0]!;
+  };
+
+  it("skews around the centre", async () => {
+    // 45° horizontal skew: the top row shifts left and the bottom row right by half the height.
+    const at = await ink({ skew: [45, 0] });
+    expect(at(2, 1)).toBeLessThan(60);
+    expect(at(17, 1)).toBeGreaterThan(200);
+    expect(at(17, 8)).toBeLessThan(60);
+    expect(at(2, 8)).toBeGreaterThan(200);
+  });
+
+  it("pins corners with a quad (distort / perspective)", async () => {
+    const at = await ink({ quad: [[0, 0], [20, 0], [12, 10], [8, 10]] });
+    expect(at(3, 1)).toBeLessThan(60);
+    expect(at(17, 1)).toBeLessThan(60);
+    expect(at(2, 9)).toBeGreaterThan(200);
+    expect(at(10, 9)).toBeLessThan(60);
+  });
+
+  it("leaves a layer unchanged under an even warp grid and bends it under a moved one", async () => {
+    const even = [[[0, 0], [0.5, 0], [1, 0]], [[0, 0.5], [0.5, 0.5], [1, 0.5]], [[0, 1], [0.5, 1], [1, 1]]];
+    const plain = (await renderArtboard(square({}), "a")).pixels;
+    const flat = (await renderArtboard(square({ warp: even }), "a")).pixels;
+    let diff = 0;
+    for (let i = 0; i < plain.length; i++) diff += Math.abs(plain[i]! - flat[i]!);
+    expect(diff / plain.length).toBeLessThan(2);
+    const bulge = structuredClone(even);
+    bulge[1]![2] = [1.8, 0.5];
+    const at = await ink({ warp: bulge });
+    expect(at(17, 5)).toBeLessThan(60);
+    expect(at(17, 0)).toBeGreaterThan(200);
+  });
+});

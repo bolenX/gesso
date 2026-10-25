@@ -205,6 +205,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
   switch (layer.type) {
     case "group":
       out.opened = true;
+      if (layer.quad || layer.warp) ctx.warnings.push(`group "${layer.id}" is ${layer.warp ? "warped" : "distorted"}; Photoshop gets its layers undistorted`);
       if ((layer.isolation ?? "pass-through") === "pass-through" && (layer.blend ?? "normal") === "normal") {
         out.blendMode = "pass through";
       }
@@ -215,6 +216,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       return out;
     case "text":
       Object.assign(out, pixelData(part, ctx));
+      if (distorted(layer, ctx)) return out;
       if (layer.path) {
         ctx.warnings.push(`text "${layer.id}" follows a path, which is written as pixels; Photoshop type on a path isn't supported yet`);
         return out;
@@ -223,6 +225,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       return out;
     case "shape": {
       Object.assign(out, pixelData(part, ctx));
+      if (distorted(layer, ctx)) return out;
       Object.assign(out, vectorShape(layer, part, ctx));
       return out;
     }
@@ -690,6 +693,13 @@ function placePoints(points: number[], matrix: Affine | undefined, ctx: Ctx): nu
 function textTransform(part: LayerPart, baseline: number, ctx: Ctx): number[] {
   const [a, b, c, d, e, f] = compose(part.matrix, [1, 0, 0, 1, part.box.x, part.box.y + baseline])!;
   return [a, b, c, d, e + ctx.ox, f + ctx.oy];
+}
+
+/** Distorted and warped text and shapes are written as pixels: Photoshop's warp data can't be written here. */
+function distorted(layer: Layer, ctx: Ctx): boolean {
+  if (!layer.warp && !layer.quad) return false;
+  ctx.warnings.push(`${layer.type} "${layer.id}" is ${layer.warp ? "warped" : "distorted"}, so it's written as pixels`);
+  return true;
 }
 
 /** Blend If as Photoshop's blending ranges: grey in the composite pair, colours per channel. */

@@ -120,10 +120,25 @@ export const Frame = z.union([
 ]);
 export type Frame = z.infer<typeof Frame>;
 
-export const Shape = z.discriminatedUnion("kind", [
+const BasicShape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("rect"), radius: z.number().nonnegative().optional() }),
   z.object({ kind: z.literal("ellipse") }),
   z.object({ kind: z.literal("path"), d: z.string() }),
+]);
+export const Shape = z.discriminatedUnion("kind", [
+  ...BasicShape.options,
+  /**
+   * Shapes combined like Photoshop's path operations (Pathfinder in Illustrator): each part sits
+   * in its own frame within the box and is added to, subtracted from, intersected with, or
+   * excluded from (XOR) the parts before it.
+   */
+  z.object({
+    kind: z.literal("compound"),
+    parts: z
+      .array(z.object({ shape: BasicShape, frame: Frame.optional(), op: z.enum(["add", "subtract", "intersect", "exclude"]).optional() }))
+      .min(1)
+      .max(64),
+  }),
 ]);
 export type Shape = z.infer<typeof Shape>;
 
@@ -323,6 +338,8 @@ export const Effect = z.discriminatedUnion("kind", [
 ]);
 export type Effect = z.infer<typeof Effect>;
 
+const Point = z.tuple([z.number(), z.number()]);
+
 const LayerBase = z.object({
   id: Id,
   name: z.string(),
@@ -343,6 +360,19 @@ const LayerBase = z.object({
   rotation: z.number().optional(),
   /** Mirrors the layer around the centre of its box, before rotation. */
   flip: z.enum(["horizontal", "vertical", "both"]).optional(),
+  /** Slants the layer, in degrees: [horizontal, vertical] (Edit › Transform › Skew), after flipping and before rotating. */
+  skew: z.tuple([z.number().min(-89).max(89), z.number().min(-89).max(89)]).optional(),
+  /**
+   * Distort / Perspective: pins the box's corners (top-left, top-right, bottom-right, bottom-left)
+   * at these [x, y] points in the parent's coordinates. Overrides rotation, flip and skew.
+   */
+  quad: z.tuple([Point, Point, Point, Point]).optional(),
+  /**
+   * Warp (Edit › Transform › Warp): a grid of points, rows top to bottom, each [x, y] as fractions
+   * of the box, that the layer bends through smoothly. An undistorted 3×3 grid is
+   * [[[0,0],[0.5,0],[1,0]],[[0,0.5],[0.5,0.5],[1,0.5]],[[0,1],[0.5,1],[1,1]]].
+   */
+  warp: z.array(z.array(Point).min(2).max(16)).min(2).max(16).optional(),
 });
 
 export const ImageLayer = LayerBase.extend({
@@ -410,7 +440,6 @@ export const AdjustmentLayer = LayerBase.extend({
   adjustment: Adjustment,
 });
 
-const Point = z.tuple([z.number(), z.number()]);
 
 /**
  * A placed smart object: an instance of a document-level symbol. With a quad it is
