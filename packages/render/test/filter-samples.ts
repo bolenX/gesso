@@ -80,5 +80,8 @@ export const SAMPLES: Filter[] = [
   { kind: "equalize" },
   { kind: "match-color", source: "map", intensity: 120 },
   { kind: "replace-color", color: "#4060C0", fuzziness: 120, hue: 90, saturation: 20 },
+  { kind: "content-aware-fill", spots: [{ at: [0.6, 0.45], size: [0.2, 0.2] }] },
+  { kind: "clone", spots: [{ at: [0.3, 0.3], size: [0.2, 0.2] }], offset: [30, 20] },
+  { kind: "heal", spots: [{ at: [0.6, 0.45], size: [0.15, 0.15] }] },
   { kind: "camera-raw", exposure: 0.3, contrast: 20, clarity: 40, vibrance: 30, temperature: 20, vignette: -30 },
 ];

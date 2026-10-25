@@ -100,6 +100,56 @@ function applyOp(doc: Doc, op: Op, selection: string[]): string[] {
       else delete doc.assets[op.id];
       return [];
     }
+    case "replace-text": {
+      const flags = `g${op.matchCase === false ? "i" : ""}`;
+      const pattern = new RegExp(op.regex ? op.find : op.find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), flags);
+      const texts = op.target ? select(doc, op.target, selection).map((m) => m.layer) : allLayers(doc);
+      const changedIds: string[] = [];
+      for (const layer of texts) {
+        if (layer.type !== "text") continue;
+        if (layer.runs) {
+          const runs = layer.runs.map((run) => ({ ...run, text: run.text.replace(pattern, op.replace) }));
+          const content = runs.map((r) => r.text).join("");
+          if (content === layer.content) continue;
+          assertUnlocked(layer);
+          layer.runs = runs.filter((r) => r.text.length > 0);
+          layer.content = content;
+        } else {
+          const content = layer.content.replace(pattern, op.replace);
+          if (content === layer.content) continue;
+          assertUnlocked(layer);
+          layer.content = content;
+        }
+        changedIds.push(layer.id);
+      }
+      return changedIds;
+    }
+    case "duplicate": {
+      const [{ artboard, layer }] = resolve(doc, op.target, selection, false) as [Match];
+      const copy = structuredClone(layer);
+      const rename = (l: Layer, top: boolean) => {
+        l.id = top ? op.id : `${op.id}-${l.id}`;
+        if (top) l.name = `${layer.name} copy`;
+        if (l.type === "group") l.children.forEach((c) => rename(c, false));
+      };
+      rename(copy, true);
+      if (op.offset) {
+        if (!("x" in copy.frame)) throw new PatchError(`layer "${layer.id}" is anchored; give the copy its own frame with a set op instead of an offset`);
+        copy.frame = { ...copy.frame, x: copy.frame.x + op.offset[0], y: copy.frame.y + op.offset[1] };
+      }
+      const placement = op.after ?? op.before ?? op.into;
+      const { artboard: dest, siblings, index } = placement
+        ? insertionPoint(doc, { op: "insert", layer: copy, ...(op.after ? { after: op.after } : op.before ? { before: op.before } : { into: op.into }) } as Extract<Op, { op: "insert" }>, selection)
+        : (() => {
+            const at = locate(doc, layer.id, artboard)!;
+            return { artboard, siblings: at.siblings, index: at.index + 1 };
+          })();
+      for (const id of layerIds([copy])) {
+        if (locate(doc, id, dest)) throw new PatchError(`a layer with id "${id}" already exists in "${dest}"`);
+      }
+      siblings.splice(index, 0, copy);
+      return [copy.id];
+    }
     case "move": {
       const [{ artboard, layer }] = resolve(doc, op.target, selection, false) as [Match];
       assertUnlocked(layer);
@@ -253,4 +303,13 @@ export function semanticErrors(doc: Doc): string[] {
     }
   }
   return errors;
+}
+
+/** Every layer in the document's artboards and symbols, groups included. */
+function allLayers(doc: Doc): Layer[] {
+  const out: Layer[] = [];
+  const visit = (layers: Layer[]) => layers.forEach((l) => (out.push(l), l.type === "group" && visit(l.children)));
+  doc.artboards.forEach((a) => visit(a.layers));
+  Object.values(doc.symbols ?? {}).forEach((s) => visit(s.layers));
+  return out;
 }

@@ -92,6 +92,7 @@ function needsRaster(layer: Layer, pdf = false): boolean {
   if (layer.filters?.length || layer.effects?.length) return true;
   if (layer.mask && (layer.mask.kind !== "vector" || layer.mask.shape.kind === "compound" || (pdf && layer.mask.feather))) return true;
   if (layer.type === "smart" || layer.quad || layer.warp) return true;
+  if (layer.type === "image" && layer.fit === "content-aware") return true;
   if (layer.type === "shape" && (isMesh(layer.fill) || isMesh(layer.stroke?.paint))) return true;
   if (layer.type === "group") return layer.children.some((c, i) => needsRaster(c, pdf) || needsBackdrop(c, pdf) || (c.clip && i > 0));
   return false;

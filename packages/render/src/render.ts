@@ -20,6 +20,7 @@ import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
 import { DISSOLVE, setBlend } from "./blend.js";
 import { blendIfWeights, computeMask } from "./masks.js";
+import { seamMap } from "./retouch.js";
 import { boxPlane, gaussBlur, readRaster, writeRaster } from "./cpu.js";
 import { applyFilter, filterReach, type FilterKit } from "./filters.js";
 import type { CanvasKit, Canvas, Font, Image, ImageFilter, Paint, Paragraph, Path, RuntimeEffect, Shader, Surface, Typeface, TypefaceFontProvider } from "canvaskit-wasm";
@@ -54,7 +55,12 @@ export type Rendered = {
   masks?: Map<string, Uint8Array>;
 };
 export type Backdrop = { pixels: Uint8Array; x: number; y: number; w: number; h: number };
-export type EncodeFormat = "png" | "jpeg" | "webp";
+export type EncodeFormat = "png" | "jpeg" | "webp" | "tiff";
+/**
+ * Output colour: "rgb" (sRGB, the default) or "cmyk" for print. `profile` is an ICC profile to
+ * convert into and embed: a file path, or a built-in name ("srgb", "p3", "cmyk"). CMYK needs JPEG or TIFF.
+ */
+export type ColorOptions = { color?: "rgb" | "cmyk"; profile?: string };
 
 /** One layer rendered on its own, for encoders such as PSD that store layers separately. */
 export type LayerPart = {
@@ -174,14 +180,37 @@ export async function renderLayerParts(doc: Doc, artboardId: string, options: Om
 }
 
 /** Encodes rendered pixels. Sharp handles encoding so every format shares one path. */
-export async function encode(rendered: Rendered, format: EncodeFormat = "png", quality = 90, xmp?: string): Promise<Buffer> {
+export async function encode(rendered: Rendered, format: EncodeFormat = "png", quality = 90, xmp?: string, color: ColorOptions = {}): Promise<Buffer> {
   let image = sharp(Buffer.from(rendered.pixels), {
     raw: { width: rendered.width, height: rendered.height, channels: 4 },
   });
   if (xmp) image = image.withXmp(xmp);
-  if (format === "jpeg") return image.flatten({ background: "#ffffff" }).jpeg({ quality }).toBuffer();
+  if (color.color === "cmyk") {
+    if (format !== "jpeg" && format !== "tiff") throw new Error("CMYK output needs format jpeg or tiff");
+    // Converted through the profile (Photoshop's Convert to Profile), with the paper as white.
+    image = image.flatten({ background: "#ffffff" }).toColourspace("cmyk").withIccProfile(color.profile ?? "cmyk");
+  } else if (color.profile) {
+    image = image.withIccProfile(color.profile);
+  }
+  if (format === "jpeg") return (color.color === "cmyk" ? image : image.flatten({ background: "#ffffff" })).jpeg({ quality }).toBuffer();
   if (format === "webp") return image.webp({ quality }).toBuffer();
+  if (format === "tiff") return image.tiff({ compression: "lzw" }).toBuffer();
   return image.png().toBuffer();
+}
+
+/**
+ * Soft proof (View › Proof Colors): the render as it would print, converted to the CMYK profile
+ * and back to sRGB, so colours outside the printer's gamut show as they'll come out.
+ */
+export async function softProof(rendered: Rendered, profile = "cmyk"): Promise<Rendered> {
+  const cmyk = await sharp(Buffer.from(rendered.pixels), { raw: { width: rendered.width, height: rendered.height, channels: 4 } })
+    .flatten({ background: "#ffffff" })
+    .toColourspace("cmyk")
+    .withIccProfile(profile)
+    .tiff()
+    .toBuffer();
+  const rgb = await sharp(cmyk).toColourspace("srgb").withIccProfile("srgb").ensureAlpha().raw().toBuffer();
+  return { ...rendered, pixels: new Uint8Array(rgb.buffer, rgb.byteOffset, rgb.length) };
 }
 
 type Resources = {
@@ -207,6 +236,7 @@ function evict(): void {
   const idle = [...imageCache.entries()].filter(([, c]) => c.users === 0).sort((a, b) => a[1].used - b[1].used);
   for (const [key, c] of idle) {
     if (total <= CACHE_BUDGET) break;
+    carvedImages.get(c.image)?.forEach((carved) => carved.delete());
     c.image.delete();
     imageCache.delete(key);
     total -= c.bytes;
@@ -425,6 +455,38 @@ class Compositor {
     };
     visit(artboard.layers, { x: 0, y: 0, w: artboard.frame.w, h: artboard.frame.h }, undefined);
     return { width: this.width, height: this.height, parts, warnings: this.warnings };
+  }
+
+  /** The image narrowed or shortened to an aspect ratio by removing its least noticeable seams; cached per image and shape. */
+  private contentAware(image: Image, aspect: number): Image {
+    const [iw, ih] = [image.width(), image.height()];
+    const [ow, oh] = aspect < iw / ih ? [Math.max(1, Math.round(ih * aspect)), ih] : [iw, Math.max(1, Math.round(iw / aspect))];
+    if (Math.abs(ow - iw) < 1 && Math.abs(oh - ih) < 1) return image;
+    let byImage = carvedImages.get(image);
+    if (!byImage) carvedImages.set(image, (byImage = new Map()));
+    const key = `${ow}x${oh}`;
+    const hit = byImage.get(key);
+    if (hit) return hit;
+    const { ck } = this;
+    const px = image.readPixels(0, 0, { width: iw, height: ih, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Premul, colorSpace: ck.ColorSpace.SRGB }) as Uint8Array;
+    const luma = new Float32Array(iw * ih);
+    for (let i = 0; i < luma.length; i++) luma[i] = (0.3 * px[i * 4]! + 0.59 * px[i * 4 + 1]! + 0.11 * px[i * 4 + 2]!) / 255;
+    const map = seamMap(luma, iw, ih, ow, oh);
+    const out = new Uint8Array(ow * oh * 4);
+    for (let i = 0; i < ow * oh; i++) {
+      const [fx, fy] = [Math.min(iw - 1, Math.max(0, map.x[i]! - 0.5)), Math.min(ih - 1, Math.max(0, map.y[i]! - 0.5))];
+      const [x0, y0] = [Math.floor(fx), Math.floor(fy)];
+      const [x1, y1] = [Math.min(iw - 1, x0 + 1), Math.min(ih - 1, y0 + 1)];
+      const [tx, ty] = [fx - x0, fy - y0];
+      for (let c = 0; c < 4; c++) {
+        const top = px[(y0 * iw + x0) * 4 + c]! * (1 - tx) + px[(y0 * iw + x1) * 4 + c]! * tx;
+        const bottom = px[(y1 * iw + x0) * 4 + c]! * (1 - tx) + px[(y1 * iw + x1) * 4 + c]! * tx;
+        out[i * 4 + c] = Math.round(top + (bottom - top) * ty);
+      }
+    }
+    const carved = ck.MakeImage({ width: ow, height: oh, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Premul, colorSpace: ck.ColorSpace.SRGB }, out, ow * 4)!;
+    byImage.set(key, carved);
+    return carved;
   }
 
   /** An SVG path as cubic Bézier subpaths placed in the box, for vector output. Arcs come through as conics and are converted. */
@@ -1255,11 +1317,12 @@ class Compositor {
   }
 
   private drawImageLayer(layer: ImageLayer, parent: Box, canvas: Canvas): Box {
-    const image = this.res.images.get(layer.asset)!;
+    let image = this.res.images.get(layer.asset)!;
+    const box = resolveFrame(layer.frame, parent, { aspect: image.width() / image.height() });
+    const fit = layer.fit ?? "cover";
+    if (fit === "content-aware") image = this.contentAware(image, box.w / box.h);
     const iw = image.width();
     const ih = image.height();
-    const box = resolveFrame(layer.frame, parent, { aspect: iw / ih });
-    const fit = layer.fit ?? "cover";
     const [fx, fy] = layer.focus ?? [0.5, 0.5];
     let src = this.ck.XYWHRect(0, 0, iw, ih);
     let dst = this.ck.XYWHRect(box.x, box.y, box.w, box.h);
@@ -1839,6 +1902,8 @@ class Compositor {
 }
 
 const dissolveEffects = new WeakMap<CanvasKit, RuntimeEffect>();
+/** Content-aware scaled copies of decoded images, by target size. They live as long as the decoded image. */
+const carvedImages = new WeakMap<Image, Map<string, Image>>();
 
 /** A copy of an image (runShader consumes its input). */
 function copyImage(ck: CanvasKit, image: Image): Image {

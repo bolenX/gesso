@@ -69,7 +69,32 @@ export const ArtboardOp = z.object({
   artboard: Artboard.nullable(),
 });
 
-export const Op = z.union([SetOp, InsertOp, MoveOp, RemoveOp, AssetOp, ArtboardOp]);
+/** Edit › Find and Replace Text, across every text layer (or those the target matches). Mixed styling stays: each run is searched on its own. */
+export const ReplaceTextOp = z.object({
+  op: z.literal("replace-text"),
+  target: SelectorString.optional(),
+  find: z.string().min(1),
+  replace: z.string(),
+  /** Treat `find` as a regular expression ($1… in `replace` refer to its groups). */
+  regex: z.boolean().optional(),
+  /** Match case (default true). */
+  matchCase: z.boolean().optional(),
+});
+
+/** Duplicates a layer (with its children) just above it, or somewhere else: Copy/Paste and Layer › Duplicate. */
+export const DuplicateOp = z.object({
+  op: z.literal("duplicate"),
+  target: SelectorString,
+  /** The copy's id; children of a copied group get "<id>-" in front of theirs. */
+  id: z.string().min(1),
+  after: SelectorString.optional(),
+  before: SelectorString.optional(),
+  into: SelectorString.optional(),
+  /** Moves the copy by [x, y] pixels (absolute frames only). */
+  offset: z.tuple([z.number(), z.number()]).optional(),
+});
+
+export const Op = z.union([SetOp, InsertOp, MoveOp, RemoveOp, AssetOp, ArtboardOp, ReplaceTextOp, DuplicateOp]);
 export type Op = z.infer<typeof Op>;
 
 export const Patch = z.object({

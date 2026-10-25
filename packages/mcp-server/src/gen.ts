@@ -9,7 +9,10 @@ import sharp from "sharp";
 // user has connected (Magnific, Higgsfield, an API), imports the result with
 // asset_import under the id given here, and applies the patch ops returned with the job.
 
-export type JobKind = "expand" | "generate" | "remove-background" | "upscale";
+export type JobKind = "expand" | "generate" | "remove-background" | "upscale" | "fill";
+
+/** A region of a layer: centre and size as fractions of its box, ellipse (default) or rectangle. */
+export type Region = { at: [number, number]; size: [number, number]; shape?: "ellipse" | "rect" };
 
 export type JobRequest = {
   kind: JobKind;
@@ -19,6 +22,8 @@ export type JobRequest = {
   prompt?: string;
   /** Upscale factor. */
   factor?: number;
+  /** For fill: where to fill (Generative Fill / Remove); the prompt says what goes there, or nothing to remove what's there. */
+  regions?: Region[];
 };
 
 export type Job = {
@@ -92,6 +97,69 @@ export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string,
   const [iw, ih] = [meta.width!, meta.height!];
   await save("source.png", await sharp(bytes).png().toBuffer());
   const box = resolveFrame(layer.frame, parent, { aspect: iw / ih });
+
+  if (request.kind === "fill") {
+    const regions = request.regions ?? [];
+    if (!regions.length) throw new Error('fill needs "regions": where to fill, as { at: [x, y], size: [w, h] } fractions of the layer');
+    // Where the layer's box shows the image: the crop for cover, the letterbox for contain.
+    const fitMode = layer.fit ?? "cover";
+    const [fx, fy] = layer.focus ?? [0.5, 0.5];
+    let view = { x: 0, y: 0, w: iw, h: ih };
+    if (fitMode === "cover" || fitMode === "content-aware") {
+      const s = Math.max(box.w / iw, box.h / ih);
+      view = { x: (iw - box.w / s) * fx, y: (ih - box.h / s) * fy, w: box.w / s, h: box.h / s };
+    } else if (fitMode === "contain") {
+      const s = Math.min(box.w / iw, box.h / ih);
+      view = { x: -(box.w / s - iw) / 2, y: -(box.h / s - ih) / 2, w: box.w / s, h: box.h / s };
+    }
+    const shapes = regions.map((r) => {
+      const [cx, cy] = [view.x + r.at[0] * view.w, view.y + r.at[1] * view.h];
+      const [rw, rh] = [(r.size[0] * view.w) / 2, (r.size[1] * view.h) / 2];
+      return r.shape === "rect"
+        ? `<rect x="${cx - rw}" y="${cy - rh}" width="${2 * rw}" height="${2 * rh}" fill="#fff"/>`
+        : `<ellipse cx="${cx}" cy="${cy}" rx="${rw}" ry="${rh}" fill="#fff"/>`;
+    });
+    // White = fill. The mask is a touch larger than the regions so the result blends in.
+    const grow = Math.max(2, Math.round(Math.min(iw, ih) * 0.01));
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${iw}" height="${ih}"><rect width="100%" height="100%" fill="#000"/><g stroke="#fff" stroke-width="${grow * 2}">${shapes.join("")}</g></svg>`;
+    await save("mask.png", await sharp(Buffer.from(svg)).png().toBuffer());
+    const prompt = request.prompt ?? "";
+    const feather = Math.max(4, Math.round(Math.min(box.w, box.h) * 0.01));
+    // The filled image goes above the original, showing only the regions (a feathered vector mask).
+    const parts = regions.map((r) => ({
+      shape: { kind: r.shape === "rect" ? "rect" : "ellipse" },
+      frame: round({ x: (r.at[0] - r.size[0] / 2) * box.w - feather, y: (r.at[1] - r.size[1] / 2) * box.h - feather, w: r.size[0] * box.w + 2 * feather, h: r.size[1] * box.h + 2 * feather }),
+    }));
+    const filled = {
+      id: `${layer.id}-fill`,
+      name: `${layer.name} (filled)`,
+      type: "image",
+      asset: id,
+      fit: layer.fit ?? "cover",
+      ...(layer.focus ? { focus: layer.focus } : {}),
+      frame: layer.frame,
+      mask: { kind: "vector", shape: { kind: "compound", parts }, feather },
+      meta: { provenance: provenance(prompt || "remove") },
+    };
+    const job: Job = {
+      ...base,
+      job: "fill",
+      targetSize: [iw, ih],
+      aspectRatio: ratio(iw, ih),
+      ...(prompt ? { prompt } : {}),
+      negative: NEGATIVE,
+      ops: [{ op: "insert", after: `#${layer.id}`, layer: filled }],
+      steps: steps(
+        prompt
+          ? `Inpaint source.png where mask.png is white with: "${prompt}" (Generative Fill), keeping the result the same size`
+          : "Inpaint source.png where mask.png is white, removing what's there and continuing the surroundings (Remove / Content-Aware Fill), keeping the result the same size. For small blemishes, the heal or content-aware-fill filter does this without a model",
+        id,
+      ),
+    };
+    await writeFile(join(dir, "job.json"), JSON.stringify(job, null, 2));
+    files.job = join(dir, "job.json");
+    return job;
+  }
 
   if (request.kind === "expand") {
     // Show the whole source inside the frame, centred, and generate what's around it.

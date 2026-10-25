@@ -378,7 +378,8 @@ const LayerBase = z.object({
 export const ImageLayer = LayerBase.extend({
   type: z.literal("image"),
   asset: z.string(),
-  fit: z.enum(["cover", "contain", "fill"]).optional(),
+  /** cover crops, contain letterboxes, fill stretches, content-aware removes the least noticeable seams to fit (Content-Aware Scale). */
+  fit: z.enum(["cover", "contain", "fill", "content-aware"]).optional(),
   /** Focus point for crops, 0..1 in each axis. */
   focus: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]).optional(),
 });
