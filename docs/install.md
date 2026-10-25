@@ -189,5 +189,5 @@ With eight tabs, let the tab row scroll sideways on phones rather than wrapping.
 
 The `.mcpb` file is too large to commit to the repo. Host it in one of these places and link the Download button to it:
 
-- **GitHub Releases** (recommended): every version bump that lands on `main` creates a release with the extension attached, as `gesso-<version>.mcpb` and as `gesso.mcpb`. Link the button to `https://github.com/bolenX/gesso/releases/latest/download/gesso.mcpb`, which always points to the newest version. While the repository is private, only people with access can download it, so make the repo public before launch.
+- **GitHub Releases** (recommended): every version bump that lands on `main` creates a release with the extension attached, as `gesso-<version>.mcpb` and as `gesso.mcpb`. Link the button to `https://github.com/bolenX/gesso/releases/latest/download/gesso.mcpb`, which always points to the newest version and works for anyone.
 - **The site's own hosting:** put the file next to the landing page, outside the git repository.
