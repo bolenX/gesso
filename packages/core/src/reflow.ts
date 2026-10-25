@@ -1,4 +1,4 @@
-import type { Artboard, Frame, Layer } from "./schema.js";
+import type { Artboard, Filter, Frame, Layer } from "./schema.js";
 
 // Re-places a design on a new size. Layers keep whichever edge they sit against
 // (or stay centred), scale uniformly so nothing distorts, and anything that spans
@@ -84,19 +84,7 @@ function axis(start: number, length: number, from: number, to: number, s: number
 /** Scales the pixel values inside a layer: type, strokes, corner radii, blur. */
 function scaleContent(layer: Layer, s: number): void {
   if (s === 1) return;
-  if (layer.filters) {
-    layer.filters = layer.filters.map((f) => {
-      if (f.kind === "gaussian-blur") return { ...f, radius: f.radius * s };
-      if (f.kind === "glass") return { ...f, size: f.size * s, amount: f.amount * s };
-      if (f.kind === "motion-blur" || f.kind === "path-blur") return { ...f, distance: f.distance * s };
-      if (f.kind === "noise") return f.size ? { ...f, size: f.size * s } : f;
-      if (f.kind === "sharpen") return f.radius ? { ...f, radius: f.radius * s } : f;
-      if (f.kind === "wave") return { ...f, amplitude: f.amplitude * s, wavelength: f.wavelength * s };
-      if (f.kind === "shear") return { ...f, offsets: f.offsets.map((o) => o * s) };
-      if (f.kind === "pixelate") return { ...f, size: f.size * s };
-      return f; // radial blur and twirl are relative to the layer
-    });
-  }
+  if (layer.filters) layer.filters = layer.filters.map((f) => scaleFilter(f, s));
   if (layer.mask && "feather" in layer.mask && layer.mask.feather) layer.mask = { ...layer.mask, feather: layer.mask.feather * s };
   if (layer.type === "text") {
     layer.style = { ...layer.style, size: round(layer.style.size * s), ...(layer.style.leading ? { leading: round(layer.style.leading * s) } : {}) };
@@ -110,3 +98,65 @@ function scaleContent(layer: Layer, s: number): void {
 }
 
 const round = (v: number) => Math.round(v * 100) / 100;
+
+/** A filter's pixel sizes scaled by s, kept within each parameter's range. Sizes relative to the layer stay. */
+function scaleFilter(f: Filter, s: number): Filter {
+  const by = (v: number, lo = 0, hi = Infinity) => Math.min(hi, Math.max(lo, v * s));
+  switch (f.kind) {
+    case "gaussian-blur":
+    case "box-blur":
+    case "shape-blur":
+    case "smart-blur":
+    case "surface-blur":
+    case "lens-blur":
+    case "iris-blur":
+    case "tilt-shift":
+    case "high-pass":
+    case "maximum":
+    case "minimum":
+    case "smart-sharpen":
+      return { ...f, radius: by(f.radius, 0.1) };
+    case "field-blur":
+      return { ...f, points: f.points.map((p) => ({ ...p, radius: by(p.radius) })) };
+    case "glass":
+      return { ...f, size: by(f.size, 0.1), amount: f.amount * s };
+    case "motion-blur":
+    case "path-blur":
+      return { ...f, distance: by(f.distance, 0.1) };
+    case "noise":
+      return f.size ? { ...f, size: by(f.size, 0.1) } : f;
+    case "sharpen":
+      return f.radius ? { ...f, radius: by(f.radius, 0.1) } : f;
+    case "wave":
+      return { ...f, amplitude: f.amplitude * s, wavelength: by(f.wavelength, 0.1) };
+    case "shear":
+      return { ...f, offsets: f.offsets.map((o) => o * s) };
+    case "pixelate":
+      return { ...f, size: by(f.size, 0.1) };
+    case "displace":
+      return { ...f, scale: [f.scale[0] * s, f.scale[1] * s] };
+    case "color-halftone":
+      return { ...f, radius: by(f.radius, 2, 127) };
+    case "crystallize":
+    case "pointillize":
+      return { ...f, size: by(f.size, 3, 300) };
+    case "emboss":
+      return f.height ? { ...f, height: by(f.height, 1, 10) } : f;
+    case "extrude":
+      return { ...f, size: by(f.size, 2, 255) };
+    case "glowing-edges":
+      return f.width ? { ...f, width: by(f.width, 1, 14) } : f;
+    case "oil-paint":
+      return { ...f, stylization: by(f.stylization, 0.1, 10) };
+    case "halftone-pattern":
+      return { ...f, size: by(f.size, 1, 12) };
+    case "clouds":
+    case "difference-clouds":
+      return f.scale ? { ...f, scale: by(f.scale, 0.1) } : f;
+    case "offset":
+      return { ...f, x: f.x * s, y: f.y * s };
+    default:
+      // Radial blurs, twirl, pinch and the like are relative to the layer; the rest have no size.
+      return f;
+  }
+}

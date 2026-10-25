@@ -4,6 +4,7 @@ import type {
   Asset,
   BlendMode,
   Doc,
+  Filter,
   ImageLayer,
   Layer,
   Mask,
@@ -13,10 +14,11 @@ import type {
   SmartObject,
   TextLayer,
 } from "@gesso/core";
-import { paintColor } from "@gesso/core";
+import { filterAssets, paintColor } from "@gesso/core";
 import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
-import { directionField, samplePath, shaderEffect, shearRows, type ShaderName } from "./shaders.js";
+import { gaussBlur, readRaster, writeRaster } from "./cpu.js";
+import { applyFilter, filterReach, type FilterKit } from "./filters.js";
 import type { CanvasKit, Canvas, Font, Image, Paint, Paragraph, Shader, Surface, Typeface, TypefaceFontProvider } from "canvaskit-wasm";
 import sharp from "sharp";
 import { applyAdjustment } from "./adjust.js";
@@ -253,6 +255,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
     for (const layer of layers) {
       if (layer.type === "image") used.add(layer.asset);
       if (layer.mask?.kind === "raster") used.add(layer.mask.asset);
+      for (const filter of layer.filters ?? []) filterAssets(filter).forEach((id) => used.add(id));
       if (layer.type === "group") visit(layer.children);
       if (layer.type === "smart" && doc.symbols?.[layer.symbol]) visit(doc.symbols[layer.symbol]!.layers);
     }
@@ -1208,78 +1211,20 @@ class Compositor {
   }
 
   /** Applies one smart filter to an image placed at (x, y) in output pixels; box is the layer's box in artboard units. */
-  private filter(image: Image, filter: NonNullable<Layer["filters"]>[number], box: Box, x: number, y: number): Image {
-    const { ck } = this;
-    const k = this.scale;
-    // Long blurs run at reduced resolution, where their reach is about 24 pixels: a long smear
-    // loses fine detail anyway, and this keeps large posters fast.
-    const reduce = (reach: number) => Math.max(1, Math.min(8, reach / 24));
-    const centre = (c: [number, number] | undefined, f: number): [number, number] => [
-      ((box.x + (c?.[0] ?? 0.5) * box.w) * k - x) / f,
-      ((box.y + (c?.[1] ?? 0.5) * box.h) * k - y) / f,
-    ];
-    const plain = (name: ShaderName, uniforms: number[]) => this.runShader(image, 1, (child) => ({ shader: shaderEffect(ck, name).makeShaderWithChildren(uniforms, [child]) }));
-    switch (filter.kind) {
-      case "gaussian-blur":
-        return this.blur(image, filter.radius);
-      case "glass": {
-        const a = ((filter.angle ?? 0) * Math.PI) / 180;
-        return plain("glass", [Math.cos(a), Math.sin(a), x, y, filter.size * k, filter.amount * k, filter.profile === "wave" ? 1 : 0]);
-      }
-      case "motion-blur": {
-        const f = reduce(filter.distance * k);
-        const a = (filter.angle * Math.PI) / 180;
-        const d = (filter.distance * k) / f;
-        return this.runShader(image, f, (child) => ({ shader: shaderEffect(ck, "motion").makeShaderWithChildren([Math.cos(a) * d, -Math.sin(a) * d], [child]) }));
-      }
-      case "path-blur": {
-        const f = reduce(filter.distance * k);
-        return this.runShader(image, f, (child, sw, sh) => {
-          // Path points are fractions of the layer's box; the field is built in the reduced image's pixels.
-          const path = samplePath(filter.path.map(([fx, fy]) => [((box.x + fx * box.w) * k - x) / f, ((box.y + fy * box.h) * k - y) / f] as [number, number]));
-          const field = ck.MakeImage(this.info(ck.AlphaType.Unpremul, sw, sh), directionField(path, sw, sh), sw * 4)!;
-          const fieldShader = field.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None);
-          return { shader: shaderEffect(ck, "path").makeShaderWithChildren([(filter.distance * k) / f], [child, fieldShader]), extras: [field, fieldShader] };
-        });
-      }
-      case "radial-blur": {
-        // How far the farthest corner moves sets the working resolution.
-        const [cx, cy] = centre(filter.center, 1);
-        const far = Math.max(...[[0, 0], [image.width(), 0], [0, image.height()], [image.width(), image.height()]].map(([px, py]) => Math.hypot(px! - cx, py! - cy)));
-        const angle = (Math.min(filter.amount, 360) * Math.PI) / 180;
-        const f = reduce(filter.mode === "spin" ? far * angle : far * Math.min(filter.amount, 1));
-        return this.runShader(image, f, (child) => ({
-          shader:
-            filter.mode === "spin"
-              ? shaderEffect(ck, "spin").makeShaderWithChildren([...centre(filter.center, f), angle], [child])
-              : shaderEffect(ck, "zoom").makeShaderWithChildren([...centre(filter.center, f), Math.min(filter.amount, 1)], [child]),
-        }));
-      }
-      case "noise":
-        return plain("noise", [filter.amount, Math.max(1, (filter.size ?? 1) * k), x, y, filter.monochrome === false ? 0 : 1, 0]);
-      case "sharpen": {
-        const soft = this.blur(image, filter.radius ?? 1, true);
-        const softShader = soft.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Nearest, ck.MipmapMode.None);
-        return this.runShader(image, 1, (child) => ({ shader: shaderEffect(ck, "sharpen").makeShaderWithChildren([filter.amount], [child, softShader]), extras: [softShader, soft] }));
-      }
-      case "twirl":
-        return plain("twirl", [...centre(filter.center, 1), (filter.angle * Math.PI) / 180, (filter.radius ?? 0.5) * Math.min(box.w, box.h) * k]);
-      case "wave": {
-        const a = ((filter.angle ?? 0) * Math.PI) / 180;
-        return plain("wave", [filter.amplitude * k, filter.wavelength * k, Math.cos(a), -Math.sin(a), x, y]);
-      }
-      case "shear": {
-        const h = image.height();
-        const range = Math.max(1, ...filter.offsets.map((o) => Math.abs(o) * k));
-        return this.runShader(image, 1, (child) => {
-          const rows = ck.MakeImage(this.info(ck.AlphaType.Unpremul, 1, h), shearRows(filter.offsets.map((o) => o * k), box.y * k - y, Math.max(1, box.h * k), h, range), 4)!;
-          const rowShader = rows.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Nearest, ck.MipmapMode.None);
-          return { shader: shaderEffect(ck, "shear").makeShaderWithChildren([range], [child, rowShader]), extras: [rowShader, rows] };
-        });
-      }
-      case "pixelate":
-        return plain("pixelate", [Math.max(1, filter.size * k), x, y]);
-    }
+  private filter(image: Image, filter: Filter, box: Box, x: number, y: number): Image {
+    return applyFilter(this.kit, image, filter, box, x, y);
+  }
+
+  /** What the filter module needs from this compositor. */
+  private get kit(): FilterKit {
+    return {
+      ck: this.ck,
+      scale: this.scale,
+      images: this.res.images,
+      warnings: this.warnings,
+      runShader: (image, f, make) => this.runShader(image, f, make),
+      blur: (image, radius, keep) => this.blur(image, radius, keep),
+    };
   }
 
   /**
@@ -1328,6 +1273,12 @@ class Compositor {
   private blur(image: Image, radius: number, keep = false): Image {
     const { ck } = this;
     const sigma = radius * this.scale;
+    // Skia's software blur takes a slow path below sigma 2; a direct kernel on the CPU is far faster.
+    if (sigma < 2) {
+      const out = writeRaster(ck, gaussBlur(readRaster(ck, image, false), sigma));
+      if (!keep) image.delete();
+      return out;
+    }
     const [w, h] = [image.width(), image.height()];
     // Edges repeat, as in Photoshop, so a layer filling the artboard doesn't fade at its edges:
     // the image is extended by the blur's reach before blurring (a save-layer blur would pull in
@@ -1504,24 +1455,4 @@ function cropToContent(pixels: Uint8Array, width: number, height: number) {
   const out = new Uint8Array(w * h * 4);
   for (let y = 0; y < h; y++) out.set(pixels.subarray(((minY + y) * width + minX) * 4, ((minY + y) * width + minX + w) * 4), y * w * 4);
   return { pixels: out, box: { x: minX, y: minY, w, h } };
-}
-
-/** How far a filter can move or spread pixels beyond the layer, in artboard units. */
-function filterReach(filter: NonNullable<Layer["filters"]>[number], box: Box): number {
-  switch (filter.kind) {
-    case "gaussian-blur":
-      return 3 * filter.radius;
-    case "motion-blur":
-    case "path-blur":
-      return filter.distance / 2;
-    case "radial-blur":
-      return (Math.hypot(box.w, box.h) / 2) * (filter.mode === "spin" ? Math.min(1, (filter.amount * Math.PI) / 180) : Math.min(1, filter.amount));
-    case "wave":
-      return Math.abs(filter.amplitude);
-    case "shear":
-      return Math.max(...filter.offsets.map(Math.abs));
-    default:
-      // Glass, twirl, noise, sharpen and pixelate stay within the layer, repeating its edges.
-      return 0;
-  }
 }

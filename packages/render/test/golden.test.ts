@@ -82,6 +82,20 @@ const scenes: Record<string, Layer[]> = {
     { id: "wave", name: "wave", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 75, w: 100, h: 75 }, filters: [{ kind: "wave", amplitude: 6, wavelength: 30 }, { kind: "noise", amount: 0.2 }] } as Layer,
     { id: "mosaic", name: "mosaic", type: "image", asset: "photo", fit: "cover", frame: { x: 100, y: 75, w: 100, h: 75 }, filters: [{ kind: "pixelate", size: 8 }] } as Layer,
   ],
+  "filter-menu": [
+    ...(
+      [
+        { kind: "shape-blur", radius: 4 },
+        { kind: "color-halftone", radius: 3 },
+        { kind: "crystallize", size: 9 },
+        { kind: "oil-paint", stylization: 2, shine: 3 },
+        { kind: "find-edges", blend: "multiply" },
+        { kind: "lens-flare", at: [0.3, 0.3] },
+        { kind: "puppet-warp", pins: [{ from: [0.2, 0.2], to: [0.2, 0.2] }, { from: [0.5, 0.6], to: [0.75, 0.45] }] },
+        { kind: "camera-raw", exposure: 0.3, clarity: 40, vibrance: 40, vignette: -50, opacity: 0.8 },
+      ] as const
+    ).map((filter, i) => ({ id: `f-${i}`, name: filter.kind, type: "image", asset: "photo", fit: "cover", frame: { x: (i % 4) * 50, y: Math.floor(i / 4) * 75, w: 50, h: 75 }, filters: [filter] }) as Layer),
+  ],
   adjustments: [
     { id: "photo", name: "photo", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
     { id: "warm", name: "warm", type: "adjustment", adjustment: { kind: "hue-saturation", hue: 25, saturation: -40, lightness: 0 }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,

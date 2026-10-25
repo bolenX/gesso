@@ -1,5 +1,5 @@
 import { layerIssues, normalizeLayer } from "./explain.js";
-import { Doc, type Artboard, type Layer } from "./schema.js";
+import { Doc, filterAssets, type Artboard, type Layer } from "./schema.js";
 import { Layer as LayerSchema } from "./schema.js";
 import type { Op, Patch } from "./patch.js";
 import { select, type Match } from "./select.js";
@@ -216,6 +216,9 @@ export function semanticErrors(doc: Doc): string[] {
       }
       if (layer.mask?.kind === "raster" && !(layer.mask.asset in doc.assets)) {
         errors.push(`mask on "${layer.id}" uses missing asset "${layer.mask.asset}"`);
+      }
+      for (const id of (layer.filters ?? []).flatMap(filterAssets)) {
+        if (!(id in doc.assets)) errors.push(`a filter on "${layer.id}" uses missing asset "${id}"`);
       }
       if (layer.mask?.kind === "luminance-of") lumaRefs.push([layer.id, layer.mask.layer]);
       if (layer.type === "text" && layer.runs && layer.runs.map((r) => r.text).join("") !== layer.content) {
