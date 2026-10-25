@@ -271,3 +271,35 @@ describe("smart objects for filters and distortion", () => {
     expect(readPsd(bytes, { useImageData: true }).imageResources?.xmpMetadata).toContain("Gesso");
   });
 });
+
+describe("warps", () => {
+  it("writes a warp as a Photoshop custom warp on a smart object and reads it back to the same shape", async () => {
+    const bulge = [[[0, 0], [0.5, 0], [1, 0]], [[0, 0.5], [0.5, 0.5], [1.4, 0.5]], [[0, 1], [0.5, 1], [1, 1]]] as Array<Array<[number, number]>>;
+    const source: Doc = {
+      id: "w",
+      revision: 1,
+      assets: {},
+      artboards: [{ id: "a", name: "A", frame: { x: 0, y: 0, w: 200, h: 120 }, background: "#FFFFFF", layers: [{ id: "flag", name: "Flag", type: "shape", shape: { kind: "rect" }, fill: "#2440E6", frame: { x: 20, y: 20, w: 100, h: 80 }, warp: bulge } as Layer] }],
+    };
+    const { bytes, warnings } = await writePsd(source);
+    expect(warnings.join(" ")).not.toMatch(/pixels/);
+    const psd = readPsd(bytes, { useImageData: true });
+    const flag = psd.children![0]!.children!.find((l) => l.name === "Flag")!;
+    expect(flag.placedLayer!.warp).toMatchObject({ style: "custom", customEnvelopeWarp: { meshPoints: expect.any(Array) } });
+    expect(flag.placedLayer!.warp!.customEnvelopeWarp!.meshPoints).toHaveLength(16);
+    // The middle-right control point is pushed out past the box, as the bulge is.
+    expect(flag.placedLayer!.warp!.customEnvelopeWarp!.meshPoints[7]!.x).toBeGreaterThan(110);
+
+    const dir = await mkdtemp(join(tmpdir(), "gesso-warp-"));
+    const { doc: back, warnings: readWarnings } = await importPsd(bytes, { id: "w", assetDir: dir, uriBase: dir });
+    expect(readWarnings.join(" ")).not.toMatch(/warp/);
+    const layer = back.artboards[0]!.layers.find((l) => l.id === "flag")!;
+    expect(layer).toMatchObject({ type: "smart", warp: expect.any(Array) });
+    expect(layer.quad).toBeUndefined();
+    const [before, after] = await Promise.all([renderArtboard(source, "a"), renderArtboard(back, "a", { loader: async ({ uri }) => readFile(uri) })]);
+    let off = 0;
+    for (let i = 0; i < before.pixels.length; i += 4) if (Math.abs(before.pixels[i]! - after.pixels[i]!) > 64) off++;
+    // Shapes agree except for a sliver of edge pixels where the two surfaces differ slightly.
+    expect(off / (200 * 120)).toBeLessThan(0.02);
+  });
+});

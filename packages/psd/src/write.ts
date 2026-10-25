@@ -15,6 +15,7 @@ import {
 } from "ag-psd";
 import sharp from "sharp";
 import { toPsdFilter } from "./smartFilters.js";
+import { toBezierMesh } from "./warp.js";
 
 // PSD encoder. Writes both forms the spec asks for: parametric data (artboards,
 // live text, adjustment layers, shape layers with vector masks) and Gesso's own
@@ -22,9 +23,10 @@ import { toPsdFilter } from "./smartFilters.js";
 // Smart layers become embedded smart objects: each symbol is written as its own
 // PSD inside the file and placed with its corner pin, so double-clicking it in
 // Photoshop opens the symbol with its live layers. Image layers whose filters all
-// exist in Photoshop become smart objects with live smart filters, and distorted
-// (quad) layers become smart objects pinned by their corners, so text and shapes
-// inside stay editable. Other filters, and warps, are baked into the layer's pixels.
+// exist in Photoshop become smart objects with live smart filters; distorted (quad)
+// layers become smart objects pinned by their corners, and warped layers smart
+// objects with a custom warp, so text and shapes inside stay editable. Filters
+// Photoshop has no match for are baked into the layer's pixels.
 // Files carry an sRGB profile, the colour space Gesso renders in.
 
 export type PsdOptions = {
@@ -171,7 +173,9 @@ async function embedLayers(doc: Doc, artboard: Artboard, parts: Map<string, Laye
         warnings.push(`${artboard.id}: image "${layer.id}" has filters Photoshop can't keep live (${[...new Set(missing)].join(", ")}), so its filters are baked into its pixels`);
       }
       const pinned = !!layer.quad && !layer.warp && part.quad?.length === 4;
-      if (!live && !pinned) continue;
+      const warped = !!layer.warp && !layer.quad;
+      if (layer.warp && layer.quad) warnings.push(`${artboard.id}: "${layer.id}" is both distorted and warped, so it's written as pixels`);
+      if (!live && !pinned && !warped) continue;
       const box = part.frame ?? part.box;
       const [w, h] = [Math.max(1, Math.round(box.w)), Math.max(1, Math.round(box.h))];
       const inner: Record<string, unknown> = { ...layer, frame: { x: 0, y: 0, w, h } };
@@ -198,6 +202,21 @@ async function embedLayers(doc: Doc, artboard: Artboard, parts: Map<string, Laye
         nonAffineTransform: transform,
         width: w,
         height: h,
+        ...(warped
+          ? {
+              warp: {
+                style: "custom",
+                value: 0,
+                perspective: 0,
+                perspectiveOther: 0,
+                rotate: "horizontal",
+                bounds: { top: { units: "Pixels", value: 0 }, left: { units: "Pixels", value: 0 }, bottom: { units: "Pixels", value: h }, right: { units: "Pixels", value: w } },
+                uOrder: 4,
+                vOrder: 4,
+                customEnvelopeWarp: { meshPoints: toBezierMesh(layer.warp!, w, h) },
+              },
+            }
+          : {}),
         ...(live ? { filter: { enabled: true, validAtPosition: true, maskEnabled: false, maskLinked: false, maskExtendWithWhite: true, list: live } } : {}),
       });
     }

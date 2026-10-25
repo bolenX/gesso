@@ -1924,20 +1924,32 @@ function copyImage(ck: CanvasKit, image: Image): Image {
  * between the grid points and subdivided finely enough to curve. Texture coordinates are the
  * undistorted box.
  */
-export function warpMesh(grid: Array<Array<[number, number]>>, bx: number, by: number, bw: number, bh: number) {
+/**
+ * A warp grid's surface: where the point (u, v) of the layer's box (0..1 each) lands, as a fraction of the box.
+ * The surface passes through every grid point, smoothly (Catmull-Rom along rows, then down columns).
+ */
+export function warpSurface(grid: Array<Array<[number, number]>>): (u: number, v: number) => [number, number] {
   const rows = grid.length;
   const cols = Math.min(...grid.map((r) => r.length));
   const pt = (r: number, c: number) => grid[Math.max(0, Math.min(rows - 1, r))]![Math.max(0, Math.min(cols - 1, c))]!;
   const cr = (p0: number, p1: number, p2: number, p3: number, t: number) =>
     0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
-  const at = (u: number, v: number): [number, number] => {
+  return (u01, v01) => {
     // u, v in grid units: spline along each nearby row, then down the column.
+    const [u, v] = [u01 * (cols - 1), v01 * (rows - 1)];
     const [c, r] = [Math.min(cols - 2, Math.floor(u)), Math.min(rows - 2, Math.floor(v))];
     const [tu, tv] = [u - c, v - r];
     const rowAt = (rr: number) => [0, 1].map((axis) => cr(pt(rr, c - 1)[axis]!, pt(rr, c)[axis]!, pt(rr, c + 1)[axis]!, pt(rr, c + 2)[axis]!, tu)) as [number, number];
     const [a, b, d, e] = [rowAt(r - 1), rowAt(r), rowAt(r + 1), rowAt(r + 2)];
     return [cr(a[0], b[0], d[0], e[0], tv), cr(a[1], b[1], d[1], e[1], tv)];
   };
+}
+
+export function warpMesh(grid: Array<Array<[number, number]>>, bx: number, by: number, bw: number, bh: number) {
+  const rows = grid.length;
+  const cols = Math.min(...grid.map((r) => r.length));
+  const surface = warpSurface(grid);
+  const at = (u: number, v: number) => surface(u / (cols - 1), v / (rows - 1));
   const [nx, ny] = [(cols - 1) * 8, (rows - 1) * 8];
   const positions: number[] = [];
   const texs: number[] = [];
