@@ -8,9 +8,11 @@ import {
   discBlur,
   fbm,
   fromPlanes,
+  gaussBlur,
   guided,
   hash,
   kuwahara,
+  len,
   luma,
   mapColor,
   median,
@@ -59,7 +61,7 @@ type Ctx = {
   minSide: number;
 };
 
-// Shaders kept on CanvasKit: grain and unsharp masking, two samples each.
+// Grain stays a CanvasKit shader (one sample per pixel), matching earlier renders.
 const SRC = {
   noise: `uniform shader img; uniform float amount; uniform float size; uniform float2 origin; uniform float mono; uniform float gauss;
     float hash(float2 q) { return fract(sin(dot(q, float2(12.9898, 78.233))) * 43758.5453); }
@@ -67,11 +69,6 @@ const SRC = {
     half4 main(float2 p) { half4 c = img.eval(p); float2 cell = floor((p + origin) / size);
       float n = n1(cell); float3 g = mono > 0.5 ? float3(n) : float3(n, n1(cell + 17.31), n1(cell + 41.73));
       return half4(clamp(c.rgb + half3(g * amount * 2.0) * c.a, 0.0, c.a), c.a); }`,
-  // Unsharp mask, skipping differences under the threshold (in levels).
-  sharpen: `uniform shader img; uniform shader soft; uniform float amount; uniform float t;
-    half4 main(float2 p) { half4 c = img.eval(p); half4 b = soft.eval(p); half3 d = c.rgb - b.rgb;
-      if (t > 0.0 && abs(dot(float3(d), float3(0.299, 0.587, 0.114))) / max(float(c.a), 0.001) * 255.0 < t) return c;
-      return half4(clamp(c.rgb + d * amount, 0.0, c.a), c.a); }`,
 };
 
 const cache = new WeakMap<CanvasKit, Map<string, RuntimeEffect>>();
@@ -162,7 +159,7 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
       const amount = filter.kind === "spin-blur" ? filter.angle : filter.amount;
       const [cx, cy] = at(filter.center);
       // How far the farthest corner moves sets the working resolution.
-      const far = Math.max(...[[0, 0], [w, 0], [0, h], [w, h]].map(([px, py]) => Math.hypot(px! - cx, py! - cy)));
+      const far = Math.max(...[[0, 0], [w, 0], [0, h], [w, h]].map(([px, py]) => len(px! - cx, py! - cy)));
       const angle = (Math.min(amount, 360) * Math.PI) / 180;
       const original = filter.kind === "spin-blur" ? readRaster(ck, image, false) : undefined;
       const f = reduce(spin ? far * angle : far * Math.min(amount, 1));
@@ -174,7 +171,7 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
       if (!original || filter.kind !== "spin-blur") return spun;
       // Blur Gallery's spin blur: inside an ellipse, fading out across its rim.
       const [sx, sy] = [((filter.size?.[0] ?? 0.4) * box.w * k) / 2, ((filter.size?.[1] ?? 0.4) * box.h * k) / 2];
-      return writeRaster(ck, mix(original, readRaster(ck, spun), (px, py) => 1 - smoothstep(0.8, 1.2, Math.hypot((px - cx) / sx, (py - cy) / sy))));
+      return writeRaster(ck, mix(original, readRaster(ck, spun), (px, py) => 1 - smoothstep(0.8, 1.2, len((px - cx) / sx, (py - cy) / sy))));
     }
     // ── Distort
     case "displace":
@@ -253,23 +250,29 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
     case "lighting-effects":
       return js((r) => lighting(ctx, r, filter));
     // ── Sharpen
-    case "sharpen":
-      return unsharp(kit, image, kit.blur(image, filter.radius ?? 1, true), filter.amount, filter.threshold ?? 0);
-    case "sharpen-more":
-      return unsharp(kit, image, kit.blur(image, 1, true), 1.6, 0);
-    case "sharpen-edges":
-      return unsharp(kit, image, kit.blur(image, 1, true), 1.2, 12);
+    case "sharpen": {
+      const soft = soften(kit, image, filter.radius ?? 1);
+      return js((r) => unsharp(r, soft, filter.amount, filter.threshold ?? 0));
+    }
+    case "sharpen-more": {
+      const soft = soften(kit, image, 1);
+      return js((r) => unsharp(r, soft, 1.6, 0));
+    }
+    case "sharpen-edges": {
+      const soft = soften(kit, image, 1);
+      return js((r) => unsharp(r, soft, 1.2, 12));
+    }
     case "smart-sharpen": {
       const soft =
         filter.remove === "lens"
-          ? writeRaster(ck, disc(readRaster(ck, image, false), filter.radius * k))
+          ? disc(readRaster(ck, image, false), filter.radius * k)
           : filter.remove === "motion"
-            ? motionCopy(kit, image, filter.angle ?? 0, filter.radius * 2)
-            : kit.blur(image, filter.radius, true);
-      return unsharp(kit, image, soft, filter.amount, ((filter.reduceNoise ?? 10) / 100) * 12);
+            ? readRaster(ck, motionCopy(kit, image, filter.angle ?? 0, filter.radius * 2))
+            : soften(kit, image, filter.radius);
+      return js((r) => unsharp(r, soft, filter.amount, ((filter.reduceNoise ?? 10) / 100) * 12));
     }
     case "high-pass": {
-      const soft = readRaster(ck, kit.blur(image, filter.radius, true));
+      const soft = soften(kit, image, filter.radius);
       return js((r) => highPass(r, soft));
     }
     // ── Stylize
@@ -286,7 +289,11 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
     case "oil-paint":
       return js((r) => oilPaint(ctx, r, filter));
     case "solarize":
-      return js((r) => mapColor(r, (c) => c.forEach((v, i) => (c[i] = v > 0.5 ? 1 - v : v))));
+      return js((r) =>
+        mapColor(r, (c) => {
+          for (let j = 0; j < 3; j++) if (c[j]! > 0.5) c[j] = 1 - c[j]!;
+        }),
+      );
     case "tiles":
       return js((r) => tiles(ctx, r, filter));
     case "trace-contour":
@@ -342,7 +349,7 @@ export function filterReach(filter: Filter, box: Box): number {
     case "path-blur":
       return filter.distance / 2;
     case "radial-blur":
-      return (Math.hypot(box.w, box.h) / 2) * (filter.mode === "spin" ? Math.min(1, (filter.amount * Math.PI) / 180) : Math.min(1, filter.amount));
+      return (len(box.w, box.h) / 2) * (filter.mode === "spin" ? Math.min(1, (filter.amount * Math.PI) / 180) : Math.min(1, filter.amount));
     case "wave":
       return Math.abs(filter.amplitude);
     case "shear":
@@ -463,7 +470,7 @@ function smartBlur(r: Raster, filter: Of<"smart-blur">, k: number): Raster {
       const i = y * w + x;
       const dx = L[y * w + Math.min(w - 1, x + 1)]! - L[i]!;
       const dy = L[Math.min(h - 1, y + 1) * w + x]! - L[i]!;
-      edge[i] = Math.hypot(dx, dy) * 255 > filter.threshold ? 1 : 0;
+      edge[i] = len(dx, dy) * 255 > filter.threshold ? 1 : 0;
     }
   if (filter.mode === "edge-only") return fromPlanes(w, h, [edge, edge, edge], a);
   const s = planes(smooth).rgb;
@@ -509,7 +516,7 @@ function lensBlur(ctx: Ctx, image: Image, filter: Of<"lens-blur">): Image {
 function galleryBlur(ctx: Ctx, image: Image, filter: Of<"field-blur"> | Of<"iris-blur"> | Of<"tilt-shift">): Image {
   const { kit, k, box, at } = ctx;
   const max = filter.kind === "field-blur" ? Math.max(0.0001, ...filter.points.map((p) => p.radius)) : filter.radius;
-  const blurred = [1, 2, 3].map((i) => readRaster(kit.ck, kit.blur(image, (max * i) / 3, true)));
+  const blurred = [1, 2, 3].map((i) => soften(kit, image, (max * i) / 3));
   const base = readRaster(kit.ck, image);
   let strength: (x: number, y: number) => number;
   if (filter.kind === "field-blur") {
@@ -528,18 +535,20 @@ function galleryBlur(ctx: Ctx, image: Image, filter: Of<"field-blur"> | Of<"iris
     const [cx, cy] = at(filter.center);
     const [sx, sy] = [((filter.size?.[0] ?? 0.4) * box.w * k) / 2, ((filter.size?.[1] ?? 0.4) * box.h * k) / 2];
     const a = ((filter.angle ?? 0) * Math.PI) / 180;
+    const [cs, sn] = [Math.cos(a), Math.sin(a)];
     const feather = filter.feather ?? 0.5;
     strength = (x, y) => {
       const [dx, dy] = [x - cx, y - cy];
-      const [u, v] = [(dx * Math.cos(a) + dy * Math.sin(a)) / sx, (-dx * Math.sin(a) + dy * Math.cos(a)) / sy];
-      return smoothstep(1 - feather, 1 + feather * 0.5, Math.hypot(u, v));
+      const [u, v] = [(dx * cs + dy * sn) / sx, (-dx * sn + dy * cs) / sy];
+      return smoothstep(1 - feather, 1 + feather * 0.5, len(u, v));
     };
   } else {
     const [cx, cy] = at(filter.center);
     const a = ((filter.angle ?? 0) * Math.PI) / 180;
     const band = ((filter.band ?? 0.15) * box.h * k) / 2;
     const transition = (filter.transition ?? 0.2) * box.h * k;
-    strength = (x, y) => smoothstep(band, band + transition, Math.abs(-(x - cx) * Math.sin(a) + (y - cy) * Math.cos(a)));
+    const [cs, sn] = [Math.cos(a), Math.sin(a)];
+    strength = (x, y) => smoothstep(band, band + transition, Math.abs(-(x - cx) * sn + (y - cy) * cs));
   }
   return writeRaster(kit.ck, levels(base, blurred, strength));
 }
@@ -583,7 +592,7 @@ function pinch(ctx: Ctx, r: Raster, a: number): Raster {
   const e = 1 - a * 0.5;
   return remap(r, (x, y, to) => {
     const [dx, dy] = [x - cx, y - cy];
-    const t = Math.hypot(dx, dy) / R;
+    const t = len(dx, dy) / R;
     if (t >= 1 || t === 0) return;
     const s = t ** e / t;
     to[0] = cx + dx * s;
@@ -598,7 +607,7 @@ function spherize(ctx: Ctx, r: Raster, filter: Of<"spherize">): Raster {
   const a = filter.amount / 100;
   return remap(r, (x, y, to) => {
     const [dx, dy] = [(x - cx) / Rx, (y - cy) / Ry];
-    const l = Math.hypot(dx * ax, dy * ay);
+    const l = len(dx * ax, dy * ay);
     if (l >= 1 || l === 0) return;
     // Positive bulges the centre out like a sphere; negative pinches it in.
     const n = a > 0 ? l + (1 - Math.cos((l * Math.PI) / 2) - l) * a : l + (Math.sin((l * Math.PI) / 2) - l) * -a;
@@ -617,7 +626,7 @@ function polar(r: Raster, toPolar: boolean): Raster {
       // The top edge gathers at the centre; the left and right edges meet at 12 o'clock.
       const [dx, dy] = [x - cx, y - cy];
       to[0] = ((Math.atan2(dx, -dy) + Math.PI) / (2 * Math.PI)) * w;
-      to[1] = (Math.hypot(dx, dy) / Rm) * h;
+      to[1] = (len(dx, dy) / Rm) * h;
     } else {
       const th = (x / w) * 2 * Math.PI - Math.PI;
       const rr = (y / h) * Rm;
@@ -645,7 +654,7 @@ function zigzag(ctx: Ctx, r: Raster, filter: Of<"zigzag">): Raster {
   const style = filter.style ?? "pond-ripples";
   return remap(r, (x, y, to) => {
     const [dx, dy] = [x - cx, y - cy];
-    const l = Math.hypot(dx, dy);
+    const l = len(dx, dy);
     if (l >= R || l === 0) return;
     const wv = Math.sin((l / R) * filter.ridges * 2 * Math.PI) * amp * (1 - l / R);
     if (style === "around-center") {
@@ -716,7 +725,7 @@ function liquifyField(ctx: Ctx, filter: Of<"liquify">, fw: number, fh: number, s
         const [px, py] = [(i + 0.5) * sx, (j + 0.5) * sy];
         // Forward warp carries the brush's content to its end point, so the falloff centres there.
         const [ccx, ccy] = op.tool === "forward-warp" ? [tx, ty] : [cx, cy];
-        const d = Math.hypot(px - ccx, py - ccy);
+        const d = len(px - ccx, py - ccy);
         if (d >= R) continue;
         const fall = (1 - (d / R) ** 2) ** 2 * s;
         let [ox, oy] = [0, 0];
@@ -768,7 +777,7 @@ function puppetField(ctx: Ctx, filter: Of<"puppet-warp">, fw: number, fh: number
         a11 += wts[n]! * (phx * qhx + phy * qhy);
         a12 += wts[n]! * (phx * qhy - phy * qhx);
       });
-      const norm = Math.hypot(a11, a12);
+      const norm = len(a11, a12);
       const [c, s] = pins.length > 1 && norm > 0 ? [a11 / norm, a12 / norm] : [1, 0];
       const [rx, ry] = [vx - psx, vy - psy];
       dx[j * fw + i] = c * rx - s * ry + qsx - vx;
@@ -779,7 +788,7 @@ function puppetField(ctx: Ctx, filter: Of<"puppet-warp">, fw: number, fh: number
 
 function lensCorrection(ctx: Ctx, r: Raster, filter: Of<"lens-correction">): Raster {
   const [cx, cy] = ctx.at();
-  const R = Math.hypot(ctx.box.w, ctx.box.h) * ctx.k * 0.5;
+  const R = len(ctx.box.w, ctx.box.h) * ctx.k * 0.5;
   // Positive distortion removes barrel distortion (pulls the edges in); negative removes pincushion.
   const kk = -((filter.distortion ?? 0) / 100) * 0.5;
   const ca = ((filter.redCyan ?? 0) / 100) * 0.01;
@@ -854,7 +863,7 @@ function colorHalftone(ctx: Ctx, r: Raster, filter: Of<"color-halftone">): Raste
     const K = 1 - Math.max(R, G, B);
     const value = ch === 3 ? K : (1 - (ch === 0 ? R : ch === 1 ? G : B) - K) / Math.max(1 - K, 0.001);
     const radius = Math.sqrt(clamp(value, 0, 1)) * cell * 0.7071;
-    return clamp(radius - Math.hypot(u - cu, v - cv) + 0.5, 0, 1);
+    return clamp(radius - len(u - cu, v - cv) + 0.5, 0, 1);
   };
   for (let y = 0; y < r.h; y++)
     for (let x = 0; x < r.w; x++) {
@@ -874,25 +883,38 @@ function colorHalftone(ctx: Ctx, r: Raster, filter: Of<"color-halftone">): Raste
 function cells(ctx: Ctx, r: Raster, size: number, background: [number, number, number] | undefined): Raster {
   const { ox, oy } = ctx;
   const out = blank(r);
+  // Seeds sit at a random point in each grid cell (of the artboard); each cell's colour is sampled once.
+  const [cx0, cy0] = [Math.floor(ox / size) - 1, Math.floor(oy / size) - 1];
+  const [cw, chh] = [Math.ceil((ox + r.w) / size) + 2 - cx0, Math.ceil((oy + r.h) / size) + 2 - cy0];
+  const seeds = new Float64Array(cw * chh * 2);
+  const colors = new Float32Array(cw * chh * 3);
   const tmp = new Float32Array(4);
+  for (let j = 0; j < chh; j++)
+    for (let i = 0; i < cw; i++) {
+      const [gx, gy] = [cx0 + i, cy0 + j];
+      const n = j * cw + i;
+      seeds[n * 2] = gx + hash(gx, gy, 1);
+      seeds[n * 2 + 1] = gy + hash(gx, gy, 2);
+      sample(r, seeds[n * 2]! * size - ox, seeds[n * 2 + 1]! * size - oy, tmp, 0);
+      const al = tmp[3]! || 1;
+      for (let c = 0; c < 3; c++) colors[n * 3 + c] = tmp[c]! / al;
+    }
   for (let y = 0; y < r.h; y++)
     for (let x = 0; x < r.w; x++) {
       const [qx, qy] = [(x + 0.5 + ox) / size, (y + 0.5 + oy) / size];
-      const [bx, by] = [Math.floor(qx), Math.floor(qy)];
-      let [best, sx, sy] = [Infinity, 0, 0];
+      const [bx, by] = [Math.floor(qx) - cx0, Math.floor(qy) - cy0];
+      let [best, pick] = [Infinity, 0];
       for (let j = -1; j <= 1; j++)
         for (let i = -1; i <= 1; i++) {
-          const [gx, gy] = [bx + i, by + j];
-          const [px, py] = [gx + hash(gx, gy, 1), gy + hash(gx, gy, 2)];
-          const d = Math.hypot(qx - px, qy - py);
-          if (d < best) [best, sx, sy] = [d, px, py];
+          const n = (by + j) * cw + bx + i;
+          const [dx, dy] = [qx - seeds[n * 2]!, qy - seeds[n * 2 + 1]!];
+          const d = dx * dx + dy * dy;
+          if (d < best) [best, pick] = [d, n];
         }
-      sample(r, sx * size - ox, sy * size - oy, tmp, 0);
       const o = (y * r.w + x) * 4;
       const a = r.d[o + 3]!;
-      const al = tmp[3]! || 1;
-      const dot = background ? clamp((0.42 - best) * size + 0.5, 0, 1) : 1;
-      for (let c = 0; c < 3; c++) out.d[o + c] = ((tmp[c]! / al) * dot + (background ? background[c]! * (1 - dot) : 0)) * a;
+      const dot = background ? clamp((0.42 - Math.sqrt(best)) * size + 0.5, 0, 1) : 1;
+      for (let c = 0; c < 3; c++) out.d[o + c] = (colors[pick * 3 + c]! * dot + (background ? background[c]! * (1 - dot) : 0)) * a;
       out.d[o + 3] = a;
     }
   return out;
@@ -967,14 +989,14 @@ function lensFlare(ctx: Ctx, r: Raster, filter: Of<"lens-flare">): Raster {
   // A hot core and halo, a faint ring, a horizontal streak, and ghost discs along the line through the centre.
   return mapColor(r, (c, i) => {
     const [px, py] = [(i % w) + 0.5, Math.floor(i / w) + 0.5];
-    const d = Math.hypot(px - fx, py - fy) / size;
+    const d = len(px - fx, py - fy) / size;
     const ring = Math.exp(-(((d - 0.55) * 14) ** 2)) * 0.25;
     const core = Math.exp(-d * d * 6) * 1.2 + Math.exp(-d * 2.5) * 0.25 + Math.exp(-Math.abs(py - fy) / (size * 0.012)) * Math.exp(-Math.abs(px - fx) / (size * 0.8)) * 0.6 * streak;
     const add = [core + ring * 0.6, core * 0.95 + ring * 0.8, core * 0.85 + ring];
     for (let g = 1; g <= ghosts; g++) {
       const t = g * 0.35;
       const [gx, gy] = [fx + (cx - fx) * (1 + t), fy + (cy - fy) * (1 + t)];
-      const v = smoothstep(1, 0.7, Math.hypot(px - gx, py - gy) / (size * (0.05 + 0.04 * g))) * 0.12;
+      const v = smoothstep(1, 0.7, len(px - gx, py - gy) / (size * (0.05 + 0.04 * g))) * 0.12;
       add[0]! += v * (0.4 + 0.15 * g);
       add[1]! += v * 0.6;
       add[2]! += v * (1 - 0.12 * g);
@@ -1003,7 +1025,7 @@ function lighting(ctx: Ctx, r: Raster, filter: Of<"lighting-effects">): Raster {
       const hx = L[y * w + Math.min(w - 1, x + 1)]! - L[y * w + Math.max(0, x - 1)]!;
       const hy = L[Math.min(h - 1, y + 1) * w + x]! - L[Math.max(0, y - 1) * w + x]!;
       let [nx, ny, nz] = [-hx * height, -hy * height, 1];
-      const nl = Math.hypot(nx, ny, nz);
+      const nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
       [nx, ny, nz] = [nx / nl, ny / nl, nz / nl];
       light[0] = light[1] = light[2] = ambient;
       for (const l of lights) {
@@ -1011,13 +1033,13 @@ function lighting(ctx: Ctx, r: Raster, filter: Of<"lighting-effects">): Raster {
         let fall = 1;
         if (l.type !== "infinite") {
           const [vx, vy] = [l.at[0] - (x + 0.5), l.at[1] - (y + 0.5)];
-          const dist = Math.hypot(vx, vy);
+          const dist = len(vx, vy);
           [lx, ly, lz] = [vx, vy, l.radius * 0.25];
           fall = clamp(1 - dist / l.radius, 0, 1);
           // A spot shines along its angle from where it sits.
           if (l.type === "spot") fall *= smoothstep(0.6, 0.95, dist > 0 ? (-vx * l.dir[0] - vy * l.dir[1]) / dist : 1);
         }
-        const ll = Math.hypot(lx, ly, lz) || 1;
+        const ll = Math.sqrt(lx * lx + ly * ly + lz * lz) || 1;
         const lambert = (Math.max(0, (nx * lx + ny * ly + nz * lz) / ll) * fall * l.intensity);
         for (let c = 0; c < 3; c++) light[c]! += l.color[c]! * lambert;
       }
@@ -1028,11 +1050,27 @@ function lighting(ctx: Ctx, r: Raster, filter: Of<"lighting-effects">): Raster {
 
 // ── Sharpen ──────────────────────────────────────────────────────────────────────────────
 
-/** Unsharp mask of the image against a softened copy (consumed). */
-function unsharp(kit: FilterKit, image: Image, soft: Image, amount: number, threshold: number): Image {
-  const { ck } = kit;
-  const softShader = soft.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Nearest, ck.MipmapMode.None);
-  return kit.runShader(image, 1, (child) => ({ shader: effect(ck, "sharpen").makeShaderWithChildren([amount, threshold], [child, softShader]), extras: [softShader, soft] }));
+/** A Gaussian-blurred copy of the image (kept), as a raster: on the CPU up to sigma 12, where Skia's blur is slower. */
+function soften(kit: FilterKit, image: Image, radius: number): Raster {
+  const sigma = radius * kit.scale;
+  return sigma < 12 ? gaussBlur(readRaster(kit.ck, image, false), sigma) : readRaster(kit.ck, kit.blur(image, radius, true));
+}
+
+/** Unsharp mask: pushes each pixel away from its softened copy, skipping differences under the threshold (levels). */
+function unsharp(r: Raster, soft: Raster, amount: number, threshold: number): Raster {
+  const out = blank(r);
+  const { d } = r;
+  for (let i = 0; i < d.length; i += 4) {
+    const a = d[i + 3]!;
+    out.d[i + 3] = a;
+    const [d0, d1, d2] = [d[i]! - soft.d[i]!, d[i + 1]! - soft.d[i + 1]!, d[i + 2]! - soft.d[i + 2]!];
+    const keep = threshold > 0 && (Math.abs(d0 * 0.299 + d1 * 0.587 + d2 * 0.114) / Math.max(a, 0.001)) * 255 < threshold;
+    const k = keep ? 0 : amount;
+    out.d[i] = d[i]! + d0 * k;
+    out.d[i + 1] = d[i + 1]! + d1 * k;
+    out.d[i + 2] = d[i + 2]! + d2 * k;
+  }
+  return out;
 }
 
 function motionCopy(kit: FilterKit, image: Image, angle: number, distance: number): Image {
@@ -1112,18 +1150,19 @@ function extrude(ctx: Ctx, r: Raster, filter: Of<"extrude">): Raster {
 function edges(r: Raster, width: number, glow: boolean, bright: number): Raster {
   const { w, h } = r;
   const { rgb, a } = planes(r);
-  const s = Math.max(1, width);
+  const s = Math.max(1, Math.round(width));
   const out = rgb.map((p) => {
     const e = new Float32Array(w * h);
-    const at = (x: number, y: number) => samplePlane(p, w, h, x, y);
-    for (let y = 0; y < h; y++)
+    for (let y = 0; y < h; y++) {
+      const [up, mid, down] = [Math.max(0, y - s) * w, y * w, Math.min(h - 1, y + s) * w];
       for (let x = 0; x < w; x++) {
-        const [px, py] = [x + 0.5, y + 0.5];
-        const gx = at(px + s, py - s) + 2 * at(px + s, py) + at(px + s, py + s) - at(px - s, py - s) - 2 * at(px - s, py) - at(px - s, py + s);
-        const gy = at(px - s, py + s) + 2 * at(px, py + s) + at(px + s, py + s) - at(px - s, py - s) - 2 * at(px, py - s) - at(px + s, py - s);
-        const m = clamp(Math.hypot(gx, gy) * 0.5, 0, 1);
-        e[y * w + x] = glow ? m * bright : 1 - m;
+        const [l, rr] = [Math.max(0, x - s), Math.min(w - 1, x + s)];
+        const gx = p[up + rr]! + 2 * p[mid + rr]! + p[down + rr]! - p[up + l]! - 2 * p[mid + l]! - p[down + l]!;
+        const gy = p[down + l]! + 2 * p[down + x]! + p[down + rr]! - p[up + l]! - 2 * p[up + x]! - p[up + rr]!;
+        const m = Math.min(1, Math.sqrt(gx * gx + gy * gy) * 0.5);
+        e[mid + x] = glow ? m * bright : 1 - m;
       }
+    }
     return e;
   });
   return fromPlanes(w, h, out, a);
@@ -1208,7 +1247,9 @@ function wind(ctx: Ctx, r: Raster, filter: Of<"wind">): Raster {
 
 function posterize(r: Raster, levels: number): Raster {
   const n = Math.max(2, levels) - 1;
-  return mapColor(r, (c) => c.forEach((v, i) => (c[i] = Math.round(v * n) / n)));
+  return mapColor(r, (c) => {
+    for (let j = 0; j < 3; j++) c[j] = Math.round(c[j]! * n) / n;
+  });
 }
 
 function posterEdges(r: Raster, filter: Of<"poster-edges">, k: number): Raster {
@@ -1242,8 +1283,8 @@ function halftonePattern(ctx: Ctx, r: Raster, filter: Of<"halftone-pattern">): R
     let v: number;
     if (type === "circle") {
       const big = size * 12;
-      v = 0.5 + 0.5 * Math.sin((Math.hypot(gx - (Math.floor(gx / big) + 0.5) * big, gy - (Math.floor(gy / big) + 0.5) * big) / size) * Math.PI);
-    } else if (type === "dot") v = Math.hypot(gx / size - Math.floor(gx / size) - 0.5, gy / size - Math.floor(gy / size) - 0.5) * 1.414;
+      v = 0.5 + 0.5 * Math.sin((len(gx - (Math.floor(gx / big) + 0.5) * big, gy - (Math.floor(gy / big) + 0.5) * big) / size) * Math.PI);
+    } else if (type === "dot") v = len(gx / size - Math.floor(gx / size) - 0.5, gy / size - Math.floor(gy / size) - 0.5) * 1.414;
     else v = 0.5 + 0.5 * Math.sin((gy / size) * Math.PI);
     c[0] = c[1] = c[2] = clamp((l - v) * contrast + 0.5, 0, 1);
   });
@@ -1268,7 +1309,7 @@ function ntsc(c: Float64Array): void {
   const y = 0.299 * r + 0.587 * g + 0.114 * b;
   let i = 0.596 * r - 0.274 * g - 0.322 * b;
   let q = 0.211 * r - 0.523 * g + 0.312 * b;
-  const m = Math.hypot(i, q);
+  const m = len(i, q);
   if (m > 0.3) [i, q] = [(i * 0.3) / m, (q * 0.3) / m];
   c[0] = y + 0.956 * i + 0.621 * q;
   c[1] = y - 0.272 * i - 0.647 * q;
@@ -1350,39 +1391,50 @@ function cameraRaw(ctx: Ctx, image: Image, filter: Of<"camera-raw">): Image {
   const v = (n: number | undefined) => (n ?? 0) / 100;
   const local = v(filter.clarity) !== 0 || v(filter.texture) !== 0 || v(filter.dehaze) !== 0;
   // Clarity lifts mid-tone contrast against a wide blur; texture, fine detail against a small one.
-  const wide = local ? planes(readRaster(ck, kit.blur(image, 20, true))).rgb : undefined;
-  const fine = local ? planes(readRaster(ck, kit.blur(image, 2, true))).rgb : undefined;
+  const wide = local ? planes(soften(kit, image, 20)).rgb : undefined;
+  const fine = local ? planes(soften(kit, image, 2)).rgb : undefined;
   const r = readRaster(ck, image);
   const [cx, cy] = ctx.at();
-  const R = Math.hypot(ctx.box.w, ctx.box.h) * k * 0.5;
+  const R = len(ctx.box.w, ctx.box.h) * k * 0.5;
   const ex = 2 ** (filter.exposure ?? 0);
   const [con, hi, sh, wh, bl] = [v(filter.contrast) * 0.6, v(filter.highlights), v(filter.shadows), v(filter.whites), v(filter.blacks)];
   const [temp, tint, vib, sat] = [v(filter.temperature), v(filter.tint), v(filter.vibrance) * 0.8, v(filter.saturation)];
   const [clar, tex, haze, vig, grain] = [v(filter.clarity), v(filter.texture), v(filter.dehaze), v(filter.vignette), (filter.grain ?? 0) / 300];
   const w = r.w;
   const unit = Math.max(1, k);
+  const [wb0, wb1, wb2] = [ex * (1 + temp * 0.2 + tint * 0.05), ex * (1 - tint * 0.1), ex * (1 - temp * 0.2 + tint * 0.05)];
+  const range = Math.max(1 + wh * 0.15 - bl * 0.1, 0.05);
+  const tone = (x: number, t: number) => ((x + t - bl * 0.1) / range - 0.5) * (1 + con) + 0.5;
   return writeRaster(
     ck,
     mapColor(r, (c, i) => {
-      const orig = [c[0]!, c[1]!, c[2]!];
+      const [o0, o1, o2] = [c[0]!, c[1]!, c[2]!];
       // White balance and exposure, then tone (highlights/shadows, whites/blacks, contrast).
-      let rgb = [c[0]! * ex * (1 + temp * 0.2 + tint * 0.05), c[1]! * ex * (1 - tint * 0.1), c[2]! * ex * (1 - temp * 0.2 + tint * 0.05)];
-      let l = rgb[0]! * 0.299 + rgb[1]! * 0.587 + rgb[2]! * 0.114;
-      const tone = hi * 0.35 * smoothstep(0.5, 1, l) + sh * 0.35 * (1 - smoothstep(0, 0.5, l));
-      rgb = rgb.map((x) => ((x + tone - bl * 0.1) / Math.max(1 + wh * 0.15 - bl * 0.1, 0.05) - 0.5) * (1 + con) + 0.5);
+      let [r0, g0, b0] = [o0 * wb0, o1 * wb1, o2 * wb2];
+      const l0 = r0 * 0.299 + g0 * 0.587 + b0 * 0.114;
+      const t = hi * 0.35 * smoothstep(0.5, 1, l0) + sh * 0.35 * (1 - smoothstep(0, 0.5, l0));
+      [r0, g0, b0] = [tone(r0, t), tone(g0, t), tone(b0, t)];
       if (wide && fine) {
-        const mid = 1 - Math.abs(l - 0.5) * 2;
-        rgb = rgb.map((x, j) => x + (orig[j]! - wide[j]![i]!) * clar * 0.8 * mid + (orig[j]! - fine[j]![i]!) * tex * 1.2);
-        if (haze) rgb = rgb.map((x, j) => (x - wide[j]![i]! * haze * 0.15) / Math.max(1 - haze * 0.3, 0.05));
+        const mid = (1 - Math.abs(l0 - 0.5) * 2) * clar * 0.8;
+        const [w0, w1, w2] = [wide[0][i]!, wide[1][i]!, wide[2][i]!];
+        r0 += (o0 - w0) * mid + (o0 - fine[0][i]!) * tex * 1.2;
+        g0 += (o1 - w1) * mid + (o1 - fine[1][i]!) * tex * 1.2;
+        b0 += (o2 - w2) * mid + (o2 - fine[2][i]!) * tex * 1.2;
+        if (haze) {
+          const d = Math.max(1 - haze * 0.3, 0.05);
+          [r0, g0, b0] = [(r0 - w0 * haze * 0.15) / d, (g0 - w1 * haze * 0.15) / d, (b0 - w2 * haze * 0.15) / d];
+        }
       }
-      // Saturation everywhere; vibrance mostly where colour is muted.
-      l = rgb[0]! * 0.299 + rgb[1]! * 0.587 + rgb[2]! * 0.114;
-      const chroma = Math.max(rgb[0]!, rgb[1]!, rgb[2]!) - Math.min(rgb[0]!, rgb[1]!, rgb[2]!);
+      // Saturation everywhere; vibrance mostly where colour is muted. Then vignette and grain.
+      const l = r0 * 0.299 + g0 * 0.587 + b0 * 0.114;
+      const chroma = Math.max(r0, g0, b0) - Math.min(r0, g0, b0);
       const s = 1 + sat + vib * (1 - clamp(chroma * 1.5, 0, 1));
       const [px, py] = [(i % w) + 0.5, Math.floor(i / w) + 0.5];
-      const vg = 1 + vig * smoothstep(0.5, 1.4, Math.hypot(px - cx, py - cy) / R);
+      const vg = vig ? 1 + vig * smoothstep(0.5, 1.4, len(px - cx, py - cy) / R) : 1;
       const n = grain ? (hash(Math.floor((px + ox) / unit), Math.floor((py + oy) / unit), 61) - 0.5) * grain * 2 : 0;
-      for (let j = 0; j < 3; j++) c[j] = (l + (rgb[j]! - l) * s) * vg + n;
+      c[0] = (l + (r0 - l) * s) * vg + n;
+      c[1] = (l + (g0 - l) * s) * vg + n;
+      c[2] = (l + (b0 - l) * s) * vg + n;
     }),
   );
 }

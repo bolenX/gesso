@@ -12,23 +12,24 @@ export function readRaster(ck: CanvasKit, image: Image, consume = true): Raster 
   const [w, h] = [image.width(), image.height()];
   const bytes = image.readPixels(0, 0, { width: w, height: h, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Premul, colorSpace: ck.ColorSpace.SRGB }) as Uint8Array;
   if (consume) image.delete();
-  return { w, h, d: Float32Array.from(bytes) };
+  return { w, h, d: new Float32Array(bytes) };
 }
 
 export function writeRaster(ck: CanvasKit, r: Raster): Image {
-  const { d } = r;
-  const out = new Uint8Array(d.length);
-  for (let i = 0; i < d.length; i += 4) {
-    const a = Math.round(clamp(d[i + 3]!, 0, 255));
-    out[i + 3] = a;
-    out[i] = Math.round(clamp(d[i]!, 0, a));
-    out[i + 1] = Math.round(clamp(d[i + 1]!, 0, a));
-    out[i + 2] = Math.round(clamp(d[i + 2]!, 0, a));
+  // The clamped array rounds and clamps natively; colour then may not exceed alpha (premultiplied).
+  const out = new Uint8ClampedArray(r.d);
+  for (let i = 0; i < out.length; i += 4) {
+    const a = out[i + 3]!;
+    if (out[i]! > a) out[i] = a;
+    if (out[i + 1]! > a) out[i + 1] = a;
+    if (out[i + 2]! > a) out[i + 2] = a;
   }
-  return ck.MakeImage({ width: r.w, height: r.h, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Premul, colorSpace: ck.ColorSpace.SRGB }, out, r.w * 4)!;
+  return ck.MakeImage({ width: r.w, height: r.h, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Premul, colorSpace: ck.ColorSpace.SRGB }, new Uint8Array(out.buffer), r.w * 4)!;
 }
 
 export const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+/** Length of (x, y); Math.hypot is several times slower in hot loops. */
+export const len = (x: number, y: number) => Math.sqrt(x * x + y * y);
 export const smoothstep = (a: number, b: number, v: number) => {
   const t = clamp((v - a) / (b - a || 1), 0, 1);
   return t * t * (3 - 2 * t);
@@ -180,70 +181,143 @@ export function reduced(r: Raster, f: number, fn: (small: Raster, f: number) => 
 
 // ── Blurs ────────────────────────────────────────────────────────────────────────────────
 
-/** One box pass along a line of n values (stride apart), edges repeating; radius r ≥ 0 may be fractional. */
-function boxLine(src: Float32Array, dst: Float32Array, start: number, stride: number, n: number, r: number): void {
-  const ri = Math.floor(r);
-  const frac = r - ri;
-  const at = (i: number) => src[start + clamp(i, 0, n - 1) * stride]!;
-  const norm = 1 / (2 * r + 1);
-  let sum = 0;
-  for (let i = -ri; i <= ri; i++) sum += at(i);
-  for (let i = 0; i < n; i++) {
-    const edge = frac > 0 ? (at(i - ri - 1) + at(i + ri + 1)) * frac : 0;
-    dst[start + i * stride] = (sum + edge) * norm;
-    sum += at(i + ri + 1) - at(i - ri);
+/**
+ * Window sums along rows: each output averages src over [x-before, x+after] (edges repeating),
+ * plus `frac` of the next sample on each side. `ch` channels are interleaved.
+ */
+function windowH(src: Float32Array, w: number, h: number, ch: number, before: number, after: number, frac = 0): Float32Array {
+  const out = new Float32Array(src.length);
+  const norm = 1 / (before + after + 1 + 2 * frac);
+  const sums = new Float64Array(ch);
+  const rowLen = w * ch;
+  for (let y = 0; y < h; y++) {
+    const base = y * rowLen;
+    for (let c = 0; c < ch; c++) {
+      let s = 0;
+      for (let j = -before; j <= after; j++) s += src[base + (j < 0 ? 0 : j >= w ? w - 1 : j) * ch + c]!;
+      sums[c] = s;
+    }
+    for (let x = 0; x < w; x++) {
+      const [xin, xout] = [x + after + 1, x - before];
+      const iin = base + (xin >= w ? w - 1 : xin) * ch;
+      const iout = base + (xout < 0 ? 0 : xout) * ch;
+      const o = base + x * ch;
+      if (frac > 0) {
+        const il = base + (xout - 1 < 0 ? 0 : xout - 1) * ch;
+        for (let c = 0; c < ch; c++) {
+          out[o + c] = (sums[c]! + (src[il + c]! + src[iin + c]!) * frac) * norm;
+          sums[c]! += src[iin + c]! - src[iout + c]!;
+        }
+      } else
+        for (let c = 0; c < ch; c++) {
+          out[o + c] = sums[c]! * norm;
+          sums[c]! += src[iin + c]! - src[iout + c]!;
+        }
+    }
   }
+  return out;
+}
+
+/** windowH's counterpart down columns, kept in row order (one running sum per column) for the cache. */
+function windowV(src: Float32Array, w: number, h: number, ch: number, before: number, after: number, frac = 0): Float32Array {
+  const out = new Float32Array(src.length);
+  const norm = 1 / (before + after + 1 + 2 * frac);
+  const rowLen = w * ch;
+  const sums = new Float64Array(rowLen);
+  for (let j = -before; j <= after; j++) {
+    const row = (j < 0 ? 0 : j >= h ? h - 1 : j) * rowLen;
+    for (let k = 0; k < rowLen; k++) sums[k]! += src[row + k]!;
+  }
+  for (let y = 0; y < h; y++) {
+    const o = y * rowLen;
+    const rin = Math.min(h - 1, y + after + 1) * rowLen;
+    const rout = Math.max(0, y - before) * rowLen;
+    if (frac > 0) {
+      const rl = Math.max(0, y - before - 1) * rowLen;
+      for (let k = 0; k < rowLen; k++) {
+        out[o + k] = (sums[k]! + (src[rl + k]! + src[rin + k]!) * frac) * norm;
+        sums[k]! += src[rin + k]! - src[rout + k]!;
+      }
+    } else
+      for (let k = 0; k < rowLen; k++) {
+        out[o + k] = sums[k]! * norm;
+        sums[k]! += src[rin + k]! - src[rout + k]!;
+      }
+  }
+  return out;
+}
+
+/** A symmetric box of radius r (fractional radii weight the end samples). */
+function box(src: Float32Array, w: number, h: number, ch: number, rx: number, ry: number): Float32Array {
+  const [ix, iy] = [Math.floor(rx), Math.floor(ry)];
+  return windowV(windowH(src, w, h, ch, ix, ix, rx - ix), w, h, ch, iy, iy, ry - iy);
+}
+
+/** A 1-D kernel (offsets and weights) along rows, then down columns, edges repeating. */
+function separable(src: Float32Array, w: number, h: number, ch: number, offsets: Int32Array, weights: Float32Array): Float32Array {
+  const tmp = new Float32Array(src.length);
+  const rowLen = w * ch;
+  const R = Math.max(...offsets.map(Math.abs));
+  const taps = offsets.length;
+  const steps = offsets.map((o) => o * ch);
+  for (let y = 0; y < h; y++) {
+    const base = y * rowLen;
+    for (let x = 0; x < w; x++) {
+      const o = base + x * ch;
+      if (x >= R && x < w - R)
+        for (let c = 0; c < ch; c++) {
+          let s = 0;
+          for (let t = 0; t < taps; t++) s += src[o + steps[t]! + c]! * weights[t]!;
+          tmp[o + c] = s;
+        }
+      else
+        for (let c = 0; c < ch; c++) {
+          let s = 0;
+          for (let t = 0; t < taps; t++) {
+            const xx = x + offsets[t]!;
+            s += src[base + (xx < 0 ? 0 : xx >= w ? w - 1 : xx) * ch + c]! * weights[t]!;
+          }
+          tmp[o + c] = s;
+        }
+    }
+  }
+  const out = new Float32Array(src.length);
+  for (let y = 0; y < h; y++) {
+    const o = y * rowLen;
+    for (let t = 0; t < offsets.length; t++) {
+      const yy = y + offsets[t]!;
+      const row = (yy < 0 ? 0 : yy >= h ? h - 1 : yy) * rowLen;
+      const wt = weights[t]!;
+      for (let k = 0; k < rowLen; k++) out[o + k]! += tmp[row + k]! * wt;
+    }
+  }
+  return out;
 }
 
 /** Box blur of a single-channel plane. */
 export function boxPlane(p: Float32Array, w: number, h: number, rx: number, ry = rx): Float32Array {
-  const tmp = new Float32Array(p.length);
-  const out = new Float32Array(p.length);
-  for (let y = 0; y < h; y++) boxLine(p, tmp, y * w, 1, w, rx);
-  for (let x = 0; x < w; x++) boxLine(tmp, out, x, w, h, ry);
-  return out;
+  return box(p, w, h, 1, rx, ry);
 }
 
 /** Box blur of all four channels. */
 export function boxBlur(r: Raster, rx: number, ry = rx): Raster {
-  const { w, h } = r;
-  const tmp = new Float32Array(r.d.length);
-  const out = new Float32Array(r.d.length);
-  for (let c = 0; c < 4; c++) {
-    for (let y = 0; y < h; y++) boxLine(r.d, tmp, y * w * 4 + c, 4, w, rx);
-    for (let x = 0; x < w; x++) boxLine(tmp, out, x * 4 + c, w * 4, h, ry);
-  }
-  return { w, h, d: out };
+  return { w: r.w, h: r.h, d: box(r.d, r.w, r.h, 4, rx, ry) };
 }
 
 /** Gaussian blur (sigma in pixels): a direct kernel for small sigmas, three box passes for large ones. */
 export function gaussBlur(r: Raster, sigma: number): Raster {
   if (sigma < 0.2) return copyRaster(r);
-  if (sigma > 3) {
+  if (sigma >= 2) {
     // Box radii whose three passes match the Gaussian's variance.
     const rr = Math.sqrt((12 * sigma * sigma) / 3 + 1) / 2 - 0.5;
     return boxBlur(boxBlur(boxBlur(r, rr), rr), rr);
   }
   const R = Math.ceil(sigma * 3);
-  const kernel = new Float32Array(2 * R + 1);
-  let total = 0;
-  for (let i = -R; i <= R; i++) total += kernel[i + R] = Math.exp(-(i * i) / (2 * sigma * sigma));
-  for (let i = 0; i < kernel.length; i++) kernel[i]! /= total;
-  const { w, h } = r;
-  const tmp = new Float32Array(r.d.length);
-  const out = new Float32Array(r.d.length);
-  const pass = (src: Float32Array, dst: Float32Array, start: number, stride: number, n: number) => {
-    for (let i = 0; i < n; i++) {
-      let s = 0;
-      for (let k = -R; k <= R; k++) s += src[start + clamp(i + k, 0, n - 1) * stride]! * kernel[k + R]!;
-      dst[start + i * stride] = s;
-    }
-  };
-  for (let c = 0; c < 4; c++) {
-    for (let y = 0; y < h; y++) pass(r.d, tmp, y * w * 4 + c, 4, w);
-    for (let x = 0; x < w; x++) pass(tmp, out, x * 4 + c, w * 4, h);
-  }
-  return { w, h, d: out };
+  const offsets = Int32Array.from({ length: 2 * R + 1 }, (_, i) => i - R);
+  const weights = Float32Array.from(offsets, (o) => Math.exp(-(o * o) / (2 * sigma * sigma)));
+  const total = weights.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < weights.length; i++) weights[i]! /= total;
+  return { w: r.w, h: r.h, d: separable(r.d, r.w, r.h, 4, offsets, weights) };
 }
 
 /** A flat disc (lens) blur of radius r pixels: each output sums row spans from per-row prefix sums. */
@@ -313,19 +387,7 @@ export function guided(r: Raster, radius: number, eps: number): Raster {
 
 /** Mean of each pixel's trailing (r+1)² window, [x-r..x]×[y-r..y], edges repeating. */
 function trailing(p: Float32Array, w: number, h: number, r: number): Float32Array {
-  const tmp = new Float32Array(p.length);
-  const out = new Float32Array(p.length);
-  const line = (src: Float32Array, dst: Float32Array, start: number, stride: number, n: number) => {
-    let sum = 0;
-    for (let i = -r; i <= 0; i++) sum += src[start + clamp(i, 0, n - 1) * stride]!;
-    for (let i = 0; i < n; i++) {
-      dst[start + i * stride] = sum / (r + 1);
-      sum += src[start + clamp(i + 1, 0, n - 1) * stride]! - src[start + clamp(i - r, 0, n - 1) * stride]!;
-    }
-  };
-  for (let y = 0; y < h; y++) line(p, tmp, y * w, 1, w);
-  for (let x = 0; x < w; x++) line(tmp, out, x, w, h);
-  return out;
+  return windowV(windowH(p, w, h, 1, r, 0), w, h, 1, r, 0);
 }
 
 /**
@@ -390,23 +452,27 @@ export function morph(r: Raster, radius: number, max: boolean): Raster {
 /** Per-channel median over a (2r+1)² window of straight 8-bit RGBA, with a sliding histogram per row (Huang). */
 export function median(px: Uint8Array, w: number, h: number, r: number): Uint8Array {
   const out = new Uint8Array(px);
+  const hist = new Int32Array(256);
+  const target = Math.floor(((2 * r + 1) * (2 * r + 1)) / 2);
+  const rows = new Int32Array(2 * r + 1);
   for (let c = 0; c < 3; c++) {
     for (let y = 0; y < h; y++) {
-      const hist = new Uint32Array(256);
-      let count = 0;
-      const add = (xx: number, dd: number) => {
-        const x = clamp(xx, 0, w - 1);
-        for (let yy = y - r; yy <= y + r; yy++) {
-          hist[px[(clamp(yy, 0, h - 1) * w + x) * 4 + c]!]! += dd;
-          count += dd;
+      hist.fill(0);
+      for (let k = 0; k < rows.length; k++) rows[k] = clamp(y - r + k, 0, h - 1) * w;
+      // The median v is tracked with `below`, the count of window values under it, so each step only adjusts it.
+      let [v, below] = [0, 0];
+      const add = (xx: number, d: number) => {
+        const x = xx < 0 ? 0 : xx >= w ? w - 1 : xx;
+        for (let k = 0; k < rows.length; k++) {
+          const q = px[(rows[k]! + x) * 4 + c]!;
+          hist[q]! += d;
+          if (q < v) below += d;
         }
       };
       for (let xx = -r; xx <= r; xx++) add(xx, 1);
       for (let x = 0; x < w; x++) {
-        const target = Math.floor(count / 2);
-        let acc = 0;
-        let v = 0;
-        while (v < 255 && acc + hist[v]! <= target) acc += hist[v++]!;
+        while (below > target) below -= hist[--v]!;
+        while (below + hist[v]! <= target) below += hist[v++]!;
         out[(y * w + x) * 4 + c] = v;
         add(x - r, -1);
         add(x + r + 1, 1);
