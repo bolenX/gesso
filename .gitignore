@@ -6,3 +6,6 @@ coverage/
 .gesso/
 reference/kit/
 reference/report/
+
+# Hosted server settings with secrets
+deploy/gesso.env

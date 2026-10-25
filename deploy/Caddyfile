@@ -1,0 +1,15 @@
+# HTTPS in front of hosted Gesso. Caddy gets and renews the certificate itself.
+{$GESSO_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 160MB
+	}
+	reverse_proxy gesso:8080 {
+		# Long renders and exports: don't cut them off.
+		transport http {
+			read_timeout 10m
+			write_timeout 10m
+		}
+		flush_interval -1
+	}
+}

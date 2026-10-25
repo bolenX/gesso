@@ -62,6 +62,10 @@ export type HttpOptions = {
   log?: (entry: Record<string, unknown>) => void;
   /** Hosted: run tool calls in this many worker processes (2 or more), started from `entry` with --hosted-worker. */
   workers?: { count: number; entry: string; memoryMb?: number };
+  /** Tools to leave out, by name. */
+  disabledTools?: string[];
+  /** Plain-text files to serve, by path, such as a domain verification token: { "/.well-known/x": "token" }. */
+  verification?: Record<string, string>;
 };
 
 const MIME: Record<string, string> = {
@@ -199,9 +203,10 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
   // ── Workers ────────────────────────────────────────────────────────────────────────────────
   // Renders run synchronously, so with workers each workspace's tool calls go to one of several processes,
   // and a long render only holds up the workspaces that share its worker.
+  const disabled = options.disabledTools?.length ? new Set(options.disabledTools) : undefined;
   const pool =
     hosted && options.workers && options.workers.count >= 2
-      ? new Pool({ ...options.workers, config: { baseDir: options.baseDir, secret: secret!.toString("hex"), days, ...(maxPixels ? { maxPixels } : {}), requestMb: options.requestMb ?? 32 } })
+      ? new Pool({ ...options.workers, config: { baseDir: options.baseDir, secret: secret!.toString("hex"), days, ...(maxPixels ? { maxPixels } : {}), requestMb: options.requestMb ?? 32, ...(disabled ? { disabledTools: [...disabled] } : {}) } })
       : undefined;
   await pool?.start();
 
@@ -257,7 +262,7 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
     }
     if (pool && ws) return pool.forward(req, res, ws.key, body, { base: origin(req), via });
     const target = ws ?? { key: "", dir: options.baseDir, ...local };
-    return serveMcp(req, res, target, body, linksFor(sealer, days, origin(req), target, via), maxPixels, hosted);
+    return serveMcp(req, res, target, body, linksFor(sealer, days, origin(req), target, via), maxPixels, hosted, disabled);
   };
 
   const sendFile = async (req: IncomingMessage, res: ServerResponse, file: string) => {
@@ -287,6 +292,8 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
     if (req.method === "OPTIONS") return void res.writeHead(204).end();
     if (url.pathname === "/health") return void res.writeHead(200, { "content-type": "text/plain" }).end("ok\n");
     if (url.pathname === "/favicon.svg") return void res.writeHead(200, { "content-type": "image/svg+xml" }).end(FAVICON_SVG);
+    const proof = options.verification?.[url.pathname];
+    if (proof !== undefined && (req.method === "GET" || req.method === "HEAD")) return void res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" }).end(proof);
     if (!hosted) {
       if (url.pathname === "/mcp") return mcp(req, res, undefined, "local");
       return void res.writeHead(url.pathname === "/" ? 200 : 404, { "content-type": "text/plain" }).end("Gesso MCP server. Connect to /mcp\n");
@@ -445,7 +452,7 @@ export function linksFor(sealer: Sealer | undefined, days: number, base: string,
 }
 
 /** Runs one MCP request against a workspace, with a server made for it (the transport is stateless). */
-export async function serveMcp(req: IncomingMessage, res: ServerResponse, ws: { dir: string; store: DocStore; state: ServerState }, body: unknown, links: ReturnType<typeof linksFor>, maxPixels: number | undefined, confined: boolean) {
+export async function serveMcp(req: IncomingMessage, res: ServerResponse, ws: { dir: string; store: DocStore; state: ServerState }, body: unknown, links: ReturnType<typeof linksFor>, maxPixels: number | undefined, confined: boolean, disabledTools?: ReadonlySet<string>) {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => void transport.close());
   const server = createServer({
@@ -456,6 +463,7 @@ export async function serveMcp(req: IncomingMessage, res: ServerResponse, ws: { 
     ...(links.fileUrl ? { fileUrl: links.fileUrl } : {}),
     ...(links.uploadUrl ? { uploadUrl: links.uploadUrl } : {}),
     ...(maxPixels ? { maxPixels } : {}),
+    ...(disabledTools ? { disabledTools } : {}),
   });
   await server.connect(transport);
   await transport.handleRequest(req, res, body);

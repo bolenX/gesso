@@ -54,35 +54,13 @@ If a worker crashes, for example from running out of memory on a huge render, it
 
 **Memory.** Allow about 1 GB per worker. Large photos with stacked filters use a lot of it. `GESSO_WORKER_MB` caps each worker's JavaScript heap; image buffers outside it aren't counted. A worker that hits the cap is restarted, rather than the whole server running out of memory.
 
-### Example: Fly.io
+### Ready-made setups
 
-```toml
-# fly.toml
-app = "my-gesso"
+[`deploy/`](../deploy/README.md) has the configuration the official server at `mcp.gesso.run` runs on, which you can copy:
+- **Fly.io:** `deploy/fly.toml`, plus a GitHub Actions workflow that deploys new releases.
+- **Any Linux server:** `deploy/compose.yaml` with Caddy for HTTPS.
 
-[env]
-  GESSO_PUBLIC_URL = "https://my-gesso.fly.dev"
-
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = "stop"
-  auto_start_machines = true
-
-[[mounts]]
-  source = "gesso_data"
-  destination = "/data"
-
-[[vm]]
-  cpus = 2
-  memory = "2gb"
-```
-
-```sh
-fly launch --no-deploy
-fly volumes create gesso_data --size 10
-fly deploy
-```
+Its README walks through the volume, the secret, DNS, GitHub and Google sign-in, logs and bans.
 
 Any host that runs a Docker image with a persistent disk works the same way, such as Render, Railway or a VPS with Caddy for HTTPS. Check your provider's docs for the exact steps.
 
@@ -109,6 +87,8 @@ Any host that runs a Docker image with a persistent disk works the same way, suc
 | `GESSO_WORKERS` | CPU cores, at most 4 | Worker processes for tool calls. `0` or `1` runs everything in one process |
 | `GESSO_WORKER_MB` | Node's default | JavaScript heap limit for each worker |
 | `GESSO_MAX_REQUESTS` | `64` | Requests the whole server works on at once before answering "busy" |
+| `GESSO_DISABLE_TOOLS` | none | Tools to leave out, comma-separated, such as `gen_prepare` |
+| `GESSO_VERIFY` | none | Plain-text files to serve, for domain verification: `/path=content` pairs, separated by commas |
 | `GESSO_LOG` | on | One JSON line per MCP request: time, method, tool name, status, duration and a short one-way hash of the workspace. Never content or keys. Set to `0` to turn it off |
 
 ## Connect an agent

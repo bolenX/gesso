@@ -122,6 +122,24 @@ describe("hosted HTTP server", () => {
     expect((await client.callTool({ name: "canvas_render", arguments: { doc: "big", scale: 0.5 } })).isError).toBeFalsy();
   });
 
+  it("leaves out tools it's told to, and serves verification files", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "gesso-options-"));
+    const started = await startHttp({ port: 0, host: "127.0.0.1", baseDir: dir, hosted: true, disabledTools: ["gen_prepare"], verification: { "/.well-known/openai-apps-challenge": "token-123" } });
+    try {
+      const proof = await fetch(`${started.url}/.well-known/openai-apps-challenge`);
+      expect(proof.headers.get("content-type")).toMatch(/^text\/plain/);
+      expect(await proof.text()).toBe("token-123");
+      const key = (await fetch(`${started.url}/new`, { redirect: "manual" })).headers.get("location")!.replace("/w/", "");
+      const client = new Client({ name: "test", version: "0.0.0" });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${started.url}/mcp/${key}`)));
+      const names = (await client.listTools()).tools.map((t) => t.name);
+      expect(names).not.toContain("gen_prepare");
+      expect(names).toContain("canvas_create");
+    } finally {
+      await started.close();
+    }
+  });
+
   it("deletes workspaces left idle", async () => {
     const stale = "s".repeat(24);
     const dir = join(root, "workspaces", stale);

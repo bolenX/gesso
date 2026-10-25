@@ -1,0 +1,47 @@
+# mcp.gesso.run on Fly.io. Deploy from the repository root:
+#
+#   fly deploy --config deploy/fly.toml --dockerfile Dockerfile
+#
+# See deploy/README.md for the first-time setup (app, volume, secrets, DNS).
+
+app = "gesso-mcp"
+primary_region = "iad"
+
+[env]
+  GESSO_PUBLIC_URL = "https://mcp.gesso.run"
+  GESSO_WORKERS = "2"
+  GESSO_WORKER_MB = "1024"
+  GESSO_WORKSPACE_DAYS = "7"
+  # Fly's proxy appends the visitor's address to X-Forwarded-For.
+  GESSO_PROXY_HOPS = "1"
+  GESSO_BLOCKLIST = "/data/blocklist.txt"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # One machine owns the workspaces volume, so keep it running: no cold starts for reviewers or users.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 48
+    hard_limit = 64
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/health"
+
+[[mounts]]
+  source = "gesso_data"
+  destination = "/data"
+  initial_size = "20gb"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 2
+  memory = "4gb"

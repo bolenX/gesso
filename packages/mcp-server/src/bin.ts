@@ -28,6 +28,15 @@ const credentials = (prefix: string) => {
   const [clientId, clientSecret] = [process.env[`${prefix}_CLIENT_ID`], process.env[`${prefix}_CLIENT_SECRET`]];
   return clientId && clientSecret ? { clientId, clientSecret } : undefined;
 };
+/** GESSO_VERIFY: `/path=content` pairs, separated by commas or new lines, served as plain text (domain verification). */
+const verification = (value: string) =>
+  Object.fromEntries(
+    value
+      .split(/[,\n]/)
+      .map((pair) => pair.trim())
+      .filter((pair) => pair.startsWith("/") && pair.includes("="))
+      .map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)]),
+  );
 /** GESSO_SECRET as 64 hex characters, or any string of at least 32 characters. */
 const secret = () => {
   const value = process.env.GESSO_SECRET?.trim();
@@ -72,6 +81,8 @@ if (process.argv.includes("--hosted-worker")) {
     ...(off("GESSO_KEY_URLS") ? { keyUrls: false } : {}),
     ...(process.env.GESSO_BLOCKLIST ? { blocklist: process.env.GESSO_BLOCKLIST } : {}),
     ...(hosted && !off("GESSO_LOG") ? { log: (entry: Record<string, unknown>) => console.log(JSON.stringify(entry)) } : {}),
+    ...(process.env.GESSO_DISABLE_TOOLS ? { disabledTools: process.env.GESSO_DISABLE_TOOLS.split(",").map((t) => t.trim()).filter(Boolean) } : {}),
+    ...(process.env.GESSO_VERIFY ? { verification: verification(process.env.GESSO_VERIFY) } : {}),
     ...(hosted && workers >= 2 ? { workers: { count: workers, entry: fileURLToPath(import.meta.url), ...(number("GESSO_WORKER_MB") ? { memoryMb: number("GESSO_WORKER_MB")! } : {}) } } : {}),
   });
   if (hosted && !process.env.GESSO_PUBLIC_URL) console.error("Set GESSO_PUBLIC_URL to the server's https address: sign-in and links use it.");

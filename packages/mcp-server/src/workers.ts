@@ -14,7 +14,7 @@ import { Sealer } from "./oauth.js";
 // place. A worker that crashes (most often from running out of memory on a huge render) is restarted, and only
 // its requests in flight fail.
 
-export type WorkerConfig = { baseDir: string; secret: string; days: number; maxPixels?: number; requestMb: number };
+export type WorkerConfig = { baseDir: string; secret: string; days: number; maxPixels?: number; requestMb: number; disabledTools?: string[] };
 
 /** Which worker serves a workspace. */
 export const shardOf = (key: string, count: number) => createHash("sha256").update(key).digest().readUInt32BE(0) % count;
@@ -128,6 +128,7 @@ export async function startWorker(config: WorkerConfig & { token: string }): Pro
   const root = join(config.baseDir, "workspaces");
   const sealer = new Sealer(Buffer.from(config.secret, "hex"));
   const expected = Buffer.from(config.token);
+  const disabled = config.disabledTools?.length ? new Set(config.disabledTools) : undefined;
   const open = new Map<string, Open>();
   setInterval(() => {
     for (const [key, ws] of open) if (Date.now() - ws.seen > 30 * 60_000) open.delete(key);
@@ -156,7 +157,7 @@ export async function startWorker(config: WorkerConfig & { token: string }): Pro
       const read = await readJson(req, res, config.requestMb);
       if (!read.ok) return;
       const via = req.headers["x-gesso-via"] === "key" ? "key" : "oauth";
-      await serveMcp(req, res, ws, read.body, linksFor(sealer, config.days, String(req.headers["x-gesso-base"] ?? ""), ws, via), config.maxPixels, true);
+      await serveMcp(req, res, ws, read.body, linksFor(sealer, config.days, String(req.headers["x-gesso-base"] ?? ""), ws, via), config.maxPixels, true, disabled);
     })().catch((err: unknown) => {
       if (!res.headersSent) rpcError(res, 500, err instanceof Error ? err.message : String(err));
       else res.end();

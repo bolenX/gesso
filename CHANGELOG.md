@@ -17,6 +17,14 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
   - rate limits use the address the nearest proxy saw, so a forged `X-Forwarded-For` doesn't get around them
   - one JSON log line per request, never with content or keys
 - **Worker processes for hosted servers:** tool calls run in worker processes, one per core up to 4. Each workspace always goes to the same worker, so one long render no longer holds up everyone else, and sign-in, pages and downloads keep answering. A worker that crashes is restarted, and only its requests in flight fail.
+- **Deploying hosted Gesso:** `deploy/` has a Fly.io configuration and a Docker Compose setup with Caddy for HTTPS, plus a runbook for `mcp.gesso.run`. It covers the volume, the secret, DNS, GitHub and Google sign-in, logs, bans and costs. A new workflow deploys each release when a `FLY_API_TOKEN` secret is set.
+- **Hosted settings:**
+  - `GESSO_DISABLE_TOOLS` leaves out tools, for example `gen_prepare` for a directory listing.
+  - `GESSO_VERIFY` serves domain-verification files.
+- **Launch kit:**
+  - `docs/legal` has drafts of a privacy policy and terms of service, written from what the code does with data. They need review before publishing.
+  - `docs/listing` has the fields for the Claude Connectors Directory and the ChatGPT app directory, ChatGPT's test cases, and a launch checklist.
+- **npm provenance:** packages are published with `--provenance`, now that the repository is public.
 - **Tool hints:** every tool has a title and says whether it only reads, or changes documents and files, so hosts can let read-only tools run without asking.
 - **Directory readiness:**
   - Gesso no longer asks agents to credit it when handing over files. Exported files still carry Gesso in their metadata.
