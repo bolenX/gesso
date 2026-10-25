@@ -8,7 +8,6 @@ type Variant = Extract<PsdFilter, { type: string }>;
 type Base = "name" | "opacity" | "blendMode" | "enabled" | "hasOptions" | "foregroundColor" | "backgroundColor";
 /** One filter's type and parameters, without the smart-filter fields every filter shares. */
 type Body = Variant extends infer V ? (V extends unknown ? Omit<V, Base> : never) : never;
-type Of<K extends Filter["kind"]> = Extract<Filter, { kind: K }>;
 
 const px = (value: number) => ({ units: "Pixels" as const, value });
 
