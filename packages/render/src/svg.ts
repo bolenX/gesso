@@ -1,5 +1,5 @@
 import type { Artboard, Doc, Layer, Paint } from "@gesso/core";
-import { paintColor } from "@gesso/core";
+import { isComputedMask, isStandardBlend, paintColor } from "@gesso/core";
 import sharp from "sharp";
 import { defaultAssetLoader, type AssetLoader } from "./assets.js";
 import { extractFace } from "./fonts.js";
@@ -79,6 +79,11 @@ function needsBackdrop(layer: Layer, pdf = false): boolean {
   if (layer.type === "adjustment") return true;
   if (layer.effects?.some((e) => e.kind === "background-blur")) return true;
   if (pdf && layer.blend && layer.blend !== "normal") return true;
+  // CSS has the standard blend modes only; Photoshop's others are rendered with what's below.
+  if (!isStandardBlend(layer.blend)) return true;
+  // Blend If and masks computed from what's below read the pixels beneath.
+  if (layer.blendIf) return true;
+  if (isComputedMask(layer.mask) && (layer.mask.source ?? "below") === "below") return true;
   return layer.type === "group" && layer.children.some((c) => needsBackdrop(c, pdf));
 }
 

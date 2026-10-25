@@ -29,9 +29,12 @@ describe("Doc schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects blend modes outside the v0.1 set", () => {
+  it("accepts Photoshop's blend modes and rejects unknown ones", () => {
+    const ok = structuredClone(promo);
+    (ok.artboards[0]!.layers[2] as { blend: string }).blend = "linear-light";
+    expect(Doc.safeParse(ok).success).toBe(true);
     const bad = structuredClone(promo);
-    (bad.artboards[0]!.layers[2] as { blend: string }).blend = "linear-light";
+    (bad.artboards[0]!.layers[2] as { blend: string }).blend = "linear-shine";
     expect(Doc.safeParse(bad).success).toBe(false);
   });
 });

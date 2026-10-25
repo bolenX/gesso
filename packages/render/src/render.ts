@@ -4,6 +4,7 @@ import type {
   Asset,
   BlendMode,
   Doc,
+  Effect,
   Filter,
   ImageLayer,
   Layer,
@@ -14,12 +15,14 @@ import type {
   SmartObject,
   TextLayer,
 } from "@gesso/core";
-import { adjustmentAssets, filterAssets, paintColor } from "@gesso/core";
+import { adjustmentAssets, filterAssets, isComputedMask, paintColor } from "@gesso/core";
 import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
-import { gaussBlur, readRaster, writeRaster } from "./cpu.js";
+import { DISSOLVE, setBlend } from "./blend.js";
+import { blendIfWeights, computeMask } from "./masks.js";
+import { boxPlane, gaussBlur, readRaster, writeRaster } from "./cpu.js";
 import { applyFilter, filterReach, type FilterKit } from "./filters.js";
-import type { CanvasKit, Canvas, Font, Image, Paint, Paragraph, Shader, Surface, Typeface, TypefaceFontProvider } from "canvaskit-wasm";
+import type { CanvasKit, Canvas, Font, Image, ImageFilter, Paint, Paragraph, RuntimeEffect, Shader, Surface, Typeface, TypefaceFontProvider } from "canvaskit-wasm";
 import sharp from "sharp";
 import { applyAdjustment, parseCube, type Lut3D } from "./adjust.js";
 import { defaultAssetLoader, type AssetLoader } from "./assets.js";
@@ -33,7 +36,12 @@ import { rectToQuad } from "./perspective.js";
 // sRGB, so blending happens in gamma-encoded space like Photoshop.
 // Per-node caching (the render DAG) comes later; this renders every layer.
 
-export type RenderOptions = { scale?: number; loader?: AssetLoader };
+export type RenderOptions = {
+  scale?: number;
+  loader?: AssetLoader;
+  /** Computed masks that read what's below a layer, as recorded by a full render (Rendered.masks); layer parts need them. */
+  masks?: Map<string, Uint8Array>;
+};
 export type Rendered = {
   artboard: string;
   width: number;
@@ -42,6 +50,8 @@ export type Rendered = {
   warnings: string[];
   /** Background blurs as drawn, by layer id: unpremultiplied RGBA within a box in output pixels. PSD export bakes these. */
   backdrops?: Map<string, Backdrop>;
+  /** Computed masks that read what's below their layer, by layer id: coverage per output pixel. */
+  masks?: Map<string, Uint8Array>;
 };
 export type Backdrop = { pixels: Uint8Array; x: number; y: number; w: number; h: number };
 export type EncodeFormat = "png" | "jpeg" | "webp";
@@ -73,6 +83,8 @@ export type LayerPart = {
   paths?: Array<{ points: number[]; closed: boolean }>;
   /** Rotation and flips from this layer and its groups, in artboard pixels. Absent when there are none. */
   matrix?: Affine;
+  /** Pattern overlays as pixels clipped to the layer (Photoshop files can't carry Gesso's patterns): straight RGBA in pixelBox-style boxes. */
+  overlays?: Array<{ pixels: Uint8Array; box: { x: number; y: number; w: number; h: number }; opacity: number; blend?: BlendMode }>;
 };
 
 /** A 2D affine transform: x' = a·x + c·y + e, y' = b·x + d·y + f. */
@@ -109,24 +121,6 @@ export function transformPoint(m: Affine | undefined, x: number, y: number): [nu
 export type TextLine = { start: number; end: number; left: number; baseline: number };
 export type LayerParts = { width: number; height: number; parts: Map<string, LayerPart>; warnings: string[] };
 
-const BLEND: Record<BlendMode, keyof CanvasKit["BlendMode"]> = {
-  normal: "SrcOver",
-  multiply: "Multiply",
-  screen: "Screen",
-  overlay: "Overlay",
-  darken: "Darken",
-  lighten: "Lighten",
-  "color-dodge": "ColorDodge",
-  "color-burn": "ColorBurn",
-  "hard-light": "HardLight",
-  "soft-light": "SoftLight",
-  difference: "Difference",
-  exclusion: "Exclusion",
-  hue: "Hue",
-  saturation: "Saturation",
-  color: "Color",
-  luminosity: "Luminosity",
-};
 
 export async function renderArtboard(doc: Doc, artboardId: string, options: RenderOptions = {}): Promise<Rendered> {
   const artboard = doc.artboards.find((a) => a.id === artboardId);
@@ -161,6 +155,7 @@ export async function renderLayerParts(doc: Doc, artboardId: string, options: Om
   const resources = await loadResources(ck, doc, [artboard], options.loader ?? defaultAssetLoader());
   try {
     const compositor = new Compositor(ck, resources, 1, doc.symbols ?? {});
+    compositor.givenMasks = options.masks;
     try {
       const out = compositor.parts(artboard);
       out.warnings.unshift(...resources.warnings);
@@ -258,6 +253,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
     for (const layer of layers) {
       if (layer.type === "image") used.add(layer.asset);
       if (layer.mask?.kind === "raster") used.add(layer.mask.asset);
+      for (const effect of layer.effects ?? []) if (effect.kind === "pattern-overlay") used.add(effect.asset);
       for (const filter of layer.filters ?? []) filterAssets(filter).forEach((id) => used.add(id));
       if (layer.type === "adjustment") adjustmentAssets(layer.adjustment).forEach((id) => lutIds.add(id));
       if (layer.type === "group") visit(layer.children);
@@ -333,6 +329,12 @@ class Compositor {
   private height = 0;
   warnings: string[] = [];
   backdrops = new Map<string, Backdrop>();
+  /** Computed masks read from what was below their layer, recorded for layer parts (PSD export). */
+  masks = new Map<string, Uint8Array>();
+  /** Masks recorded by an earlier full render, used when rendering layer parts (nothing is below them then). */
+  givenMasks?: Map<string, Uint8Array>;
+  /** The surface the layer being composited goes onto: what's below it. */
+  private below: Surface | undefined;
   private byId = new Map<string, Layer>();
   private typefaces = new Map<string, Typeface | null>();
 
@@ -370,7 +372,7 @@ class Compositor {
     this.composite(artboard.layers, box, target);
     const pixels = this.readPixels(target);
     target.dispose();
-    return { artboard: artboard.id, width: this.width, height: this.height, pixels, warnings: this.warnings, backdrops: this.backdrops };
+    return { artboard: artboard.id, width: this.width, height: this.height, pixels, warnings: this.warnings, backdrops: this.backdrops, masks: this.masks };
   }
 
   parts(artboard: Artboard): LayerParts {
@@ -402,7 +404,9 @@ class Compositor {
         if (layer.type === "shape" && layer.shape.kind === "path") part.paths = this.cubicPaths(layer.shape.d, part.box);
         part.matrix = compose(inherited, layerTransform(layer, part.box));
         if (part.quad && part.matrix) part.quad = part.quad.map(([x, y]) => transformPoint(part.matrix, x, y));
-        if (layer.mask) part.mask = this.readImageAlpha(this.maskImage(layer.mask, part.box, parent));
+        if (layer.mask) part.mask = this.readImageAlpha(this.maskImage(layer.mask, part.box, parent, layer.id));
+        const patterns = (layer.effects ?? []).filter((e): e is Extract<Effect, { kind: "pattern-overlay" }> => e.kind === "pattern-overlay");
+        if (patterns.length && layer.type !== "adjustment") part.overlays = this.patternParts(layer, parent, patterns);
         parts.set(layer.id, part);
         if (layer.type === "group") visit(layer.children, part.box, part.matrix);
       }
@@ -511,7 +515,17 @@ class Compositor {
 
   /** Composites a layer list (bottom to top) onto target. */
   private composite(layers: Layer[], parent: Box, target: Surface): void {
+    const outer = this.below;
+    try {
+      this.compositeOnto(layers, parent, target);
+    } finally {
+      this.below = outer;
+    }
+  }
+
+  private compositeOnto(layers: Layer[], parent: Box, target: Surface): void {
     for (let i = 0; i < layers.length; i++) {
+      this.below = target;
       const base = layers[i]!;
       let end = i + 1;
       while (end < layers.length && layers[end]!.clip) end++;
@@ -528,22 +542,24 @@ class Compositor {
         continue;
       }
 
-      if (clipped.length === 0 && this.drawDirect(base, parent, target)) continue;
+      if (clipped.length === 0 && !base.blendIf && this.drawDirect(base, parent, target)) continue;
 
       const content = this.renderLayer(base, parent);
       this.reach = this.reachOf(base, this.lastBounds);
       try {
         const fill = base.fillOpacity ?? 1;
-        const styled = base.effects?.length || fill < 1 ? this.withEffectsAbove(content, base, fill) : content;
+        const styled = base.effects?.length || fill < 1 ? this.withEffectsAbove(content, base, fill, resolveFrame(base.frame, parent)) : content;
         if (base.effects?.length) {
           // Shadows and glows follow the styled shape, strokes included, and ignore fill opacity, as in Photoshop.
-          const shape = fill < 1 ? this.withEffectsAbove(content, base, 1) : styled;
+          const shape = fill < 1 ? this.withEffectsAbove(content, base, 1, undefined, false) : styled;
           this.drawEffectsBelow(target, shape, base);
           if (shape !== styled) shape.delete();
           for (const effect of base.effects) if (effect.kind === "background-blur") this.drawBackgroundBlur(target, base, parent, effect.radius);
         }
         if (clipped.length === 0) {
-          this.drawImage(target, styled, base.blend, base.opacity);
+          const shown = base.blendIf ? this.blendIf(styled, base, target) : styled;
+          this.drawImage(target, shown, base.blend, base.opacity);
+          if (shown !== styled) shown.delete();
           if (styled !== content) styled.delete();
           content.delete();
           continue;
@@ -560,18 +576,23 @@ class Compositor {
             continue;
           }
           const s = this.surface();
+          this.below = group;
           const image = this.renderLayer(layer, parent);
           s.getCanvas().drawImage(image, 0, 0);
           image.delete();
           this.drawImage(s, content, undefined, 1, "DstIn");
           const clippedImage = s.makeImageSnapshot();
           s.dispose();
-          this.drawImage(group, clippedImage, layer.blend, layer.opacity);
+          const shown = layer.blendIf ? this.blendIf(clippedImage, layer, group) : clippedImage;
+          this.drawImage(group, shown, layer.blend, layer.opacity);
+          if (shown !== clippedImage) shown.delete();
           clippedImage.delete();
         }
         const groupImage = group.makeImageSnapshot();
         group.dispose();
-        this.drawImage(target, groupImage, base.blend, base.opacity);
+        const shown = base.blendIf ? this.blendIf(groupImage, base, target) : groupImage;
+        this.drawImage(target, shown, base.blend, base.opacity);
+        if (shown !== groupImage) shown.delete();
         groupImage.delete();
         content.delete();
       } finally {
@@ -589,6 +610,7 @@ class Compositor {
       if (e.kind === "stroke") grow = Math.max(grow, e.width * k);
       if (e.kind === "drop-shadow") grow = Math.max(grow, ((e.distance ?? 10) + (e.size ?? 10) * 1.5 + 2) * k);
       if (e.kind === "outer-glow") grow = Math.max(grow, ((e.size ?? 20) * 1.5 + 2) * k);
+      if (e.kind === "bevel" && e.style && e.style !== "inner-bevel") grow = Math.max(grow, ((e.size ?? 5) * 2 + (e.soften ?? 0) + 2) * k);
     }
     const [l, t, r, b] = bounds;
     return [Math.max(0, l - grow), Math.max(0, t - grow), Math.min(this.width, r + grow), Math.min(this.height, b + grow)];
@@ -621,7 +643,7 @@ class Compositor {
    * documents many times faster. Returns false when the layer needs the full path.
    */
   private drawDirect(layer: Layer, parent: Box, target: Surface): boolean {
-    if (layer.type === "group" || layer.type === "adjustment" || layer.mask || layer.effects?.length) return false;
+    if (layer.type === "group" || layer.type === "adjustment" || layer.mask || layer.effects?.length || layer.blend === "dissolve") return false;
     const canvas = target.getCanvas();
     const blend = layer.blend ?? "normal";
     const opacity = (layer.opacity ?? 1) * (layer.fillOpacity ?? 1);
@@ -630,7 +652,7 @@ class Compositor {
       const { image, x, y } = this.renderBounded(layer, parent);
       if (image) {
         const p = new this.ck.Paint();
-        p.setBlendMode(this.ck.BlendMode[BLEND[blend]] as never);
+        setBlend(this.ck, p, blend);
         p.setAlphaf(opacity);
         canvas.drawImage(image, x, y, p);
         p.delete();
@@ -647,7 +669,7 @@ class Compositor {
       canvas.drawPicture(picture);
     } else {
       const p = new this.ck.Paint();
-      p.setBlendMode(this.ck.BlendMode[BLEND[blend]] as never);
+      setBlend(this.ck, p, blend);
       p.setAlphaf(opacity);
       canvas.saveLayer(p, picture.cullRect());
       canvas.drawPicture(picture);
@@ -686,31 +708,265 @@ class Compositor {
   }
 
   /** The layer with its colour overlays and strokes applied, as a new image. */
-  private withEffectsAbove(content: Image, layer: Layer, fill = 1): Image {
+  /**
+   * The content with its fill opacity and the effects that sit on or around it: overlays, satin,
+   * inner glow and shadow, bevel, and strokes, in Photoshop's order. `box` aligns gradient
+   * overlays; `interiors: false` keeps only strokes (the shape shadows and glows follow).
+   */
+  private withEffectsAbove(content: Image, layer: Layer, fill = 1, box?: Box, interiors = true): Image {
     const { ck } = this;
     const k = this.scale;
     const s = this.surface();
     const canvas = s.getCanvas();
     if (this.reach) canvas.clipRect(ck.LTRBRect(...this.reach), ck.ClipOp.Intersect, false);
+    const effects = layer.effects ?? [];
     // Outside strokes sit behind the content; the rest go on top.
-    const strokes = (layer.effects ?? []).filter((e) => e.kind === "stroke");
+    const strokes = effects.filter((e) => e.kind === "stroke");
     for (const stroke of strokes.filter((e) => (e.position ?? "outside") === "outside")) this.drawStroke(canvas, content, stroke, k);
     const faded = new ck.Paint();
     faded.setAlphaf(fill);
     canvas.drawImage(content, 0, 0, faded);
     faded.delete();
-    for (const effect of layer.effects ?? []) {
-      if (effect.kind !== "color-overlay") continue;
-      const p = new ck.Paint();
-      p.setColorFilter(ck.ColorFilter.MakeBlend(this.color(effect.color), ck.BlendMode.SrcIn));
-      p.setAlphaf(effect.opacity ?? 1);
-      canvas.drawImage(content, 0, 0, p);
-      p.delete();
+    if (interiors) {
+      const of = <K extends Effect["kind"]>(kind: K) => effects.filter((e): e is Extract<Effect, { kind: K }> => e.kind === kind);
+      for (const e of of("pattern-overlay")) this.drawInterior(canvas, content, this.patternImage(e), e.blend, e.opacity ?? 1);
+      for (const e of of("gradient-overlay")) this.drawInterior(canvas, content, this.gradientImage(e, box ?? { x: 0, y: 0, w: this.width / k, h: this.height / k }), e.blend, e.opacity ?? 1);
+      for (const e of of("color-overlay")) {
+        const flat = this.surface();
+        flat.getCanvas().clear(this.color(e.color));
+        this.drawInterior(canvas, content, this.snapshot(flat), e.blend, e.opacity ?? 1);
+      }
+      for (const e of of("satin")) this.drawInterior(canvas, content, this.satinImage(content, e), e.blend ?? "multiply", e.opacity ?? 0.5);
+      for (const e of of("inner-glow")) this.drawInterior(canvas, content, this.innerGlowImage(content, e), e.blend ?? "screen", e.opacity ?? 0.75);
+      for (const e of of("inner-shadow")) this.drawInterior(canvas, content, this.innerShadowImage(content, e), e.blend ?? "multiply", e.opacity ?? 0.75);
+      for (const e of of("bevel")) this.drawBevel(canvas, content, e);
     }
     for (const stroke of strokes.filter((e) => (e.position ?? "outside") !== "outside")) this.drawStroke(canvas, content, stroke, k);
+    return this.snapshot(s);
+  }
+
+  /** Each pattern overlay clipped to the layer's own pixels, cropped, for a PSD's clipped layers. */
+  private patternParts(layer: Layer, parent: Box, patterns: Array<Extract<Effect, { kind: "pattern-overlay" }>>): NonNullable<LayerPart["overlays"]> {
+    const { ck } = this;
+    const content = this.renderLayer(layer, parent, false);
+    const out: NonNullable<LayerPart["overlays"]> = [];
+    for (const e of patterns) {
+      const s = this.surface();
+      const pattern = this.patternImage(e);
+      s.getCanvas().drawImage(pattern, 0, 0);
+      pattern.delete();
+      const keep = new ck.Paint();
+      keep.setBlendMode(ck.BlendMode.DstIn);
+      s.getCanvas().drawImage(content, 0, 0, keep);
+      keep.delete();
+      const image = this.snapshot(s);
+      const found = cropToContent(image.readPixels(0, 0, this.info(ck.AlphaType.Unpremul)) as Uint8Array, this.width, this.height);
+      image.delete();
+      if (found) out.push({ pixels: found.pixels, box: found.box, opacity: e.opacity ?? 1, ...(e.blend ? { blend: e.blend } : {}) });
+    }
+    content.delete();
+    return out;
+  }
+
+  /** The surface's pixels as an image; the surface is disposed. */
+  private snapshot(s: Surface): Image {
     const image = s.makeImageSnapshot();
     s.dispose();
     return image;
+  }
+
+  /** Draws an effect image (consumed) only where the content is, in a blend mode. */
+  private drawInterior(canvas: Canvas, content: Image, effect: Image, blend: BlendMode | undefined, opacity: number, outside = false): void {
+    const { ck } = this;
+    const s = this.surface();
+    const c = s.getCanvas();
+    c.drawImage(effect, 0, 0);
+    effect.delete();
+    const keep = new ck.Paint();
+    keep.setBlendMode(outside ? ck.BlendMode.DstOut : ck.BlendMode.DstIn);
+    c.drawImage(content, 0, 0, keep);
+    keep.delete();
+    const clipped = this.snapshot(s);
+    const p = new ck.Paint();
+    setBlend(ck, p, blend);
+    p.setAlphaf(opacity);
+    canvas.drawImage(clipped, 0, 0, p);
+    p.delete();
+    clipped.delete();
+  }
+
+  /** The content's shape run through an image filter (which colours it), as an image. */
+  private shapeThrough(source: Image, filter: ImageFilter, blend?: keyof CanvasKit["BlendMode"]): Image {
+    const { ck } = this;
+    const s = this.surface();
+    const p = new ck.Paint();
+    p.setImageFilter(filter);
+    if (blend) p.setBlendMode(ck.BlendMode[blend] as never);
+    s.getCanvas().drawImage(source, 0, 0, p);
+    p.delete();
+    filter.delete();
+    return this.snapshot(s);
+  }
+
+  /** Everything outside the content, filled (its inverse coverage). */
+  private outsideOf(content: Image): Image {
+    const { ck } = this;
+    const s = this.surface();
+    const c = s.getCanvas();
+    c.clear(ck.WHITE);
+    const cut = new ck.Paint();
+    cut.setBlendMode(ck.BlendMode.DstOut);
+    c.drawImage(content, 0, 0, cut);
+    cut.delete();
+    return this.snapshot(s);
+  }
+
+  private innerShadowImage(content: Image, e: Extract<Effect, { kind: "inner-shadow" }>): Image {
+    const { ck } = this;
+    const k = this.scale;
+    const size = (e.size ?? 5) * k;
+    const choke = e.choke ?? 0;
+    const angle = ((e.angle ?? 120) * Math.PI) / 180;
+    const d = (e.distance ?? 5) * k;
+    // The outside, shifted away from the light and blurred, falls inside the edge as shadow.
+    const outside = this.outsideOf(content);
+    const grow = choke > 0 ? ck.ImageFilter.MakeDilate(size * choke, size * choke, null) : null;
+    const sigma = (size * (1 - choke)) / 2;
+    const image = this.shapeThrough(outside, ck.ImageFilter.MakeDropShadowOnly(-Math.cos(angle) * d, Math.sin(angle) * d, sigma, sigma, this.color(e.color ?? "#000000"), grow));
+    outside.delete();
+    return image;
+  }
+
+  private innerGlowImage(content: Image, e: Extract<Effect, { kind: "inner-glow" }>): Image {
+    const { ck } = this;
+    const size = (e.size ?? 5) * this.scale;
+    const choke = e.choke ?? 0;
+    const sigma = (size * (1 - choke)) / 2;
+    const color = this.color(e.color ?? "#FFFFBE");
+    if (e.source === "center") {
+      // From the centre: the shape shrunk by the size, blurred, so the glow fades towards the edges.
+      const shrink = ck.ImageFilter.MakeErode(size * (1 - choke * 0.5), size * (1 - choke * 0.5), null);
+      return this.shapeThrough(content, ck.ImageFilter.MakeDropShadowOnly(0, 0, Math.max(0.01, sigma), Math.max(0.01, sigma), color, shrink));
+    }
+    const outside = this.outsideOf(content);
+    const grow = choke > 0 ? ck.ImageFilter.MakeDilate(size * choke, size * choke, null) : null;
+    const image = this.shapeThrough(outside, ck.ImageFilter.MakeDropShadowOnly(0, 0, Math.max(0.01, sigma), Math.max(0.01, sigma), color, grow));
+    outside.delete();
+    return image;
+  }
+
+  private satinImage(content: Image, e: Extract<Effect, { kind: "satin" }>): Image {
+    const { ck } = this;
+    const k = this.scale;
+    const sigma = Math.max(0.01, ((e.size ?? 14) * k) / 2);
+    const angle = ((e.angle ?? 19) * Math.PI) / 180;
+    const [dx, dy] = [Math.cos(angle) * (e.distance ?? 11) * k, -Math.sin(angle) * (e.distance ?? 11) * k];
+    const color = this.color(e.color ?? "#000000");
+    // Two blurred copies of the shape, shifted opposite ways; where exactly one covers is the satin.
+    const s = this.surface();
+    const c = s.getCanvas();
+    const shifted = (x: number, y: number, mode: keyof CanvasKit["BlendMode"]) => {
+      const p = new ck.Paint();
+      const f = ck.ImageFilter.MakeDropShadowOnly(x, y, sigma, sigma, color, null);
+      p.setImageFilter(f);
+      p.setBlendMode(ck.BlendMode[mode] as never);
+      c.drawImage(content, 0, 0, p);
+      p.delete();
+      f.delete();
+    };
+    shifted(dx, dy, "SrcOver");
+    shifted(-dx, -dy, "Xor");
+    const satin = this.snapshot(s);
+    if (!e.invert) return satin;
+    const inv = this.surface();
+    inv.getCanvas().clear(color);
+    const cut = new ck.Paint();
+    cut.setBlendMode(ck.BlendMode.DstOut);
+    inv.getCanvas().drawImage(satin, 0, 0, cut);
+    cut.delete();
+    satin.delete();
+    return this.snapshot(inv);
+  }
+
+  private gradientImage(e: Extract<Effect, { kind: "gradient-overlay" }>, box: Box): Image {
+    const sc = (e.scale ?? 100) / 100;
+    const at = { x: box.x + (box.w * (1 - sc)) / 2, y: box.y + (box.h * (1 - sc)) / 2, w: box.w * sc, h: box.h * sc };
+    let stops = e.reverse ? e.stops.map((st) => ({ offset: 1 - st.offset, color: st.color })).reverse() : e.stops;
+    // Reflected: the gradient runs out from the middle both ways.
+    if (e.style === "reflected") stops = [...stops.map((st) => ({ offset: 0.5 - st.offset / 2, color: st.color })).reverse(), ...stops.map((st) => ({ offset: 0.5 + st.offset / 2, color: st.color }))];
+    const paint = this.paint(e.style === "radial" ? { kind: "radial-gradient", stops } : { kind: "linear-gradient", angle: e.angle ?? 90, stops }, at);
+    const s = this.surface();
+    this.drawScaled(s.getCanvas(), (c) => c.drawRect(this.ck.XYWHRect(0, 0, this.width / this.scale, this.height / this.scale), paint));
+    paint.delete();
+    return this.snapshot(s);
+  }
+
+  private patternImage(e: Extract<Effect, { kind: "pattern-overlay" }>): Image {
+    const { ck } = this;
+    const image = this.res.images.get(e.asset);
+    const s = this.surface();
+    if (!image) {
+      this.warnings.push(`pattern overlay: image "${e.asset}" isn't loaded`);
+      return this.snapshot(s);
+    }
+    const sc = ((e.scale ?? 100) / 100) * this.scale;
+    const shader = image.makeShaderOptions(ck.TileMode.Repeat, ck.TileMode.Repeat, ck.FilterMode.Linear, ck.MipmapMode.None, ck.Matrix.scaled(sc, sc));
+    const p = new ck.Paint();
+    p.setShader(shader);
+    s.getCanvas().drawPaint(p);
+    p.delete();
+    shader.delete();
+    return this.snapshot(s);
+  }
+
+  /**
+   * Bevel & Emboss: the content's coverage, blurred by the size, is a height map; its slopes,
+   * lit from the angle and altitude, give highlights (screen) and shadows (multiply), inside the
+   * edge, outside it, or both.
+   */
+  private drawBevel(canvas: Canvas, content: Image, e: Extract<Effect, { kind: "bevel" }>): void {
+    const { ck } = this;
+    const k = this.scale;
+    const [w, h] = [this.width, this.height];
+    const size = Math.max(1, (e.size ?? 5) * k);
+    const alpha = this.readImageAlpha(content, false);
+    const height = new Float32Array(w * h);
+    for (let i = 0; i < height.length; i++) height[i] = alpha[i]! / 255;
+    const rr = Math.sqrt((12 * (size / 2) ** 2) / 3 + 1) / 2 - 0.5;
+    const H = boxPlane(boxPlane(boxPlane(height, w, h, rr), w, h, rr), w, h, rr);
+    const style = e.style ?? "inner-bevel";
+    const steep = ((e.depth ?? 100) / 100) * size * 0.6 * (e.direction === "down" ? -1 : 1);
+    const [ang, alt] = [((e.angle ?? 120) * Math.PI) / 180, ((e.altitude ?? 30) * Math.PI) / 180];
+    const [lx, ly, lz] = [Math.cos(alt) * Math.cos(ang), -Math.cos(alt) * Math.sin(ang), Math.sin(alt)];
+    const lights = [new Float32Array(w * h), new Float32Array(w * h)];
+    const darks = [new Float32Array(w * h), new Float32Array(w * h)];
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const gx = (H[y * w + Math.min(w - 1, x + 1)]! - H[y * w + Math.max(0, x - 1)]!) / 2;
+        const gy = (H[Math.min(h - 1, y + 1) * w + x]! - H[Math.max(0, y - 1) * w + x]!) / 2;
+        // Inside and outside (pillow emboss sinks the outside the other way).
+        for (let side = 0; side < 2; side++) {
+          const dir = style === "pillow-emboss" && side === 1 ? -1 : 1;
+          const [nx, ny] = [-gx * steep * dir, -gy * steep * dir];
+          const shade = (nx * lx + ny * ly + lz) / Math.sqrt(nx * nx + ny * ny + 1) - lz;
+          lights[side]![i] = Math.min(1, Math.max(0, shade * 2.5));
+          darks[side]![i] = Math.min(1, Math.max(0, -shade * 2.5));
+        }
+      }
+    const soften = (e.soften ?? 0) * k;
+    const toImage = (plane: Float32Array, color: string) => {
+      const p = soften > 0 ? boxPlane(boxPlane(plane, w, h, soften / 2), w, h, soften / 2) : plane;
+      const [r, g, b] = [1, 3, 5].map((o) => parseInt(color.slice(o, o + 2), 16));
+      const px = new Uint8Array(w * h * 4);
+      for (let i = 0; i < p.length; i++) px.set([r!, g!, b!, Math.round(p[i]! * 255)], i * 4);
+      return ck.MakeImage(this.info(ck.AlphaType.Unpremul), px, w * 4)!;
+    };
+    const sides: Array<[number, boolean]> = style === "inner-bevel" ? [[0, false]] : style === "outer-bevel" ? [[0, true]] : [[0, false], [1, true]];
+    for (const [side, outside] of sides) {
+      this.drawInterior(canvas, content, toImage(lights[side]!, e.highlight ?? "#FFFFFF"), "screen", e.highlightOpacity ?? 0.75, outside);
+      this.drawInterior(canvas, content, toImage(darks[side]!, e.shadow ?? "#000000"), "multiply", e.shadowOpacity ?? 0.75, outside);
+    }
   }
 
   /**
@@ -786,6 +1042,7 @@ class Compositor {
 
   /** Renders one layer's content, smart filters and mask onto a transparent artboard-sized image. */
   private renderLayer(layer: Layer, parent: Box, withMask = true): Image {
+    const below = this.below;
     const s = this.surface();
     let box: Box;
     this.lastBounds = undefined;
@@ -807,7 +1064,7 @@ class Compositor {
       for (const filter of layer.filters ?? []) image = this.filter(image, filter, resolveFrame(layer.frame, parent), 0, 0);
     }
     if (withMask && layer.mask) {
-      const mask = this.maskImage(layer.mask, box, parent);
+      const mask = this.maskImage(layer.mask, box, parent, layer.id, below);
       const out = this.surface();
       out.getCanvas().drawImage(image, 0, 0);
       this.drawImage(out, mask, undefined, 1, "DstIn");
@@ -1136,8 +1393,16 @@ class Compositor {
   }
 
   /** Builds a coverage image whose alpha is the mask. */
-  private maskImage(mask: Mask, box: Box, parent: Box): Image {
+  private maskImage(mask: Mask, box: Box, parent: Box, layerId?: string, below?: Surface): Image {
     const { ck } = this;
+    if (isComputedMask(mask)) {
+      const coverage = this.computedMask(mask, parent, layerId, below);
+      const rgba = new Uint8Array(coverage.length * 4).fill(255);
+      for (let i = 0; i < coverage.length; i++) rgba[i * 4 + 3] = coverage[i]!;
+      let image = ck.MakeImage(this.info(ck.AlphaType.Unpremul), rgba, this.width * 4)!;
+      if (mask.feather) image = this.blur(image, mask.feather);
+      return image;
+    }
     const s = this.surface();
     const canvas = s.getCanvas();
     if (mask.kind === "vector") {
@@ -1161,7 +1426,7 @@ class Compositor {
       const src = ck.XYWHRect(0, 0, image.width(), image.height());
       this.drawScaled(canvas, (c) => c.drawImageRect(image, src, ck.XYWHRect(box.x, box.y, box.w, box.h), p));
       p.delete();
-    } else {
+    } else if (mask.kind === "luminance-of") {
       const source = this.byId.get(mask.layer);
       if (!source) throw new Error(`Mask refers to missing layer "${mask.layer}"`);
       const image = this.renderLayer(source, parent, false);
@@ -1178,13 +1443,40 @@ class Compositor {
   }
 
   /** Adjustment layers recolour everything below them in scope, weighted by opacity, mask and clip base. */
+  /** A computed mask's coverage per output pixel, from a layer or from what's below. */
+  private computedMask(mask: Extract<Mask, { kind: "luminosity" | "color-range" | "channel" }>, parent: Box, layerId: string | undefined, below: Surface | undefined): Uint8Array {
+    const from = mask.source ?? "below";
+    if (from !== "below") {
+      const source = this.byId.get(from);
+      if (!source) throw new Error(`Mask refers to missing layer "${from}"`);
+      const image = this.renderLayer(source, parent, false);
+      const pixels = image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array;
+      image.delete();
+      return computeMask(pixels, mask);
+    }
+    const given = layerId ? this.givenMasks?.get(layerId) : undefined;
+    if (given && given.length === this.width * this.height) return given;
+    const coverage = computeMask(below ? this.readPixels(below) : new Uint8Array(this.width * this.height * 4), mask);
+    if (layerId) this.masks.set(layerId, coverage);
+    return coverage;
+  }
+
+  /** Blend If: a copy of the layer image faded where it, or what's below, falls outside the ranges. */
+  private blendIf(image: Image, layer: Layer, below: Surface): Image {
+    const { ck } = this;
+    const pixels = image.readPixels(0, 0, this.info(ck.AlphaType.Unpremul)) as Uint8Array;
+    const weights = blendIfWeights(pixels, this.readPixels(below), layer.blendIf!);
+    for (let i = 0; i < weights.length; i++) pixels[i * 4 + 3] = Math.round(pixels[i * 4 + 3]! * weights[i]!);
+    return ck.MakeImage(this.info(ck.AlphaType.Unpremul), pixels, this.width * 4)!;
+  }
+
   private adjust(layer: Extract<Layer, { type: "adjustment" }>, parent: Box, target: Surface, clipBase: Image | null): void {
     const pixels = this.readPixels(target);
     const adjusted = pixels.slice();
     applyAdjustment(adjusted, layer.adjustment, this.res.luts);
 
     const opacity = layer.opacity ?? 1;
-    const mask = layer.mask ? this.readImageAlpha(this.maskImage(layer.mask, resolveFrame(layer.frame, parent), parent)) : null;
+    const mask = layer.mask ? this.readImageAlpha(this.maskImage(layer.mask, resolveFrame(layer.frame, parent), parent, layer.id, target)) : null;
     const base = clipBase ? this.readImageAlpha(clipBase, false) : null;
     const blend = layer.blend ?? "normal";
     if (blend !== "normal") {
@@ -1198,7 +1490,7 @@ class Compositor {
       }
       const over = this.ck.MakeImage(this.info(this.ck.AlphaType.Unpremul), adjusted, this.width * 4)!;
       const p = new this.ck.Paint();
-      p.setBlendMode(this.ck.BlendMode[BLEND[blend]] as never);
+      setBlend(this.ck, p, blend);
       target.getCanvas().drawImage(over, 0, 0, p);
       p.delete();
       over.delete();
@@ -1403,11 +1695,23 @@ class Compositor {
     mode?: keyof CanvasKit["BlendMode"],
   ): void {
     const p = new this.ck.Paint();
-    p.setBlendMode(this.ck.BlendMode[mode ?? BLEND[blend ?? "normal"]] as never);
-    p.setAlphaf(opacity);
+    if (mode) p.setBlendMode(this.ck.BlendMode[mode] as never);
+    else setBlend(this.ck, p, blend);
+    // Dissolve shows each pixel fully or not at all, with odds set by its opacity.
+    const dissolved = !mode && blend === "dissolve" ? this.dissolve(image, opacity) : undefined;
+    p.setAlphaf(dissolved ? 1 : opacity);
     const canvas = target.getCanvas();
-    this.inReach(canvas, () => canvas.drawImage(image, 0, 0, p));
+    this.inReach(canvas, () => canvas.drawImage(dissolved ?? image, 0, 0, p));
+    dissolved?.delete();
     p.delete();
+  }
+
+  /** The image with its alpha dithered to fully on or off (Dissolve), at the given opacity. Anchored to the artboard. */
+  private dissolve(image: Image, opacity: number): Image {
+    const { ck } = this;
+    let effect = dissolveEffects.get(ck);
+    if (!effect) dissolveEffects.set(ck, (effect = ck.RuntimeEffect.Make(DISSOLVE)!));
+    return this.runShader(copyImage(ck, image), 1, (child) => ({ shader: effect.makeShaderWithChildren([0, 0, opacity], [child]) }));
   }
 
   private drawScaled(canvas: Canvas, draw: (c: Canvas) => void): void {
@@ -1443,6 +1747,18 @@ class Compositor {
     for (let i = 0; i < alpha.length; i++) alpha[i] = pixels[i * 4 + 3]!;
     return alpha;
   }
+}
+
+const dissolveEffects = new WeakMap<CanvasKit, RuntimeEffect>();
+
+/** A copy of an image (runShader consumes its input). */
+function copyImage(ck: CanvasKit, image: Image): Image {
+  const s = ck.MakeSurface(image.width(), image.height())!;
+  s.getCanvas().clear(ck.TRANSPARENT);
+  s.getCanvas().drawImage(image, 0, 0);
+  const out = s.makeImageSnapshot();
+  s.dispose();
+  return out;
 }
 
 function quadBounds(quad: Array<[number, number]>): Box {

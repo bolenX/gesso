@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Adjustment, Doc, Layer } from "@gesso/core";
+import type { Adjustment, Doc, Effect, Layer } from "@gesso/core";
 import { renderArtboard } from "@gesso/render";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
@@ -127,5 +127,67 @@ describe("importPsd", () => {
     expect(adjustments).toEqual(ADJUSTMENTS.map((a) => (a.kind === "color-lookup" ? { kind: "color-lookup", lut: lutId } : a)));
     expect(back.assets[lutId]).toMatchObject({ kind: "lut", uri: `imported/${lutId}.cube` });
     expect(await readFile(join(dir, `${lutId}.cube`), "utf8")).toBe(CUBE);
+  });
+
+  it("keeps Blend If and Photoshop blend modes live, and bakes computed masks", async () => {
+    const rect = (id: string, fill: string, x: number, extra: object = {}) => ({ id, name: id, type: "shape", shape: { kind: "rect" }, fill, frame: { x, y: 0, w: x ? 10 : 20, h: 10 }, ...extra }) as Layer;
+    const doc: Doc = {
+      id: "ranges",
+      revision: 0,
+      assets: {},
+      artboards: [
+        {
+          id: "a",
+          name: "A",
+          frame: { x: 0, y: 0, w: 20, h: 10 },
+          layers: [
+            rect("dark", "#000000", 0),
+            rect("light", "#FFFFFF", 10),
+            rect("burn", "#FF8800", 0, { blend: "linear-burn", blendIf: { underlying: [0, 0, 100, 140], this: [10, 30, 255, 255] } }),
+            rect("lit", "#00FF00", 0, { blend: "vivid-light", mask: { kind: "luminosity", range: "lights" } }),
+          ],
+        },
+      ],
+    };
+    const psd = await writePsd(doc);
+    const dir = await mkdtemp(join(tmpdir(), "gesso-ranges-"));
+    const { doc: back } = await importPsd(psd.bytes, { id: "ranges", assetDir: dir, uriBase: "imported" });
+    const [, , burn, lit] = back.artboards[0]!.layers;
+    expect(burn).toMatchObject({ blend: "linear-burn", blendIf: { underlying: [0, 0, 100, 140], this: [10, 30, 255, 255] } });
+    expect(lit).toMatchObject({ blend: "vivid-light", mask: { kind: "raster" } });
+    // The baked mask covers the white half (lights) and not the black half.
+    const mask = lit!.mask!.kind === "raster" ? lit!.mask!.asset : "";
+    const { data, info } = await sharp(join(dir, `${mask}.png`)).extractChannel(0).raw().toBuffer({ resolveWithObject: true });
+    expect(data[5]).toBeLessThan(10);
+    expect(data[info.width - 3]).toBeGreaterThan(245);
+  });
+
+  it("keeps the new layer styles live through a PSD; pattern overlays become a clipped layer", async () => {
+    const effects: Effect[] = [
+      { kind: "inner-shadow", color: "#101020", opacity: 0.6, angle: 135, distance: 4, size: 6, choke: 0.2 },
+      { kind: "inner-glow", color: "#FFF4C0", opacity: 0.8, size: 8, source: "center" },
+      { kind: "bevel", style: "pillow-emboss", depth: 150, direction: "down", size: 7, soften: 2, angle: 100, altitude: 40, highlight: "#FFFFF0", highlightOpacity: 0.7, shadow: "#200010", shadowOpacity: 0.6 },
+      { kind: "satin", color: "#002040", opacity: 0.4, angle: 30, distance: 9, size: 12, invert: true },
+      { kind: "gradient-overlay", stops: [{ offset: 0, color: "#FF4F1A" }, { offset: 1, color: "#2440E6" }], angle: 45, style: "reflected", scale: 80, reverse: true, opacity: 0.5, blend: "overlay" },
+      { kind: "color-overlay", color: "#00FF00", opacity: 0.3, blend: "multiply" },
+      { kind: "pattern-overlay", asset: "dots", opacity: 0.5 },
+    ];
+    const tile = await sharp({ create: { width: 4, height: 4, channels: 3, background: "#FF0000" } }).png().toBuffer();
+    const doc: Doc = {
+      id: "styles",
+      revision: 0,
+      assets: { dots: { uri: "dots.png", kind: "image" } },
+      artboards: [{ id: "a", name: "A", frame: { x: 0, y: 0, w: 60, h: 60 }, layers: [{ id: "sq", name: "Square", type: "shape", shape: { kind: "rect" }, fill: "#808080", frame: { x: 10, y: 10, w: 40, h: 40 }, effects } as Layer] }],
+    };
+    const psd = await writePsd(doc, { loader: async () => tile });
+    expect(psd.warnings.join(" ")).toMatch(/pattern overlay/);
+    const dir = await mkdtemp(join(tmpdir(), "gesso-styles-"));
+    const { doc: back } = await importPsd(psd.bytes, { id: "styles", assetDir: dir, uriBase: "imported" });
+    const [square, overlay] = back.artboards[0]!.layers;
+    // Effects stack by kind (as in Photoshop), so their order in the list doesn't matter.
+    const byKind = (list: Effect[]) => [...list].sort((a, b) => a.kind.localeCompare(b.kind));
+    expect(byKind(square!.effects!)).toEqual(byKind(effects.filter((e) => e.kind !== "pattern-overlay")));
+    expect(overlay).toMatchObject({ name: "Square · pattern overlay", type: "image", clip: true });
+    expect(overlay!.opacity).toBeCloseTo(0.5, 2);
   });
 });
