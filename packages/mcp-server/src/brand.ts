@@ -28,6 +28,7 @@ export const TOOL_TITLES: Record<string, string> = {
   canvas_selection: "Selection",
   canvas_patch: "Edit layers",
   canvas_render: "Render preview",
+  canvas_inspect: "Inspect",
   artboard_create: "Add artboard",
   canvas_export: "Export",
   font_list: "Find fonts",

@@ -24,7 +24,7 @@ Host it for claude.ai or ChatGPT with `npx -y gesso-mcp --hosted`: each user get
 
 ## Tools
 
-`canvas_list`, `canvas_create`, `psd_import`, `canvas_outline`, `canvas_get`, `canvas_selection`, `canvas_patch`, `canvas_history`, `canvas_render`, `canvas_export` (PNG, JPEG, WebP, TIFF, PSD, SVG, PDF with bleed and crop marks; RGB or CMYK with ICC profiles; slices from layer names), `canvas_stamp`, `canvas_batch`, `artboard_create`, `font_list`, `asset_import`, `skill_read`. `gen_prepare` hands image jobs to the image tools you have connected.
+`canvas_list`, `canvas_create`, `psd_import`, `canvas_outline`, `canvas_get`, `canvas_selection`, `canvas_patch`, `canvas_history`, `canvas_render` (previews, region zoom up to 400%, before/after compare), `canvas_inspect` (histogram, clipping, colour cast, sharpness, noise, eyedropper samples), `canvas_export` (PNG, JPEG, WebP, TIFF, PSD, SVG, PDF with bleed and crop marks; RGB or CMYK with ICC profiles; slices from layer names), `canvas_stamp`, `canvas_batch`, `artboard_create`, `font_list`, `asset_import`, `skill_read`. `gen_prepare` hands image jobs to the image tools you have connected.
 
 ## Skills
 

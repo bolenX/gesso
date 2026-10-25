@@ -4,3 +4,5 @@ dist/
 coverage/
 .DS_Store
 .gesso/
+reference/kit/
+reference/report/
