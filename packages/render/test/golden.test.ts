@@ -96,6 +96,24 @@ const scenes: Record<string, Layer[]> = {
       ] as const
     ).map((filter, i) => ({ id: `f-${i}`, name: filter.kind, type: "image", asset: "photo", fit: "cover", frame: { x: (i % 4) * 50, y: Math.floor(i / 4) * 75, w: 50, h: 75 }, filters: [filter] }) as Layer),
   ],
+  "adjustment-layers": [
+    { id: "photo", name: "photo", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
+    ...(
+      [
+        { kind: "black-white", tint: "#C8A070" },
+        { kind: "photo-filter", color: "#00A0EC", density: 60 },
+        { kind: "color-balance", midtones: [40, 0, -40] },
+        { kind: "selective-color", yellows: [0, 40, -60, 0], blues: [60, 0, 0, 20] },
+        { kind: "channel-mixer", red: [0, 100, 0, 0], green: [100, 0, 0, 0] },
+        { kind: "exposure", exposure: 1 },
+        { kind: "vibrance", vibrance: 100 },
+        { kind: "posterize", levels: 3 },
+      ] as const
+    ).map((adjustment, i) => ({
+      id: `adj-${i}`, name: adjustment.kind, type: "adjustment", adjustment, frame: { x: 0, y: 0, w: 200, h: 150 },
+      mask: { kind: "vector", shape: { kind: "rect" }, frame: { x: i * 25, y: 0, w: 25, h: 150 } },
+    }) as Layer),
+  ],
   adjustments: [
     { id: "photo", name: "photo", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
     { id: "warm", name: "warm", type: "adjustment", adjustment: { kind: "hue-saturation", hue: 25, saturation: -40, lightness: 0 }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,

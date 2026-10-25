@@ -75,5 +75,10 @@ export const SAMPLES: Filter[] = [
   { kind: "maximum", radius: 2 },
   { kind: "minimum", radius: 2 },
   { kind: "offset", x: 30, y: 20 },
+  { kind: "shadows-highlights", shadows: 60, highlights: 30 },
+  { kind: "desaturate" },
+  { kind: "equalize" },
+  { kind: "match-color", source: "map", intensity: 120 },
+  { kind: "replace-color", color: "#4060C0", fuzziness: 120, hue: 90, saturation: 20 },
   { kind: "camera-raw", exposure: 0.3, contrast: 20, clarity: 40, vibrance: 30, temperature: 20, vignette: -30 },
 ];

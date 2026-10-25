@@ -276,40 +276,8 @@ export const TextLayer = LayerBase.extend({
   direction: z.enum(["ltr", "rtl"]).optional(),
 });
 
-const CurvePoint = z.tuple([z.number().min(0).max(255), z.number().min(0).max(255)]);
-
-export const Adjustment = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("brightness-contrast"),
-    brightness: z.number().min(-150).max(150),
-    contrast: z.number().min(-50).max(100),
-  }),
-  z.object({
-    kind: z.literal("hue-saturation"),
-    hue: z.number().min(-180).max(180),
-    saturation: z.number().min(-100).max(100),
-    lightness: z.number().min(-100).max(100),
-  }),
-  z.object({
-    kind: z.literal("curves"),
-    channel: z.enum(["rgb", "red", "green", "blue"]).optional(),
-    points: z.array(CurvePoint).min(2),
-  }),
-  z.object({
-    /** Recolours by brightness: dark pixels take the first stop's colour, light ones the last. */
-    kind: z.literal("gradient-map"),
-    stops: z.array(GradientStop).min(2),
-    reverse: z.boolean().optional(),
-  }),
-  z.object({
-    kind: z.literal("levels"),
-    inputBlack: z.number().min(0).max(255),
-    inputWhite: z.number().min(0).max(255),
-    gamma: z.number().positive(),
-    outputBlack: z.number().min(0).max(255).optional(),
-    outputWhite: z.number().min(0).max(255).optional(),
-  }),
-]);
+export { Adjustment, adjustmentAssets } from "./adjustments.js";
+import { Adjustment } from "./adjustments.js";
 
 export const AdjustmentLayer = LayerBase.extend({
   type: z.literal("adjustment"),
@@ -353,7 +321,8 @@ export const Layer: z.ZodType<Layer> = z.lazy(() =>
 
 export const Asset = z.object({
   uri: z.string(),
-  kind: z.enum(["image", "font", "mask"]),
+  /** image, font, mask (greyscale), or lut (a .cube colour lookup table). */
+  kind: z.enum(["image", "font", "mask", "lut"]),
   hash: z.string().optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),

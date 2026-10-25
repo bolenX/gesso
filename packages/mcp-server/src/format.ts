@@ -10,6 +10,7 @@ Format (JSON). Layers are listed bottom to top; IDs are short and meaningful ("h
   "assets": {                       // files the layers use, by ID. Paths are relative to the Gesso folder. Later, asset_import adds more.
     "photo": { "uri": "photo.jpg", "kind": "image" },
     "bold":  { "uri": "/System/Library/Fonts/Supplemental/Arial Bold.ttf", "kind": "font", "family": "Arial Bold", "postscriptName": "Arial-BoldMT" }
+    // also "kind": "mask" (greyscale image) and "lut" (.cube colour lookup table)
   },
   "artboards": [{
     "id": "post", "name": "Post 4:5",
@@ -34,7 +35,7 @@ Layer types and their own fields:
 - text: "path"? { "d": "<svg path, relative to the frame>", "offset"? } sets the text along a curve (style.align places it along the path; written as pixels in a PSD), "content", "style" { "font" (a font asset's family), "size", "weight", "tracking", "leading", "fill", "align": start|center|end|justify }, "box" { "kind": "point" | "area", "shrinkToFit" }, "runs" (mixed styling, e.g. one bold word: [{ "text": "Big " }, { "text": "sale", "weight": 700, "fill": "#FF4F1A", "size"?, "font"? }]; their texts joined must equal content)
 - shape: "shape" { "kind": "rect", "radius" } | { "kind": "ellipse" } | { "kind": "path", "d": "<svg path>" }, "fill", "stroke" { "paint", "width" }
 - image: "asset", "fit": cover|contain|fill, "focus": [x, y]
-- adjustment: "adjustment" { "kind": "curves", "points": [[in, out], …] } | levels | hue-saturation | brightness-contrast | { "kind": "gradient-map", "stops": [{ "offset", "color" }], "reverse"? } (recolours by brightness: dark → first stop, light → last; adjustments take "blend" and "opacity" too, e.g. a gradient map in "soft-light" at 0.4 to colour-grade)
+- adjustment: "adjustment", a live Photoshop adjustment layer that recolours everything below it (limit it with a mask, or clip it to one layer): { "kind": "curves", "points": [[in, out], …], "channel"?, "red"?, "green"?, "blue"? } | levels | hue-saturation (with per-range "ranges") | brightness-contrast | exposure | vibrance | color-balance | black-white | photo-filter | channel-mixer | color-lookup (a .cube LUT asset) | invert | posterize | threshold | selective-color | { "kind": "gradient-map", "stops": [{ "offset", "color" }], "reverse"? } (recolours by brightness: dark → first stop, light → last). skill_read "adjustments" has every kind's fields. Adjustments take "blend" and "opacity" too, e.g. a gradient map in "soft-light" at 0.4 to colour-grade
 - group: "children" (layers), "isolation": pass-through|isolate
 - smart: places a symbol: "symbol" (an ID in doc.symbols); optional "quad": four [x, y] corners (top-left, top-right, bottom-right, bottom-left) that pin it in perspective or rotate it, overriding the frame
 Symbols are reusable contents for smart layers; they export as Photoshop smart objects:

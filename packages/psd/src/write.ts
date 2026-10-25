@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, paintColor, type Doc, type Effect, type Layer, type Paint, type Shape, type TextLayer } from "@gesso/core";
-import { compose, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type Backdrop, type LayerPart, type Rendered } from "@gesso/render";
+import { adjustmentAssets, xmpPacket, type AdjustmentLayer, type Artboard, type BlendMode, paintColor, type Doc, type Effect, type Layer, type Paint, type Shape, type TextLayer } from "@gesso/core";
+import { compose, defaultAssetLoader, renderArtboard, renderLayerParts, transformPoint, type Affine, type AssetLoader, type Box, type Backdrop, type LayerPart, type Rendered } from "@gesso/render";
 import {
   writePsdUint8Array,
   type AdjustmentLayer as PsdAdjustment,
@@ -43,6 +43,12 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
   const asArtboards = options.artboards ?? true;
   if (!asArtboards && doc.artboards.length !== 1) throw new Error("A PSD without artboards holds exactly one artboard");
 
+  const luts = new Map<string, Uint8Array>();
+  for (const id of new Set(allLayers(doc).flatMap((l) => (l.type === "adjustment" ? adjustmentAssets(l.adjustment) : [])))) {
+    const asset = doc.assets[id];
+    if (asset) luts.set(id, await (options.loader ?? defaultAssetLoader())(asset));
+  }
+
   // Each placed symbol is written once as an embedded PSD.
   const linkedFiles: LinkedFile[] = [];
   const symbolFiles = new Map<string, string>();
@@ -80,7 +86,7 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
 
     const { parts, width: artboardWidth, warnings: w } = await renderLayerParts(doc, artboard.id, options.loader ? { loader: options.loader } : {});
     warnings.push(...w.map((msg) => `${artboard.id}: ${msg}`));
-    const ctx: Ctx = { doc, parts, ox, oy, width: artboardWidth, warnings, symbolFiles, artboard: artboard.id };
+    const ctx: Ctx = { doc, parts, ox, oy, width: artboardWidth, warnings, symbolFiles, artboard: artboard.id, luts };
 
     const ctxBackdrops = rendered.backdrops ?? new Map();
     ctx.backdrops = ctxBackdrops;
@@ -127,6 +133,8 @@ type Ctx = {
   artboard: string;
   /** Background blurs from the flattened render, baked into pixel layers. */
   backdrops?: Map<string, Backdrop>;
+  /** .cube files for Color Lookup layers, by asset id; Photoshop keeps the LUT inside the layer. */
+  luts: Map<string, Uint8Array>;
 };
 
 /**
@@ -178,7 +186,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       out.children = layer.children.flatMap((child) => withBackdrop(child, ctx));
       return out;
     case "adjustment":
-      out.adjustment = psdAdjustment(layer.adjustment);
+      out.adjustment = psdAdjustment(layer.adjustment, ctx);
       return out;
     case "text":
       Object.assign(out, pixelData(part, ctx));
@@ -215,6 +223,15 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
 }
 
 /** Symbols placed anywhere in the document, including inside other symbols. */
+/** Every layer in the document's artboards and symbols, groups included. */
+function allLayers(doc: Doc): Layer[] {
+  const out: Layer[] = [];
+  const visit = (layers: Layer[]) => layers.forEach((l) => (out.push(l), l.type === "group" && visit(l.children)));
+  doc.artboards.forEach((a) => visit(a.layers));
+  Object.values(doc.symbols ?? {}).forEach((s) => visit(s.layers));
+  return out;
+}
+
 function placedSymbols(doc: Doc): string[] {
   const found = new Set<string>();
   const visit = (layers: Layer[]) => {
@@ -293,14 +310,21 @@ function psdText(layer: TextLayer, part: LayerPart, ctx: Ctx): NonNullable<PsdLa
   };
 }
 
-function psdAdjustment(adjustment: AdjustmentLayer["adjustment"]): PsdAdjustment {
+function psdAdjustment(adjustment: AdjustmentLayer["adjustment"], ctx: Ctx): PsdAdjustment {
+  const cmyk = (v?: readonly number[]) => (v ? { c: v[0]!, m: v[1]!, y: v[2]!, k: v[3]! } : { c: 0, m: 0, y: 0, k: 0 });
+  const balance = (v?: readonly number[]) => ({ cyanRed: v?.[0] ?? 0, magentaGreen: v?.[1] ?? 0, yellowBlue: v?.[2] ?? 0 });
+  const mix = (v: readonly number[] | undefined, fallback: [number, number, number, number]) => {
+    const [red, green, blue, constant] = v ?? fallback;
+    return { red: red!, green: green!, blue: blue!, constant: constant! };
+  };
   switch (adjustment.kind) {
     case "brightness-contrast":
       return { type: "brightness/contrast", brightness: adjustment.brightness, contrast: adjustment.contrast, useLegacy: false };
     case "levels":
       return {
         type: "levels",
-        rgb: {
+        // ag-psd writes its "blue" channel where Photoshop reads green and vice versa; swap them so Photoshop gets the right one.
+        [{ rgb: "rgb", red: "red", green: "blue", blue: "green" }[adjustment.channel ?? "rgb"]]: {
           shadowInput: adjustment.inputBlack,
           highlightInput: adjustment.inputWhite,
           midtoneInput: adjustment.gamma,
@@ -308,13 +332,25 @@ function psdAdjustment(adjustment: AdjustmentLayer["adjustment"]): PsdAdjustment
           highlightOutput: adjustment.outputWhite ?? 255,
         },
       };
-    case "curves":
-      return { type: "curves", [adjustment.channel ?? "rgb"]: adjustment.points.map(([input, output]) => ({ input, output })) };
-    case "hue-saturation":
-      return {
+    case "curves": {
+      const curve = (points: Array<[number, number]>) => points.map(([input, output]) => ({ input, output }));
+      const out: PsdAdjustment & { type: "curves" } = { type: "curves", [adjustment.channel ?? "rgb"]: curve(adjustment.points) };
+      for (const channel of ["red", "green", "blue"] as const) if (adjustment[channel]) out[channel] = curve(adjustment[channel]);
+      return out;
+    }
+    case "hue-saturation": {
+      // Photoshop's range bounds (a–d, degrees) for each colour, and the shifts within them.
+      const bounds = { reds: [315, 345, 15, 45], yellows: [15, 45, 75, 105], greens: [75, 105, 135, 165], cyans: [135, 165, 195, 225], blues: [195, 225, 255, 285], magentas: [255, 285, 315, 345] } as const;
+      const out: PsdAdjustment & { type: "hue/saturation" } = {
         type: "hue/saturation",
         master: { a: 0, b: 0, c: 0, d: 0, hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness },
       };
+      for (const [name, [a, b, c, d]] of Object.entries(bounds) as Array<[keyof typeof bounds, readonly number[]]>) {
+        const shift = adjustment.ranges?.[name];
+        out[name] = { a: a!, b: b!, c: c!, d: d!, hue: shift?.hue ?? 0, saturation: shift?.saturation ?? 0, lightness: shift?.lightness ?? 0 };
+      }
+      return out;
+    }
     case "gradient-map":
       return {
         type: "gradient map",
@@ -327,6 +363,66 @@ function psdAdjustment(adjustment: AdjustmentLayer["adjustment"]): PsdAdjustment
           { opacity: 1, location: 0, midpoint: 0.5 },
           { opacity: 1, location: 1, midpoint: 0.5 },
         ],
+      };
+    case "exposure":
+      return { type: "exposure", exposure: adjustment.exposure, offset: adjustment.offset ?? 0, gamma: adjustment.gamma ?? 1 };
+    case "vibrance":
+      return { type: "vibrance", vibrance: adjustment.vibrance, saturation: adjustment.saturation ?? 0 };
+    case "color-balance":
+      return {
+        type: "color balance",
+        shadows: balance(adjustment.shadows),
+        midtones: balance(adjustment.midtones),
+        highlights: balance(adjustment.highlights),
+        preserveLuminosity: adjustment.preserveLuminosity ?? true,
+      };
+    case "black-white":
+      return {
+        type: "black & white",
+        reds: adjustment.reds ?? 40,
+        yellows: adjustment.yellows ?? 60,
+        greens: adjustment.greens ?? 40,
+        cyans: adjustment.cyans ?? 60,
+        blues: adjustment.blues ?? 20,
+        magentas: adjustment.magentas ?? 80,
+        useTint: !!adjustment.tint,
+        tintColor: rgb(adjustment.tint ?? "#E1D3B3"),
+      };
+    case "photo-filter":
+      return { type: "photo filter", color: rgb(adjustment.color), density: adjustment.density, preserveLuminosity: adjustment.preserveLuminosity ?? true };
+    case "channel-mixer":
+      return {
+        type: "channel mixer",
+        monochrome: !!adjustment.monochrome,
+        red: mix(adjustment.red, [100, 0, 0, 0]),
+        green: mix(adjustment.green, [0, 100, 0, 0]),
+        blue: mix(adjustment.blue, [0, 0, 100, 0]),
+        gray: mix(adjustment.monochrome, [40, 40, 20, 0]),
+      };
+    case "color-lookup": {
+      const data = ctx.luts.get(adjustment.lut);
+      const name = ctx.doc.assets[adjustment.lut]?.uri.split("/").pop() ?? `${adjustment.lut}.cube`;
+      return { type: "color lookup", lookupType: "3dlut", name, lutFormat: "cube", dataOrder: "rgb", tableOrder: "bgr", lut3DFileName: name, ...(data ? { lut3DFileData: data } : {}) };
+    }
+    case "invert":
+      return { type: "invert" };
+    case "posterize":
+      return { type: "posterize", levels: adjustment.levels };
+    case "threshold":
+      return { type: "threshold", level: adjustment.level };
+    case "selective-color":
+      return {
+        type: "selective color",
+        mode: adjustment.mode ?? "relative",
+        reds: cmyk(adjustment.reds),
+        yellows: cmyk(adjustment.yellows),
+        greens: cmyk(adjustment.greens),
+        cyans: cmyk(adjustment.cyans),
+        blues: cmyk(adjustment.blues),
+        magentas: cmyk(adjustment.magentas),
+        whites: cmyk(adjustment.whites),
+        neutrals: cmyk(adjustment.neutrals),
+        blacks: cmyk(adjustment.blacks),
       };
   }
 }

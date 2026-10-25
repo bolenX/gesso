@@ -226,13 +226,13 @@ export function createServer({
     "asset_import",
     {
       description:
-        "Add an image or font to a document's assets from a path, a URL or base64 data. Reads the image size, or the font's family and PostScript name, and returns the entry. Downloads and pasted data are saved in the Gesso folder under assets/. Use the id in image layers (\"asset\") or the family in text styles (\"font\").",
+        "Add an image, font or colour lookup table (.cube LUT) to a document's assets from a path, a URL or base64 data. Reads the image size, or the font's family and PostScript name, and returns the entry. Downloads and pasted data are saved in the Gesso folder under assets/. Use the id in image layers (\"asset\"), filters (displacement maps, Match Color sources) and color-lookup adjustments (\"lut\"), or the family in text styles (\"font\").",
       inputSchema: {
         doc: docId,
         id: z.string().describe('Asset ID to use in layers, e.g. "hero-photo"'),
         source: z.string().optional().describe("Path (relative to the Gesso folder, or absolute) or http(s) URL"),
         data: z.string().optional().describe("Base64 file contents, when there's no path or URL"),
-        kind: z.enum(["image", "font", "mask"]).optional().describe("Detected from the file when left out"),
+        kind: z.enum(["image", "font", "mask", "lut"]).optional().describe('Detected from the file when left out; "lut" is a .cube colour lookup table for a color-lookup adjustment'),
         face: z.number().int().nonnegative().optional().describe("Face index in a .ttc font collection"),
         description: z.string().optional(),
         replace: z.boolean().optional().describe("Replace an existing asset with this id"),
