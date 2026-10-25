@@ -31,7 +31,10 @@
     "url": "git+https://github.com/bolenX/gesso.git",
     "directory": "packages/gesso-mcp"
   },
-  "homepage": "https://github.com/bolenX/gesso",
+  "homepage": "https://gesso.run",
+  "bugs": {
+    "url": "https://github.com/bolenX/gesso/issues"
+  },
   "scripts": {
     "build": "node build.mjs",
     "build:mcpb": "node build-mcpb.mjs"

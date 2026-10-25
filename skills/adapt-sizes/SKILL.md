@@ -46,7 +46,7 @@ Then export with `canvas_export`. A PSD keeps every size as its own artboard in 
 If a photo background can't cover the new shape without cropping out the subject, extend it instead (outpainting):
 
 1. Call `gen_prepare` with `job: "expand"`, the artboard and the background image layer. It writes the source, a padded canvas and a mask to the Gesso folder, and returns the target size, aspect ratio, how far to extend each side, and a prompt.
-2. Run it with an outpainting or expand tool the user has connected (for example Magnific or Higgsfield). Gesso never pays for or calls a model itself.
+2. Run it with an outpainting or expand tool the user has connected. Gesso never pays for or calls a model itself.
 3. Import the result with `asset_import` under the `assetId` from the job, then apply the job's `ops` with `canvas_patch`. They put the result in as a separate background layer with provenance, and keep the original photo on top with a soft edge, so its pixels are untouched.
 4. Render and check the seams, and that the subject wasn't repeated at the edges.
 

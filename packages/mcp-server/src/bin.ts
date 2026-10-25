@@ -6,8 +6,8 @@ import { startHttp } from "./http.js";
 import { createServer } from "./index.js";
 
 // stdio by default (Claude Code, Desktop). `--http [port]` serves Streamable HTTP at /mcp on this
-// computer; add `--hosted` to serve claude.ai and ChatGPT connectors, with a private workspace per user
-// (see docs/hosting.md).
+// computer; add `--hosted` to serve claude.ai and ChatGPT connectors, with OAuth sign-in and a private
+// workspace per user (see docs/hosting.md).
 const httpFlag = process.argv.indexOf("--http");
 const hosted = process.argv.includes("--hosted");
 
@@ -20,12 +20,29 @@ const baseDir = workdir ? workdir.replace(/^~(?=$|[\\/])/, homedir()) : process.
 mkdirSync(baseDir, { recursive: true });
 
 const number = (name: string) => (process.env[name] ? Number(process.env[name]) : undefined);
+const off = (name: string) => /^(0|false|no|off)$/i.test(process.env[name] ?? "");
+/** Both halves of an OAuth app's credentials, or nothing. */
+const credentials = (prefix: string) => {
+  const [clientId, clientSecret] = [process.env[`${prefix}_CLIENT_ID`], process.env[`${prefix}_CLIENT_SECRET`]];
+  return clientId && clientSecret ? { clientId, clientSecret } : undefined;
+};
+/** GESSO_SECRET as 64 hex characters, or any string of at least 32 characters. */
+const secret = () => {
+  const value = process.env.GESSO_SECRET?.trim();
+  if (!value) return undefined;
+  const bytes = /^[0-9a-f]{64,}$/i.test(value) ? Buffer.from(value, "hex") : Buffer.from(value);
+  if (bytes.length < 32) throw new Error("GESSO_SECRET must be at least 32 bytes (for example 64 hex characters from `openssl rand -hex 32`)");
+  return bytes;
+};
 
 if (httpFlag === -1 && !hosted) {
   await createServer({ baseDir }).connect(new StdioServerTransport());
 } else {
   const arg = process.argv[httpFlag + 1];
   const port = Number(arg && /^\d+$/.test(arg) ? arg : (process.env.PORT ?? 3333));
+  const github = credentials("GESSO_GITHUB");
+  const google = credentials("GESSO_GOOGLE");
+  const key = secret();
   const { url } = await startHttp({
     port,
     baseDir,
@@ -36,6 +53,18 @@ if (httpFlag === -1 && !hosted) {
     ...(number("GESSO_WORKSPACE_MB") ? { workspaceMb: number("GESSO_WORKSPACE_MB")! } : {}),
     ...(number("GESSO_UPLOAD_MB") ? { uploadMb: number("GESSO_UPLOAD_MB")! } : {}),
     ...(number("GESSO_MAX_MEGAPIXELS") ? { maxMegapixels: number("GESSO_MAX_MEGAPIXELS")! } : {}),
+    ...(number("GESSO_REQUEST_MB") ? { requestMb: number("GESSO_REQUEST_MB")! } : {}),
+    ...(number("GESSO_PROXY_HOPS") !== undefined ? { proxyHops: number("GESSO_PROXY_HOPS")! } : {}),
+    ...(number("GESSO_MAX_REQUESTS") ? { limits: { total: number("GESSO_MAX_REQUESTS")! } } : {}),
+    ...(key ? { secret: key } : {}),
+    ...(github ? { github } : {}),
+    ...(google ? { google } : {}),
+    ...(off("GESSO_ANONYMOUS") ? { anonymous: false } : {}),
+    ...(off("GESSO_KEY_URLS") ? { keyUrls: false } : {}),
+    ...(process.env.GESSO_BLOCKLIST ? { blocklist: process.env.GESSO_BLOCKLIST } : {}),
+    ...(hosted && !off("GESSO_LOG") ? { log: (entry: Record<string, unknown>) => console.log(JSON.stringify(entry)) } : {}),
   });
-  console.error(hosted ? `Hosted Gesso on ${url}: create a workspace at ${url}/new` : `Gesso MCP server on ${url}/mcp`);
+  if (hosted && !process.env.GESSO_PUBLIC_URL) console.error("Set GESSO_PUBLIC_URL to the server's https address: sign-in and links use it.");
+  if (hosted && off("GESSO_ANONYMOUS") && !github && !google) console.error("GESSO_ANONYMOUS is off but no GitHub or Google sign-in is set up, so nobody can connect over /mcp.");
+  console.error(hosted ? `Hosted Gesso on ${url}: connect to ${process.env.GESSO_PUBLIC_URL ?? url}/mcp` : `Gesso MCP server on ${url}/mcp`);
 }

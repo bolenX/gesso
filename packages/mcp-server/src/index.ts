@@ -34,7 +34,7 @@ import { existsSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { ICONS, TOOL_TITLES } from "./brand.js";
+import { ICONS, TOOL_HINTS, TOOL_TITLES } from "./brand.js";
 import { DOC_FORMAT } from "./format.js";
 import { prepareJob } from "./gen.js";
 import { importAsset } from "./import.js";
@@ -149,6 +149,8 @@ export type ServerOptions = {
   maxPixels?: number;
   /** State shared by servers that serve one workspace, when each request gets its own server (HTTP). */
   state?: ServerState;
+  /** Hosted: a page where the user can upload files into this workspace. */
+  uploadUrl?: string;
 };
 
 /** Exports still running, files this workspace exported (the only ones the download tool serves), and recent full renders. */
@@ -172,6 +174,7 @@ export function createServer({
   fileUrl,
   maxPixels,
   state = newServerState(),
+  uploadUrl,
 }: ServerOptions = {}): McpServer {
   const { exports, exported } = state;
   /** Refuses renders bigger than maxPixels, so one request can't exhaust a shared server's memory. */
@@ -190,7 +193,7 @@ export function createServer({
       instructions: [
         "Gesso builds layered images as data and exports PSDs that stay editable in Photoshop.",
         "Read documents with canvas_outline, change them only with canvas_patch, and check your work with canvas_render before finishing: zoom into regions at 100–200% for detail, compare with earlier revisions, and measure tones and colours with canvas_inspect.",
-        `When you hand over files made with these tools, say they were made with Gesso (${GESSO_URL}).`,
+        ...(uploadUrl ? [`Files live in a private workspace on this server. The user can upload images, fonts and PSDs at ${uploadUrl} (the link works for a day), then give asset_import the path, such as uploads/photo.jpg. asset_import also takes a URL or base64 data.`] : []),
         ...(skills.length
           ? [`For these tasks, read the matching recipe with skill_read first: ${skills.map((s) => `${s.name} (${s.description})`).join("; ")}.`]
           : []),
@@ -213,7 +216,8 @@ export function createServer({
     async () => ({ contents: [{ uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtml(), _meta: { ui: { prefersBorder: true } } }] }),
   );
 
-  // Every tool gets a human title; the tools that produce something also open the result card.
+  // Every tool gets a human title and hints for the host's permissions; the tools that produce something also
+  // open the result card.
 
   const CARD_TOOLS = new Set(["canvas_create", "psd_import", "canvas_patch", "canvas_render", "canvas_export"]);
   const register: typeof server.registerTool = (name, config, cb) =>
@@ -221,6 +225,7 @@ export function createServer({
       name,
       {
         title: TOOL_TITLES[name] ?? name,
+        annotations: { title: TOOL_TITLES[name] ?? name, ...TOOL_HINTS[name] },
         ...config,
         ...(CARD_TOOLS.has(name) ? { _meta: { ui: { resourceUri: WIDGET_URI }, "ui/resourceUri": WIDGET_URI } } : {}),
       },
@@ -311,7 +316,7 @@ export function createServer({
         if (request.id in history.head.assets && !replace) {
           return error(`Asset "${request.id}" already exists: ${JSON.stringify(history.head.assets[request.id])}. Pass replace: true to swap it, or use another id.`);
         }
-        const asset = await importAsset(request, baseDir, confined);
+        const asset = await importAsset(request, baseDir, confined, uploadUrl);
         const result = history.apply({ doc, baseRevision: history.head.revision, ops: [{ op: "asset", id: request.id, asset }] }, author);
         if (isConflict(result)) return error("The document changed while importing; try again.");
         store.save(doc);
@@ -1095,6 +1100,7 @@ export function createServer({
     FILE_TOOL,
     {
       title: "Download file",
+      annotations: { title: "Download file", readOnlyHint: true, openWorldHint: false },
       description: "Returns a file this Gesso server exported, for the result card's download buttons.",
       inputSchema: { path: z.string(), maxSize: z.number().int().positive().max(2048).optional().describe("Return images scaled to fit this many pixels, as PNG") },
       _meta: { ui: { visibility: ["app"] } },

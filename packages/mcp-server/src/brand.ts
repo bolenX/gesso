@@ -43,3 +43,35 @@ export const TOOL_TITLES: Record<string, string> = {
   canvas_align: "Auto-align",
   canvas_stack: "Auto-blend",
 };
+
+const READS = { readOnlyHint: true, openWorldHint: false } as const;
+/** Creates something new (a document, a job folder) or sets the selection, without changing what's there. */
+const CREATES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
+/** Changes an existing document, or writes files that can replace earlier ones. */
+const CHANGES = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
+
+/** MCP tool hints, which hosts use for permissions: read-only tools can run without asking, changes ask. */
+export const TOOL_HINTS: Record<string, { readOnlyHint: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint: boolean }> = {
+  canvas_list: READS,
+  canvas_outline: READS,
+  canvas_get: READS,
+  canvas_render: READS,
+  canvas_inspect: READS,
+  font_list: READS,
+  skill_read: READS,
+  canvas_create: CREATES,
+  psd_import: CREATES,
+  gen_prepare: CREATES,
+  canvas_selection: { ...CREATES, idempotentHint: true },
+  canvas_patch: CHANGES,
+  canvas_history: CHANGES,
+  artboard_create: CHANGES,
+  canvas_stamp: CHANGES,
+  skill_apply: CHANGES,
+  canvas_align: CHANGES,
+  canvas_stack: CHANGES,
+  canvas_export: CHANGES,
+  canvas_batch: CHANGES,
+  // Downloads from the web when given a URL.
+  asset_import: { ...CHANGES, openWorldHint: true },
+};
