@@ -4,6 +4,12 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
 
 ## Unreleased
 
+- **PSD fidelity:**
+  - Image layers whose filters all exist in Photoshop export as smart objects with live smart filters, with Fade opacity and blend modes. There are 25 filters, including Gaussian, Box, Motion and Surface Blur, Unsharp Mask, High Pass, Median, Dust & Scratches, Emboss, Mosaic, Twirl, Pinch, Spherize, Polar Coordinates and Offset. Opening the PSD in Gesso brings them back as filters.
+  - Distorted (quad) image, shape and text layers export as smart objects pinned by their four corners, so text and shapes inside stay editable.
+  - Warped layers export as smart objects with a Photoshop custom warp, fitted to Gesso's warp surface.
+  - Photoshop custom warps on smart objects import as Gesso warps.
+  - PSDs embed an sRGB colour profile.
 - **Skills:**
   - 15 new skills: duotone, double exposure, poster composition, typography hierarchy, layout grids, brand application, clean plates, typography reflow, social campaign sets, channel packs, safe zones, extreme-ratio relayout, RTL localisation, resolution adaptation, and data-driven variants.
   - Every skill has a `checks.md`.

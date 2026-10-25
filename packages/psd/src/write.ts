@@ -9,17 +9,25 @@ import {
   type Layer as PsdLayer,
   type LayerEffectsInfo,
   type LinkedFile,
+  type Filter as PsdFilter,
   type Psd,
   type VectorContent,
 } from "ag-psd";
+import sharp from "sharp";
+import { toPsdFilter } from "./smartFilters.js";
+import { toBezierMesh } from "./warp.js";
 
 // PSD encoder. Writes both forms the spec asks for: parametric data (artboards,
 // live text, adjustment layers, shape layers with vector masks) and Gesso's own
 // rendered pixels, so the file looks right before Photoshop re-renders text.
 // Smart layers become embedded smart objects: each symbol is written as its own
 // PSD inside the file and placed with its corner pin, so double-clicking it in
-// Photoshop opens the symbol with its live layers. Smart filters are baked into
-// layer pixels for now.
+// Photoshop opens the symbol with its live layers. Image layers whose filters all
+// exist in Photoshop become smart objects with live smart filters; distorted (quad)
+// layers become smart objects pinned by their corners, and warped layers smart
+// objects with a custom warp, so text and shapes inside stay editable. Filters
+// Photoshop has no match for are baked into the layer's pixels.
+// Files carry an sRGB profile, the colour space Gesso renders in.
 
 export type PsdOptions = {
   loader?: AssetLoader;
@@ -86,7 +94,8 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
 
     const { parts, width: artboardWidth, warnings: w } = await renderLayerParts(doc, artboard.id, { ...(options.loader ? { loader: options.loader } : {}), ...(rendered.masks?.size ? { masks: rendered.masks } : {}) });
     warnings.push(...w.map((msg) => `${artboard.id}: ${msg}`));
-    const ctx: Ctx = { doc, parts, ox, oy, width: artboardWidth, warnings, symbolFiles, artboard: artboard.id, luts };
+    const embedded = await embedLayers(doc, artboard, parts, ox, oy, options, linkedFiles, warnings);
+    const ctx: Ctx = { doc, parts, ox, oy, width: artboardWidth, warnings, symbolFiles, artboard: artboard.id, luts, embedded };
 
     const ctxBackdrops = rendered.backdrops ?? new Map();
     ctx.backdrops = ctxBackdrops;
@@ -117,7 +126,7 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
     children,
   };
   if (doc.unknown?.length) warnings.push("opaque PSD blocks are not written yet; they were dropped");
-  const bytes = writePsdUint8Array(psd, { invalidateTextLayers: true, noBackground: true });
+  const bytes = withIccProfile(writePsdUint8Array(psd, { invalidateTextLayers: true, noBackground: true }), await srgbProfile());
   return { bytes, warnings, flats };
 }
 
@@ -135,7 +144,121 @@ type Ctx = {
   backdrops?: Map<string, Backdrop>;
   /** .cube files for Color Lookup layers, by asset id; Photoshop keeps the LUT inside the layer. */
   luts: Map<string, Uint8Array>;
+  /** Layers written as smart objects (live smart filters, or a corner pin), by layer id. */
+  embedded: Map<string, Placed>;
 };
+
+type Placed = NonNullable<PsdLayer["placedLayer"]>;
+
+/**
+ * Finds the layers that become smart objects in this artboard and writes each one's content as an embedded PSD:
+ * image layers whose filters all have Photoshop smart filters, and layers distorted with a quad. The content is the
+ * layer undistorted and unfiltered at its own size; the outer layer keeps Gesso's pixels, opacity, blend, mask and effects.
+ */
+async function embedLayers(doc: Doc, artboard: Artboard, parts: Map<string, LayerPart>, ox: number, oy: number, options: PsdOptions, linkedFiles: LinkedFile[], warnings: string[]) {
+  const out = new Map<string, Placed>();
+  const visit = async (layers: Layer[]) => {
+    for (const layer of layers) {
+      if (layer.type === "group") {
+        await visit(layer.children);
+        continue;
+      }
+      const part = parts.get(layer.id);
+      if (!part || layer.type === "smart" || layer.type === "adjustment") continue;
+      const plain = !layer.quad && !layer.warp && !layer.rotation && !layer.flip && !layer.skew;
+      const mapped = layer.type === "image" && plain && layer.filters?.length ? layer.filters.map((f) => toPsdFilter(f, psdBlend)) : undefined;
+      const live = mapped?.every(Boolean) ? (mapped as PsdFilter[]) : undefined;
+      if (mapped && !live) {
+        const missing = layer.filters!.filter((_, i) => !mapped[i]).map((f) => f.kind);
+        warnings.push(`${artboard.id}: image "${layer.id}" has filters Photoshop can't keep live (${[...new Set(missing)].join(", ")}), so its filters are baked into its pixels`);
+      }
+      const pinned = !!layer.quad && !layer.warp && part.quad?.length === 4;
+      const warped = !!layer.warp && !layer.quad;
+      if (layer.warp && layer.quad) warnings.push(`${artboard.id}: "${layer.id}" is both distorted and warped, so it's written as pixels`);
+      if (!live && !pinned && !warped) continue;
+      const box = part.frame ?? part.box;
+      const [w, h] = [Math.max(1, Math.round(box.w)), Math.max(1, Math.round(box.h))];
+      const inner: Record<string, unknown> = { ...layer, frame: { x: 0, y: 0, w, h } };
+      for (const key of ["quad", "warp", "opacity", "blend", "mask", "clip", "blendIf", "effects", "fillOpacity", "visible", "rotation", "flip", "skew"]) delete inner[key];
+      if (live) delete inner.filters;
+      const content: Doc = {
+        id: `${doc.id}-${layer.id}`,
+        revision: doc.revision,
+        assets: doc.assets,
+        ...(doc.symbols ? { symbols: doc.symbols } : {}),
+        artboards: [{ id: layer.id, name: layer.name, frame: { x: 0, y: 0, w, h }, layers: [inner as Layer] }],
+      };
+      const result = await writePsd(content, { ...options, artboards: false });
+      warnings.push(...result.warnings.map((w) => `${artboard.id}: inside "${layer.id}": ${w}`));
+      const id = guid(`embed:${doc.id}:${artboard.id}:${layer.id}`);
+      linkedFiles.push({ id, name: `${layer.name}.psd`, type: "8BPS", creator: "8BIM", data: result.bytes });
+      const corners = pinned ? part.quad! : [[box.x, box.y], [box.x + w, box.y], [box.x + w, box.y + h], [box.x, box.y + h]];
+      const transform = corners.flatMap(([x, y]) => [x! + ox, y! + oy]);
+      out.set(layer.id, {
+        id,
+        placed: guid(`placed:${artboard.id}:${layer.id}`),
+        type: "raster",
+        transform,
+        nonAffineTransform: transform,
+        width: w,
+        height: h,
+        ...(warped
+          ? {
+              warp: {
+                style: "custom",
+                value: 0,
+                perspective: 0,
+                perspectiveOther: 0,
+                rotate: "horizontal",
+                bounds: { top: { units: "Pixels", value: 0 }, left: { units: "Pixels", value: 0 }, bottom: { units: "Pixels", value: h }, right: { units: "Pixels", value: w } },
+                uOrder: 4,
+                vOrder: 4,
+                customEnvelopeWarp: { meshPoints: toBezierMesh(layer.warp!, w, h) },
+              },
+            }
+          : {}),
+        ...(live ? { filter: { enabled: true, validAtPosition: true, maskEnabled: false, maskLinked: false, maskExtendWithWhite: true, list: live } } : {}),
+      });
+    }
+  };
+  await visit(artboard.layers);
+  return out;
+}
+
+let srgb: Promise<Buffer> | undefined;
+
+/** The sRGB ICC profile that ships with the image library, read once. */
+function srgbProfile(): Promise<Buffer> {
+  return (srgb ??= sharp({ create: { width: 1, height: 1, channels: 3, background: "#000000" } })
+    .withIccProfile("srgb")
+    .png()
+    .toBuffer()
+    .then(async (png) => (await sharp(png).metadata()).icc!));
+}
+
+/**
+ * Adds an ICC profile (image resource 1039) to a PSD. The PSD layout is: a 26-byte header, the colour mode
+ * section and the image resources section, each led by its length; the profile goes first among the resources.
+ */
+export function withIccProfile(psd: Uint8Array, icc: Uint8Array): Uint8Array {
+  const view = new DataView(psd.buffer, psd.byteOffset, psd.byteLength);
+  const resourcesAt = 26 + 4 + view.getUint32(26);
+  const resourcesLength = view.getUint32(resourcesAt);
+  const padded = icc.length + (icc.length % 2);
+  const block = new Uint8Array(4 + 2 + 2 + 4 + padded);
+  const b = new DataView(block.buffer);
+  block.set([0x38, 0x42, 0x49, 0x4d], 0); // "8BIM"
+  b.setUint16(4, 1039);
+  // An empty Pascal name, padded to an even length: two zero bytes.
+  b.setUint32(8, icc.length);
+  block.set(icc, 12);
+  const out = new Uint8Array(psd.length + block.length);
+  out.set(psd.subarray(0, resourcesAt), 0);
+  new DataView(out.buffer).setUint32(resourcesAt, resourcesLength + block.length);
+  out.set(block, resourcesAt + 4);
+  out.set(psd.subarray(resourcesAt + 4), resourcesAt + 4 + block.length);
+  return out;
+}
 
 /**
  * The layer, preceded by its background blur baked as pixels: Photoshop has no live backdrop
@@ -201,6 +324,12 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
   if (layer.meta?.locked) out.protected = { transparency: true, composite: true, position: true };
   if (part.mask) out.mask = maskData(part.mask, ctx);
   if (layer.effects?.length) out.effects = psdEffects(layer.effects);
+  const placed = ctx.embedded.get(layer.id);
+  if (placed) {
+    Object.assign(out, pixelData(part, ctx));
+    out.placedLayer = placed;
+    return out;
+  }
 
   switch (layer.type) {
     case "group":

@@ -22,7 +22,7 @@ This writes `reference/kit/`:
 
 ## 2. In Photoshop
 
-1. **Colour settings.** In **Edit › Color Settings**, set **Working Spaces › RGB** to **sRGB IEC61966-2.1**. When a file opens with a **Missing Profile** warning, choose **Assign working RGB**. Gesso works in sRGB, and so must Photoshop for the numbers to mean anything.
+1. **Colour settings.** The kit's PSDs embed an sRGB profile, the colour space Gesso renders in. If Photoshop asks about a profile mismatch, choose **Use the embedded profile**. (Kits made before profiles were embedded have none: there, choose **Assign working RGB** with the working space set to **sRGB IEC61966-2.1**.)
 2. **Open the three live files:** `adjustments.psd`, `blend-modes.psd` and `layer-styles.psd`. Change nothing.
 3. **Open `filters.psd`.** For each artboard, select its **Chart** layer and apply the filter in `filters.md`, with exactly those settings. Everything not listed stays at its default.
 4. **Export every artboard as a PNG**, for each of the four files: **File › Export › Export As…**, select all artboards, format **PNG**, **Convert to sRGB** on, size **100%**, then **Export All**. Photoshop names each file after its artboard, for example `curves.png`.

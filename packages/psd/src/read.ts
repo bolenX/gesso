@@ -1,8 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Artboard, Asset, BlendMode, Doc, Effect, Layer, Paint, SmartObject } from "@gesso/core";
+import type { Artboard, Asset, BlendMode, Doc, Effect, Filter, Layer, Paint, SmartObject } from "@gesso/core";
 import { readPsd, type BezierPath, type Color as PsdColor, type Layer as PsdLayer, type LinkedFile, type VectorContent } from "ag-psd";
 import sharp from "sharp";
+import { fromPsdFilter } from "./smartFilters.js";
+import { fromBezierMesh } from "./warp.js";
 
 // Opens a PSD as a Gesso document. Layers keep their structure and stay editable where
 // Gesso has an equivalent: text, shapes, smart objects, adjustments, masks, effects.
@@ -351,8 +353,28 @@ async function convertSmart(layer: PsdLayer, base: Record<string, unknown>, orig
   const xs = quad.map((p) => p[0]);
   const ys = quad.map((p) => p[1]);
   const frame = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
-  if (isWarped(placed.warp)) ctx.warnings.push(`smart object "${base.name}": warps aren't supported; placed by its corners`);
-  return { ...base, type: "smart", symbol: symbolId, quad, frame: rounded(frame) } as Layer;
+  // A custom warp becomes a Gesso warp grid; other warp styles (arc, flag…) aren't supported.
+  let warp: Array<Array<[number, number]>> | undefined;
+  if (isWarped(placed.warp)) {
+    const pw = placed.warp!;
+    const mesh = pw.customEnvelopeWarp?.meshPoints;
+    if (pw.style === "custom" && mesh?.length === 16 && pw.bounds) {
+      warp = fromBezierMesh(mesh, { left: pw.bounds.left.value, top: pw.bounds.top.value, right: pw.bounds.right.value, bottom: pw.bounds.bottom.value });
+    } else ctx.warnings.push(`smart object "${base.name}": the ${pw.style} warp isn't supported; placed by its corners`);
+  }
+  // An upright rectangle is just the frame; anything else is a corner pin.
+  const upright = Math.abs(quad[0][1] - quad[1][1]) < 0.01 && Math.abs(quad[1][0] - quad[2][0]) < 0.01 && Math.abs(quad[2][1] - quad[3][1]) < 0.01 && Math.abs(quad[3][0] - quad[0][0]) < 0.01;
+  // Smart filters come back as live Gesso filters where they match exactly.
+  const filters: Filter[] = [];
+  if (placed.filter?.enabled !== false) {
+    for (const f of placed.filter?.list ?? []) {
+      if (!f.enabled) continue;
+      const mapped = fromPsdFilter(f, (mode) => BLEND[mode]);
+      if (mapped) filters.push(mapped);
+      else ctx.warnings.push(`smart object "${base.name}": the smart filter "${f.name}" isn't supported, so it was left out`);
+    }
+  }
+  return { ...base, type: "smart", symbol: symbolId, ...(upright && warp ? {} : { quad }), ...(warp ? { warp } : {}), frame: rounded(frame), ...(filters.length ? { filters } : {}) } as Layer;
 }
 
 /** Real warps only: Photoshop also stores an untouched custom mesh, a regular grid, on plain smart objects. */

@@ -6,6 +6,7 @@ export {
   layerTransform,
   compose,
   transformPoint,
+  warpSurface,
   type Affine,
   type EncodeFormat,
   type ColorOptions,

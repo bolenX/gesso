@@ -9,4 +9,4 @@ Before handing over files:
   - JPEGs are RGB unless print asked for CMYK.
   - TIFF masters are lossless.
 - **Batch runs.** Spot-check the first, the last and one middle output. The variable text fits, and the images are the right ones.
-- **PSD.** The export warnings say what was baked into pixels (smart filters, warps). Tell the user if anything they need to edit was baked.
+- **PSD.** Filters Photoshop also has stay live smart filters, and distorted layers become smart objects with live content. Warped layers become smart objects with a custom warp. The export warnings name what was baked into pixels instead: filters Photoshop has no match for, layers both distorted and warped, and type on a path. Tell the user if anything they need to edit was baked.
