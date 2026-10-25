@@ -1,6 +1,6 @@
 ---
 name: product-photo
-description: Commercial product and e-commerce workflows in Gesso (clean cut-outs, focus stacking by hand, multi-plate composites, de-speckling, symmetry, label wrapping, contact shadows, glass cut-outs, ghost mannequins, batch catalogue output), as layered recipes.
+description: Commercial product and e-commerce workflows in Gesso (clean cut-outs, focus stacking, multi-plate composites, de-speckling, symmetry, label wrapping, contact shadows, glass cut-outs, ghost mannequins, batch catalogue output), as layered recipes.
 ---
 
 # Commercial product and e-commerce
@@ -12,14 +12,20 @@ Pick the method by edge type:
 - **Hard edges:** a vector mask with an SVG path traced along the product (`{ "kind": "vector", "shape": { "kind": "path", "d": "…" } }`), with a small feather (0.5–1).
 - **Soft or complex edges:** `gen_prepare` `remove-background`, then import the cut-out above the original.
 - **Fine hair or fur, or glass:** a `channel` mask (see 18).
+- **Any rough mask on a soft edge:** add `refine` (Select and Mask): `{ "radius": 8, "decontaminate": 60 }` snaps the edge to the product's own pixels and removes the old background's colour from it.
 
 Check the edges at 200% (`canvas_render` scale 2 with a `region` via a stamp) for halos. Choke them with `minimum` 1 on a copy, or shrink the path.
 
-## 12. Focus stacking (by hand)
+## 12. Focus stacking
 
-There's no automatic align or blend. Import each focus slice as an image layer at the same frame. Mask each slice to where it's sharp, with feathered vector masks, best slice on top. To find sharp areas, `find-edges` on a stamp of each slice shows where detail is.
+Edit › Auto-Align Layers, then Auto-Blend Layers › Stack Images:
 
-Shoot on a tripod so the slices align. If they're slightly off, nudge the frames by a pixel or two.
+1. Import each focus slice as an image layer at the same absolute frame.
+2. `canvas_align` with one slice as `reference` and the others as `layers`. It finds each slice's shift (and, with `scale: true`, the small zoom focus breathing adds) and moves its frame. Check each result's `confidence`: below about 0.3, align that slice by hand.
+3. `canvas_stack` with every slice and `mode: "focus"`. Each slice gets a raster mask showing where it's the sharpest; the bottom slice fills whatever's left.
+4. Check edges at 200% (`canvas_render` with a `region`, scale 2) for halos where slices meet. Raise `smoothness` (default about 1% of the short side) if seams show, or paint a fix with a feathered vector mask on the slice that should win.
+
+Shoot on a tripod. `canvas_align` handles shifts and focus breathing, not changes in perspective.
 
 ## 13. Multi-exposure composite
 

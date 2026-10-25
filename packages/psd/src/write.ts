@@ -646,6 +646,8 @@ function vectorShape(layer: Extract<Layer, { type: "shape" }>, part: LayerPart, 
             fillEnabled: fill !== undefined,
             lineWidth: { units: "Pixels" as const, value: layer.stroke.width },
             lineAlignment: "center" as const,
+            ...(layer.stroke.cap ? { lineCapType: layer.stroke.cap } : {}),
+            ...(layer.stroke.join ? { lineJoinType: layer.stroke.join } : {}),
             content: stroke!,
           },
         }

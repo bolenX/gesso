@@ -13,7 +13,8 @@ What works today:
 - **Exports:** SVG, print PDF, and PNG/JPEG/WebP/TIFF, in RGB or CMYK with ICC profiles.
 - **Filters:** Photoshop's whole Filter menu as smart filters, including Blur Gallery, Liquify, Puppet Warp and Camera Raw.
 - **Adjustments:** every adjustment layer, plus the Image › Adjustments commands as filters.
-- **Compositing:** all blend modes, Blend If, luminosity, colour-range and channel masks, and every layer style.
+- **Compositing:** all blend modes, Blend If, luminosity, colour-range, channel and Calculations masks, Select and Mask edge refining with Decontaminate Colors, and every layer style.
+- **Merging exposures:** Auto-Align and Auto-Blend for focus stacks and exposure brackets.
 - **Shapes and transforms:** boolean shapes, skew, distort, perspective and warp.
 - **Retouching:** content-aware fill, healing, clone stamp and content-aware scale.
 - **Production:** batch runs, slices, and jobs prepared for the user's own image models.

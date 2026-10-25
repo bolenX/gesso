@@ -4,6 +4,13 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
 
 ## Unreleased
 
+- **Select and Mask:** every raster, vector and computed mask takes `refine`, Photoshop's Refine Edge. It snaps a rough mask's edge to hair, fur and leaves by estimating each edge pixel's coverage from the nearby subject and background colours. It has `radius`, `smooth`, `contrast`, `shift` and Decontaminate Colors, which replaces the old background's colour in the edge with the subject's own.
+- **Calculations:** a new `calculations` mask blends two channels (red, green, blue or gray, from any layer or from everything below) in one of 10 modes, then applies levels. It stays live, like the other computed masks.
+- **Auto-Align and Auto-Blend:**
+  - The new `canvas_align` tool lines up layers shot from nearly the same place, by phase correlation, to sub-pixel accuracy. It can also find small zoom (focus breathing) and rotation, and reports a confidence for each layer.
+  - The new `canvas_stack` tool blends them with raster masks: `focus` keeps each pixel from the sharpest frame, and `exposure` fuses brackets (Mertens exposure fusion).
+- **Brush strokes:** vector masks take `stroke`, a width, so a path becomes a round-ended brush stroke along it. Shape strokes take `cap` (butt, round, square) and `join` (miter, round, bevel), and both round-trip through PSD.
+- **Faster re-renders:** filtered layers are cached by their content, so changing one layer doesn't re-run the filters on the others.
 - **PSD fidelity:**
   - Image layers whose filters all exist in Photoshop export as smart objects with live smart filters, with Fade opacity and blend modes. There are 25 filters, including Gaussian, Box, Motion and Surface Blur, Unsharp Mask, High Pass, Median, Dust & Scratches, Emboss, Mosaic, Twirl, Pinch, Spherize, Polar Coordinates and Offset. Opening the PSD in Gesso brings them back as filters.
   - Distorted (quad) image, shape and text layers export as smart objects pinned by their four corners, so text and shapes inside stay editable.

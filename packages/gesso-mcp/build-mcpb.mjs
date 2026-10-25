@@ -48,6 +48,8 @@ const tools = [
   ["canvas_export", "Export PNG, JPEG, WebP, TIFF (RGB or CMYK with ICC profiles), a layered PSD, SVG, print-ready PDF, or slices named like files"],
   ["canvas_stamp", "Merge layers into one pixel layer: stamp visible, copy merged, merge, rasterize"],
   ["canvas_batch", "Run a document as a template over a folder of images or rows of data"],
+  ["canvas_align", "Auto-Align Layers: line up exposures of the same scene"],
+  ["canvas_stack", "Auto-Blend Layers: merge a focus stack or an exposure bracket"],
   ["artboard_create", "Add a size, or adapt an artboard to one"],
   ["font_list", "Find installed fonts"],
   ["skill_read", "Read a skill: the workflow, its recipes and its checks"],

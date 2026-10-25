@@ -1,6 +1,6 @@
 ---
 name: compositing
-description: Photoshop compositing in Gesso: every blend mode, Blend If, luminosity / colour-range / channel masks, layer styles (bevel, inner shadow and glow, satin, gradient and pattern overlays), boolean shapes, skew, distort, perspective and warp, with recipes for blending objects into scenes.
+description: Photoshop compositing in Gesso: every blend mode, Blend If, luminosity / colour-range / channel / calculations masks, Select and Mask edge refining, layer styles (bevel, inner shadow and glow, satin, gradient and pattern overlays), boolean shapes, skew, distort, perspective and warp, with recipes for blending objects into scenes.
 ---
 
 # Compositing
@@ -47,8 +47,27 @@ These masks recompute from pixels on every render. `source` is `"below"` (everyt
 | `luminosity` | `range`: lights / darks / midtones or `[low, high]`, `level` 1..5 (higher is narrower), `softness`? | Lights masks for highlight-only grades, Darks for lifting shadows, a band for sky recovery |
 | `color-range` | `color`, `fuzziness` 0..200 | recolouring one colour, selecting skies or greenery |
 | `channel` | `channel` red / green / blue, `black`?, `white`? (levels to push it to pure black and white) | hair and trees against sky: the blue channel with `black: 60, white: 140`, inverted |
+| `calculations` | `a` and `b`: each `{ source?, channel: red / green / blue / gray, invert? }`, `blend` (multiply, screen, overlay, soft-light, hard-light, add, subtract, difference, darken, lighten), `opacity`?, `black`?, `white`? | Image › Calculations: blue × blue in multiply for a deep sky selection, red − blue in subtract to pull skin off a background |
 
 All of them take `feather` and `invert`. In a PSD they're written as pixel masks.
+
+## Refining edges (Select and Mask)
+
+Any raster, vector or computed mask takes `refine`. It works in a band around the mask's soft edge: each pixel's coverage is estimated from the subject's and the background's nearby colours, so a rough mask snaps to hair, fur and leaves.
+
+| field | range | use |
+|---|---|---|
+| `radius` | px | how far from the edge to look: 2–6 for hard edges, 10–30 for hair |
+| `smooth` | 0..100 | evens out a jagged edge first |
+| `contrast` | 0..100 | hardens the result; keep at 0 for hair |
+| `shift` | −100..100 | moves the edge in (negative, chokes halos) or out |
+| `decontaminate` | 0..100 | Decontaminate Colors: replaces the old background's colour in the edge with the subject's own |
+
+```json
+"mask": { "kind": "vector", "shape": { "kind": "ellipse" }, "feather": 6, "refine": { "radius": 15, "decontaminate": 70 } }
+```
+
+A vector mask with `stroke` (a width in px) is the path's outline instead of its area, with round ends: a brush stroke along the path, for dodge & burn lines and painted-in edges. Shape layers' `stroke` also takes `cap` (`butt`, `round`, `square`) and `join` (`miter`, `round`, `bevel`).
 
 ```json
 { "id": "warm-lights", "type": "adjustment", "adjustment": { "kind": "photo-filter", "color": "#EC8A00", "density": 30 },
@@ -104,7 +123,7 @@ Distorted and warped layers are pixels in a PSD. For a corner pin that stays edi
 
 ## Recipes: blending an object into a scene
 
-1. **Cut-out**: the object on its own layer, with a raster mask, or a `channel` mask for hair or foliage.
+1. **Cut-out**: the object on its own layer, with a raster mask, or a `channel` mask for hair or foliage. Add `refine` with `decontaminate` so its edge takes on none of the old background's colour.
 2. **Match tone**: a `curves` adjustment clipped to the object (`"clip": true`), with highlights and shadows matched to the scene.
 3. **Match colour**:
    - a `match-color` filter on the object, with the plate as `source`; or

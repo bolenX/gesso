@@ -13,8 +13,8 @@ Gesso is non-destructive by construction: filters, masks and adjustments are dat
 |---|---|
 | Pen paths | `{ "kind": "vector", "shape": { "kind": "path", "d": "M…" } }` masks, or shape layers with SVG paths. Combine shapes with `compound` |
 | Channel masks (smoke, glass, hair) | `{ "kind": "channel", "channel": "blue", "black": 70, "white": 150, "invert": true, "source": "<photo id>" }`. Pick the channel with the most contrast between subject and background, then tighten `black`/`white` |
-| Calculations | there's no direct equivalent. Stack two masks instead: a `channel` mask on a group, and another channel or `luminosity` mask on the layer inside it (masks multiply) |
-| Select and Mask (hair edges) | a channel mask for the hair, plus a vector mask with a small `feather` for the body. Add `minimum` 1 on a copy to choke halos. For hard cases, `gen_prepare` `remove-background` with a model |
+| Calculations | a `calculations` mask: `{ "kind": "calculations", "a": { "channel": "blue" }, "b": { "channel": "blue" }, "blend": "multiply", "black": 40, "white": 160 }`. Each of `a` and `b` takes a `source` (a layer id, or below), a `channel` (red, green, blue or gray) and `invert`. Red against blue in `subtract` separates skin from a background |
+| Select and Mask (hair edges) | add `refine` to any mask: `{ "radius": 15, "decontaminate": 70 }` for hair, `radius` 2–6 for hard edges, with `smooth`, `contrast` and `shift` like Photoshop's Global Refinements. Start from a rough mask (a vector mask, a channel mask, or a `remove-background` cut-out) |
 | Luminosity masks | `{ "kind": "luminosity", "range": "lights", "level": 2 }` (also darks or midtones, levels 1–5, or a `[low, high]` band) |
 | Colour range | `{ "kind": "color-range", "color": "#3A7BD5", "fuzziness": 60 }` |
 | Alpha channels | save a selection as a mask asset: `canvas_stamp` a white shape layer on black, then use it as `{ "kind": "raster", "asset": … }` anywhere |
@@ -23,7 +23,7 @@ Gesso is non-destructive by construction: filters, masks and adjustments are dat
 
 | technique | in Gesso |
 |---|---|
-| Micro dodge & burn | a `curves` brighten layer and a darken layer in `luminosity` blend, each masked with small feathered vector shapes or `luminosity` band masks. Keep opacities at 0.2–0.5 |
+| Micro dodge & burn | a `curves` brighten layer and a darken layer in `luminosity` blend, each masked with small feathered vector shapes, stroked paths (a vector mask with `stroke`: a brush stroke along the path) or `luminosity` band masks. Keep opacities at 0.2–0.5 |
 | Global dodge & burn | the same with big feathered masks (`feather` 10–20% of the face or object) |
 | Targeted curves | `curves` with points in one zone only, e.g. `[[0,0],[60,52],[128,128],[255,255]]` deepens shadows only. Add `red` / `green` / `blue` for colour per zone |
 | Blend If | `"blendIf": { "underlying": [0, 0, 100, 160] }` and similar (see the compositing skill) |

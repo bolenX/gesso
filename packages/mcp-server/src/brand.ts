@@ -40,4 +40,6 @@ export const TOOL_TITLES: Record<string, string> = {
   gen_prepare: "Prepare generation",
   canvas_stamp: "Merge layers",
   canvas_batch: "Batch export",
+  canvas_align: "Auto-align",
+  canvas_stack: "Auto-blend",
 };

@@ -55,7 +55,8 @@ Hair or foliage against sky:
 
 1. A `channel` mask on the channel with the most contrast (usually blue), with `black` / `white` pulled in until the background is pure white and the subject pure black. `invert` it.
 2. Add a vector mask (on a group around the layer) for solid areas the channel misses. The two masks multiply.
-3. Choke fringes with a `minimum` 1 copy, or decontaminate with a `color` blend layer of the new background colour clipped to the edges.
+3. Add `refine` to the mask: `{ "radius": 15, "decontaminate": 70 }`. It snaps the edge to the strands and replaces the old sky's colour in them with the subject's own.
+4. If a halo remains, choke it with `shift` −10 to −20 in the refine, or a `minimum` 1 copy.
 
 ## 38. Palette harmonising
 

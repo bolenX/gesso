@@ -51,6 +51,7 @@ Two `curves` adjustment layers:
 Each gets a mask:
 
 - a vector mask with a big feather for broad shaping (cheekbones, jaw, the subject versus the background); or
+- a vector mask with a path and `stroke` (a width in px) for painted strokes along a line: under-eye creases, a jaw line, a highlight down the nose; or
 - a `luminosity` mask (`range: "midtones"`) to keep the effect off the highlights and shadows.
 
 Give them `"blend": "luminosity"` so colours don't shift.
