@@ -140,6 +140,20 @@ describe("hosted HTTP server", () => {
     }
   });
 
+  it("counts new workspaces by the address a tunnel reports", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "gesso-proxy-"));
+    const started = await startHttp({ port: 0, host: "127.0.0.1", baseDir: dir, hosted: true, clientIpHeader: "CF-Connecting-IP" });
+    try {
+      const create = (ip: string) => fetch(`${started.url}/new`, { redirect: "manual", headers: { "cf-connecting-ip": ip } }).then((r) => r.status);
+      for (let i = 0; i < 20; i++) expect(await create("203.0.113.7")).toBe(303);
+      expect(await create("203.0.113.7")).toBe(429);
+      // Someone else behind the same tunnel isn't affected.
+      expect(await create("198.51.100.9")).toBe(303);
+    } finally {
+      await started.close();
+    }
+  });
+
   it("deletes workspaces left idle", async () => {
     const stale = "s".repeat(24);
     const dir = join(root, "workspaces", stale);

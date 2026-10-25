@@ -1,0 +1,30 @@
+# Hosted Gesso on any always-on machine, reached through a free Cloudflare Tunnel: no open ports,
+# no certificates to manage, and no hosting bill. See deploy/README.md.
+#
+#   cp deploy/gesso.env.example deploy/gesso.env      # fill in GESSO_SECRET
+#   TUNNEL_TOKEN=… docker compose -f deploy/compose.tunnel.yaml up -d --build
+
+services:
+  gesso:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: gesso.env
+    environment:
+      # Only the tunnel can reach Gesso (no ports are published), so Cloudflare's header is the visitor.
+      GESSO_CLIENT_IP_HEADER: cf-connecting-ip
+      GESSO_BLOCKLIST: /data/blocklist.txt
+    volumes:
+      - gesso-data:/data
+
+  cloudflared:
+    image: cloudflare/cloudflared:2025.8.1
+    restart: unless-stopped
+    depends_on: [gesso]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?Set TUNNEL_TOKEN to the token Cloudflare shows when you create the tunnel}
+
+volumes:
+  gesso-data:
