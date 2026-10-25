@@ -2,50 +2,74 @@
 
 Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each version's notes become its GitHub release.
 
-## Unreleased
+## 0.11.0 (2026-10-25)
 
-- **Select Subject, Select Sky and face parts:** `gen_prepare` has a new `segment` job. It takes `targets` like subject, person, sky, background, skin, face, hair, eyes, brows, lips, teeth or clothes, or a short description, and returns one mask per target with a prompt for the user's segmentation, face-parsing or background-removal tool. With `onto`, the ops put the first mask on a layer straight away.
-- **Masks that follow a photo:** raster masks take `of`, the image layer they were made from. The mask then follows that photo's frame, crop, focus, rotation, flips, skew, distortion and warp, so one selection lines up on an adjustment, a group or the photo itself. They export to PSD as pixel masks.
-- **Mask import:** `asset_import` with `kind: "mask"` saves a grey mask, from a cut-out's transparency or a black-and-white image's brightness.
-- **One plate for every size:** an `expand` job with `artboards` sizes one plate for all of them and places it in each, lined up with the photo. That's one generation, and the same background in every size. Where a frame doesn't fill its artboard, the plate is masked to the frame.
-- **Fix:** job ops are scoped to their artboard, so they work on adapted sizes that share layer ids.
+0.11.0 gives the agent ways to check its own work, tested recipes for 30 skills, Photoshop's selection and merging tools, and PSDs that keep more of the work live.
+
+### Selections and masks
+
 - **Select and Mask:** every raster, vector and computed mask takes `refine`, Photoshop's Refine Edge. It snaps a rough mask's edge to hair, fur and leaves by estimating each edge pixel's coverage from the nearby subject and background colours. It has `radius`, `smooth`, `contrast`, `shift` and Decontaminate Colors, which replaces the old background's colour in the edge with the subject's own.
 - **Calculations:** a new `calculations` mask blends two channels (red, green, blue or gray, from any layer or from everything below) in one of 10 modes, then applies levels. It stays live, like the other computed masks.
-- **Auto-Align and Auto-Blend:**
-  - The new `canvas_align` tool lines up layers shot from nearly the same place, by phase correlation, to sub-pixel accuracy. It can also find small zoom (focus breathing) and rotation, and reports a confidence for each layer.
-  - The new `canvas_stack` tool blends them with raster masks: `focus` keeps each pixel from the sharpest frame, and `exposure` fuses brackets (Mertens exposure fusion).
+- **Masks that follow a photo:** raster masks take `of`, the image layer they were made from. The mask then follows that photo's frame, crop, focus, rotation, flips, skew, distortion and warp, so one selection lines up on an adjustment, a group or the photo itself. They export to PSD as pixel masks.
 - **Brush strokes:** vector masks take `stroke`, a width, so a path becomes a round-ended brush stroke along it. Shape strokes take `cap` (butt, round, square) and `join` (miter, round, bevel), and both round-trip through PSD.
-- **Faster re-renders:** filtered layers are cached by their content, so changing one layer doesn't re-run the filters on the others.
-- **PSD fidelity:**
-  - Image layers whose filters all exist in Photoshop export as smart objects with live smart filters, with Fade opacity and blend modes. There are 25 filters, including Gaussian, Box, Motion and Surface Blur, Unsharp Mask, High Pass, Median, Dust & Scratches, Emboss, Mosaic, Twirl, Pinch, Spherize, Polar Coordinates and Offset. Opening the PSD in Gesso brings them back as filters.
-  - Distorted (quad) image, shape and text layers export as smart objects pinned by their four corners, so text and shapes inside stay editable.
-  - Warped layers export as smart objects with a Photoshop custom warp, fitted to Gesso's warp surface.
-  - Photoshop custom warps on smart objects import as Gesso warps.
-  - PSDs embed an sRGB colour profile.
-- **Skills:**
-  - 15 new skills: duotone, double exposure, poster composition, typography hierarchy, layout grids, brand application, clean plates, typography reflow, social campaign sets, channel packs, safe zones, extreme-ratio relayout, RTL localisation, resolution adaptation, and data-driven variants.
-  - Every skill has a `checks.md`.
-  - 21 skills have recipes (51 in all): proven layer setups that the new `skill_apply` tool fills in and applies as one revision. `skill_read` lists them.
-  - Each recipe has an example, which applies it to a synthetic photo and checks the result with measurements in the test suite.
+
+### AI jobs on the user's own tools
+
+- **Select Subject, Select Sky and face parts:** `gen_prepare` has a new `segment` job. It takes `targets` like subject, person, sky, background, skin, face, hair, eyes, brows, lips, teeth or clothes, or a short description, and returns one mask per target with a prompt for the user's segmentation, face-parsing or background-removal tool. With `onto`, the ops put the first mask on a layer straight away.
+- **Mask import:** `asset_import` with `kind: "mask"` saves a grey mask, from a cut-out's transparency or a black-and-white image's brightness.
+- **One plate for every size:** an `expand` job with `artboards` sizes one plate for all of them and places it in each, lined up with the photo. That's one generation, and the same background in every size. Where a frame doesn't fill its artboard, the plate is masked to the frame.
+- Job ops are scoped to their artboard, so they work on adapted sizes that share layer ids.
+
+### Merging exposures
+
+- **Auto-Align:** the new `canvas_align` tool lines up layers shot from nearly the same place, by phase correlation, to sub-pixel accuracy. It can also find small zoom (focus breathing) and rotation, and reports a confidence for each layer.
+- **Auto-Blend:** the new `canvas_stack` tool blends them with raster masks: `focus` keeps each pixel from the sharpest frame, and `exposure` fuses brackets (Mertens exposure fusion).
+
+### Retouching
+
+- Content-aware fill and healing keep the surrounding grain and texture instead of smoothing it. Before, they kept 60–75% of it; now 95–100%.
+- High Pass uses the same blur as Gaussian Blur, as in Photoshop. Frequency separation now rebuilds the original to within ΔE 3 in the tests, dark detail included.
+- High Pass has a new `scale` option for 8-bit frequency separation.
+
+### PSD fidelity
+
+- Image layers whose filters all exist in Photoshop export as smart objects with live smart filters, with Fade opacity and blend modes. There are 25 filters, including Gaussian, Box, Motion and Surface Blur, Unsharp Mask, High Pass, Median, Dust & Scratches, Emboss, Mosaic, Twirl, Pinch, Spherize, Polar Coordinates and Offset. Opening the PSD in Gesso brings them back as filters.
+- Distorted (quad) image, shape and text layers export as smart objects pinned by their four corners, so text and shapes inside stay editable.
+- Warped layers export as smart objects with a Photoshop custom warp, fitted to Gesso's warp surface.
+- Photoshop custom warps on smart objects import as Gesso warps.
+- PSDs embed an sRGB colour profile.
+
+### Checking work
+
+- **Seeing detail:** `canvas_render` zooms into a region at up to 400%, pixel for pixel, and compares with an earlier revision or with layers hidden. The comparison is side by side or as a difference image, with the share of pixels changed, ΔE and where the changes are.
+- **Measuring:** the new `canvas_inspect` tool works like Photoshop's Histogram and Info panels. It reports tonal range, clipping per channel, contrast, colour cast, chroma, sharpness and noise. Its eyedropper gives hex, RGB, HSB, Lab and the vectorscope angle against the skin-tone line. It also returns clipping and sharpness maps. It can measure a region, some layers on their own, or an earlier revision.
 - **Preflight:** `canvas_inspect` with `preflight: true` lists:
   - text and logos in a preset's safe zones or off the artboard
   - type too small for the format
   - images enlarged past their pixels
   - hidden or empty layers
-- **Patches:**
-  - `set` paths take list indexes and `+` to append, e.g. `filters.+` adds a filter and `filters.0.radius` tunes one.
-  - The `*` selector matches every layer.
-- **Retouching:**
-  - Content-aware fill and healing keep the surrounding grain and texture instead of smoothing it. Before, they kept 60–75% of it; now 95–100%.
-  - High Pass uses the same blur as Gaussian Blur, as in Photoshop, so frequency separation rebuilds the original exactly.
-  - High Pass has a new `scale` option for 8-bit frequency separation.
-- **Seeing detail:** `canvas_render` zooms into a region at up to 400%, pixel for pixel, and compares with an earlier revision or with layers hidden. The comparison is side by side or as a difference image, with the share of pixels changed, ΔE and where the changes are.
-- **Measuring:** the new `canvas_inspect` tool works like Photoshop's Histogram and Info panels. It reports tonal range, clipping per channel, contrast, colour cast, chroma, sharpness and noise. Its eyedropper gives hex, RGB, HSB, Lab and the vectorscope angle against the skin-tone line. It also returns clipping and sharpness maps. It can measure a region, some layers on their own, or an earlier revision.
 - **Photoshop reference kit** (`reference/`): 73 cases (adjustments, blend modes, layer styles and filters) to render in Photoshop. A test scores Gesso against those exports in ΔE, writes a report, and fails if a case gets worse.
+
+### Skills
+
+- 15 new skills: duotone, double exposure, poster composition, typography hierarchy, layout grids, brand application, clean plates, typography reflow, social campaign sets, channel packs, safe zones, extreme-ratio relayout, RTL localisation, resolution adaptation, and data-driven variants.
+- Every skill has a `checks.md`.
+- 21 skills have recipes (51 in all): proven layer setups that the new `skill_apply` tool fills in and applies as one revision. `skill_read` lists them.
+- Each recipe has an example, which applies it to a synthetic photo and checks the result with measurements in the test suite.
+- The product, real-estate, beauty, compositing and manipulation skills use the new selection, merging and AI tools.
+
+### Hosting and releases
+
 - **Hosted Gesso** for claude.ai and ChatGPT connectors: `gesso-mcp --hosted` gives every user a private workspace, with a connector URL, an upload page, and download links for exports. Tools stay inside their own workspace, downloads only reach public addresses, renders are size-limited, and idle workspaces are deleted. There's a Dockerfile and a hosting guide.
 - **Local HTTP** (`--http`) now listens on 127.0.0.1 only, and its download buttons work across requests.
 - **Releases:** every version gets a GitHub release with the Claude Desktop extension attached, under its versioned name and as `gesso.mcpb`.
-- **Slices:** layer names can't write outside the export folder.
+
+### Smaller changes
+
+- `set` paths take list indexes and `+` to append, e.g. `filters.+` adds a filter and `filters.0.radius` tunes one.
+- The `*` selector matches every layer.
+- Filtered layers are cached by their content, so changing one layer doesn't re-run the filters on the others.
+- Slice layer names can't write outside the export folder.
 
 ## 0.10.0 (2026-10-25)
 
