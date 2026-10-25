@@ -48,7 +48,11 @@ Put it behind HTTPS: connectors refuse plain HTTP, and so does OAuth. Then add `
 
 **Fonts.** The image includes DejaVu, Liberation and Noto fonts. Users can upload more on their workspace page.
 
-**Memory.** Allow 2 GB of memory. Large photos with stacked filters use a lot of it.
+**Workers.** Rendering takes the CPU while it runs, so tool calls run in worker processes, one per CPU core up to 4 (`GESSO_WORKERS`). Each workspace always uses the same worker, which keeps its documents and running exports in one place. A long render then only holds up the workspaces that share its worker. Sign-in, pages and downloads stay in the main process and keep answering.
+
+If a worker crashes, for example from running out of memory on a huge render, it's restarted. Only the requests it was working on fail, with a message suggesting a smaller scale or artboard.
+
+**Memory.** Allow about 1 GB per worker. Large photos with stacked filters use a lot of it. `GESSO_WORKER_MB` caps each worker's JavaScript heap; image buffers outside it aren't counted. A worker that hits the cap is restarted, rather than the whole server running out of memory.
 
 ### Example: Fly.io
 
@@ -70,6 +74,7 @@ app = "my-gesso"
   destination = "/data"
 
 [[vm]]
+  cpus = 2
   memory = "2gb"
 ```
 
@@ -101,6 +106,8 @@ Any host that runs a Docker image with a persistent disk works the same way, suc
 | `GESSO_KEY_URLS` | on | Set to `0` to turn off `/new` and the private key URLs |
 | `GESSO_BLOCKLIST` | none | A file of banned workspace keys and accounts (`github:<id>`, `google:<sub>`), one per line. It's reread within a minute of changing |
 | `GESSO_PROXY_HOPS` | `1` | How many proxies in front of Gesso add to `X-Forwarded-For`. The address the nearest one saw is used for rate limits; `0` uses the connection's own address |
+| `GESSO_WORKERS` | CPU cores, at most 4 | Worker processes for tool calls. `0` or `1` runs everything in one process |
+| `GESSO_WORKER_MB` | Node's default | JavaScript heap limit for each worker |
 | `GESSO_MAX_REQUESTS` | `64` | Requests the whole server works on at once before answering "busy" |
 | `GESSO_LOG` | on | One JSON line per MCP request: time, method, tool name, status, duration and a short one-way hash of the workspace. Never content or keys. Set to `0` to turn it off |
 
