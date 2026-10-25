@@ -1,7 +1,32 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, PRESETS, presetList, reflowArtboard, select, semanticErrors, xmpPacket } from "@gesso/core";
-import { encode, renderArtboard, renderDoc, softProof, writePdf, writeSvg, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type ColorOptions, type EncodeFormat, type InstalledFont } from "@gesso/render";
+import {
+  clippingMap,
+  cropRendered,
+  defaultAssetLoader,
+  difference,
+  encode,
+  fontUri,
+  measure,
+  renderArtboard,
+  renderDoc,
+  sampleAt,
+  scanFonts,
+  sharpnessMap,
+  sideBySide,
+  softProof,
+  systemFontDirs,
+  writePdf,
+  writeSvg,
+  zoomRendered,
+  type AssetLoader,
+  type ColorOptions,
+  type EncodeFormat,
+  type InstalledFont,
+  type Region,
+  type Rendered,
+} from "@gesso/render";
 import { importPsd, writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
@@ -15,7 +40,7 @@ import { prepareJob } from "./gen.js";
 import { importAsset } from "./import.js";
 import { loadSkills } from "./skills.js";
 import { findSlices, renderSlice } from "./slices.js";
-import { batch, stamp } from "./production.js";
+import { batch, hideLayers, only, stamp } from "./production.js";
 import { DocStore } from "./store.js";
 import { download, inside, resolvePath } from "./paths.js";
 import { FILE_TOOL, WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
@@ -34,6 +59,7 @@ export const TOOL_NAMES = [
   "canvas_selection",
   "canvas_patch",
   "canvas_render",
+  "canvas_inspect",
   "artboard_create",
   "canvas_export",
   "font_list",
@@ -119,10 +145,10 @@ export type ServerOptions = {
   state?: ServerState;
 };
 
-/** Exports still running, and files this workspace exported (the only ones the download tool serves). */
-export type ServerState = { exports: Map<string, Promise<CallToolResult>>; exported: Set<string> };
+/** Exports still running, files this workspace exported (the only ones the download tool serves), and recent full renders. */
+export type ServerState = { exports: Map<string, Promise<CallToolResult>>; exported: Set<string>; renders: Map<string, Promise<Rendered>> };
 
-export const newServerState = (): ServerState => ({ exports: new Map(), exported: new Set() });
+export const newServerState = (): ServerState => ({ exports: new Map(), exported: new Set(), renders: new Map() });
 
 /** Reads only the workspace and the system font folders, and downloads only from public addresses. */
 export const confinedLoader = (baseDir: string): AssetLoader => {
@@ -157,7 +183,7 @@ export function createServer({
     {
       instructions: [
         "Gesso builds layered images as data and exports PSDs that stay editable in Photoshop.",
-        "Read documents with canvas_outline, change them only with canvas_patch, and check your work with canvas_render before finishing.",
+        "Read documents with canvas_outline, change them only with canvas_patch, and check your work with canvas_render before finishing: zoom into regions at 100–200% for detail, compare with earlier revisions, and measure tones and colours with canvas_inspect.",
         `When you hand over files made with these tools, say they were made with Gesso (${GESSO_URL}).`,
         ...(skills.length
           ? [`For these tasks, read the matching recipe with skill_read first: ${skills.map((s) => `${s.name} (${s.description})`).join("; ")}.`]
@@ -571,35 +597,170 @@ export function createServer({
       }),
   );
 
+  const Region = z
+    .object({ x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive() })
+    .describe("Part of the artboard, in artboard pixels");
+
+  /** The artboard to work on: the one given, or the only one. */
+  const pickArtboard = (d: Doc, artboard?: string) => {
+    if (artboard) {
+      if (!d.artboards.some((a) => a.id === artboard)) throw new Error(`No artboard "${artboard}". Artboards: ${d.artboards.map((a) => a.id).join(", ")}`);
+      return artboard;
+    }
+    if (d.artboards.length === 1) return d.artboards[0]!.id;
+    throw new Error(`Name the artboard: ${d.artboards.map((a) => a.id).join(", ")}`);
+  };
+
+  /** Full renders are kept for the last few views, so zooming around one revision doesn't re-render it. */
+  const cachedRender = (d: Doc, artboard: string, scale: number, variant = "") => {
+    const key = JSON.stringify([d.id, d.revision, artboard, scale, variant]);
+    let job = state.renders.get(key);
+    if (job) state.renders.delete(key);
+    else {
+      job = renderArtboard(d, artboard, { scale, loader });
+      job.catch(() => state.renders.delete(key));
+    }
+    state.renders.set(key, job);
+    while (state.renders.size > 3) state.renders.delete(state.renders.keys().next().value!);
+    return job;
+  };
+
+  /**
+   * One view of an artboard: whole, or a region zoomed like Photoshop's 100–400% (each pixel a square block).
+   * Below 100% the region comes from a render at that scale.
+   */
+  const renderView = async (d: Doc, artboard: string, scale: number, region?: Region, variant = "") => {
+    if (!region) return cachedRender(d, artboard, scale, variant);
+    const base = Math.min(1, scale);
+    checkSize(d, base, artboard);
+    const full = await cachedRender(d, artboard, base, variant);
+    const view = cropRendered(full, { x: region.x * base, y: region.y * base, w: region.w * base, h: region.h * base });
+    if (view.width * Math.max(1, Math.round(scale)) * view.height * Math.max(1, Math.round(scale)) > 4_200_000) {
+      throw new Error(`That view would be over 4 megapixels; use a smaller region or zoom (scale ${scale} × ${Math.round(region.w)}×${Math.round(region.h)})`);
+    }
+    return scale > 1 ? zoomRendered(view, scale) : view;
+  };
+
+  /** The document as it was ("revision") or with some layers hidden ("hide"), to compare against. */
+  const before = (doc: string, compare: { revision?: number | undefined; hide?: string[] | undefined }) => {
+    const history = store.history(doc);
+    if (compare.revision !== undefined) return { doc: history.at(compare.revision), label: `revision ${compare.revision}`, variant: "" };
+    if (compare.hide?.length) return { doc: hideLayers(history.head, new Set(compare.hide)), label: `without ${compare.hide.join(", ")}`, variant: `hide:${compare.hide.join(",")}` };
+    throw new Error("compare needs a revision or layers to hide");
+  };
+
   register(
     "canvas_render",
     {
-      description: "Render artboards to preview images. Use a small scale (default 0.5) to save tokens.",
+      description:
+        "Render artboards to preview images. Use a small scale (default 0.5) to save tokens. To check detail, give a region and zoom in (scale 1 = 100%, up to 4 = 400%). To check a change, compare with an earlier revision or with layers hidden: side by side (before left), or a difference image showing where pixels changed, with numbers.",
       inputSchema: {
         doc: docId,
-        artboard: z.string().optional().describe("Artboard ID; omit to render every artboard"),
-        scale: z.number().positive().max(2).default(0.5),
+        artboard: z.string().optional().describe("Artboard ID; omit to render every artboard (one is needed with region or compare)"),
+        scale: z.number().positive().max(4).default(0.5).describe("0.5 is half size, 1 is 100%. Above 2 needs a region"),
+        region: Region.optional(),
+        compare: z
+          .object({
+            revision: z.number().int().nonnegative().optional().describe("Compare with this earlier revision (canvas_history lists them)"),
+            hide: z.array(z.string()).optional().describe("Compare with these layers hidden: what they add"),
+            view: z.enum(["side-by-side", "difference"]).default("side-by-side"),
+          })
+          .optional(),
         proof: z
           .string()
           .optional()
           .describe('Soft proof (View › Proof Colors): "cmyk" for a standard press, or the path of a CMYK ICC profile; shows colours as they would print'),
       },
     },
-    async ({ doc, artboard, scale, proof }) =>
+    async ({ doc, artboard, scale, region, compare, proof }) =>
       guard(async () => {
         const d = store.get(doc);
-        checkSize(d, scale, artboard);
-        let rendered = artboard ? [await renderArtboard(d, artboard, { scale, loader })] : await renderDoc(d, { scale, loader });
+        if (scale > 2 && !region) throw new Error("Scales above 2 need a region: zoom into part of the artboard");
+        checkSize(d, region ? Math.min(1, scale) : scale, artboard);
+        let rendered: Rendered[];
+        let note = "";
+        if (region || compare) {
+          const id = pickArtboard(d, artboard);
+          const after = await renderView(d, id, scale, region);
+          if (compare) {
+            const b = before(doc, compare);
+            const was = await renderView(b.doc, id, scale, region, b.variant);
+            const diff = difference(was, after);
+            const where = diff.stats.bounds
+              ? `; changes within x ${Math.round((region?.x ?? 0) + diff.stats.bounds.x / scale)}, y ${Math.round((region?.y ?? 0) + diff.stats.bounds.y / scale)}, ${Math.round(diff.stats.bounds.w / scale)}×${Math.round(diff.stats.bounds.h / scale)} (artboard px)`
+              : "";
+            note = `\n${compare.view === "difference" ? "Difference (brighter = more change)" : `Left: ${b.label}. Right: now (revision ${d.revision})`}. ${diff.stats.changed}% of pixels changed, ΔE mean ${diff.stats.deltaE.mean}, max ${diff.stats.deltaE.max}${where}`;
+            rendered = [compare.view === "difference" ? diff.image : sideBySide(was, after)];
+          } else rendered = [after];
+        } else {
+          rendered = artboard ? [await renderArtboard(d, artboard, { scale, loader })] : await renderDoc(d, { scale, loader });
+        }
         if (proof) rendered = await Promise.all(rendered.map((r) => softProof(r, profilePath(proof))));
         const content: CallToolResult["content"] = [];
         const previews: NonNullable<CardData["previews"]> = [];
         for (const r of rendered) {
           const png = (await encode(r, "png")).toString("base64");
-          content.push({ type: "text", text: `${r.artboard} ${r.width}×${r.height}${r.warnings.map((w) => `\nwarning: ${w}`).join("")}` });
+          const at = region ? ` (region ${Math.round(region.x)},${Math.round(region.y)} ${Math.round(region.w)}×${Math.round(region.h)} at ${Math.round(scale * 100)}%)` : "";
+          content.push({ type: "text", text: `${r.artboard} ${r.width}×${r.height}${at}${note}${r.warnings.map((w) => `\nwarning: ${w}`).join("")}` });
           content.push({ type: "image", mimeType: "image/png", data: png });
           previews.push({ artboard: r.artboard, width: r.width, height: r.height });
         }
         return withCard({ content }, { kind: "render", doc, revision: d.revision, previews, warnings: rendered.flatMap((r) => r.warnings) });
+      }),
+  );
+
+  register(
+    "canvas_inspect",
+    {
+      description:
+        "Measure an artboard (or a region, or some layers alone) at full size, like Photoshop's Histogram and Info panels: tonal range, clipping, contrast, colour cast, saturation, sharpness and noise, plus eyedropper samples (hex, RGB, HSB, Lab, and the vectorscope angle against the skin-tone line). A map shows clipped pixels or where the detail is. Use it to check retouching and grading with numbers, before and after a change.",
+      inputSchema: {
+        doc: docId,
+        artboard: z.string().optional().describe("Needed when the document has several artboards"),
+        region: Region.optional(),
+        layers: z.array(z.string()).optional().describe("Measure only these layers (and the groups around them), without the background"),
+        revision: z.number().int().nonnegative().optional().describe("Measure an earlier revision instead of the current one"),
+        samples: z.array(z.tuple([z.number(), z.number()])).max(50).optional().describe("Points to sample, in artboard pixels"),
+        sampleSize: z
+          .union([z.literal(1), z.literal(3), z.literal(5), z.literal(11), z.literal(31), z.literal(51), z.literal(101)])
+          .default(5)
+          .describe("Eyedropper sample size: 1 is a point, 5 averages 5×5 pixels"),
+        map: z
+          .enum(["clipping", "sharpness"])
+          .optional()
+          .describe("Also return an image: clipping (red = clipped to white in a channel, blue = clipped to black) or sharpness (bright = detailed, dark = soft)"),
+      },
+    },
+    async ({ doc, artboard, region, layers, revision, samples, sampleSize, map }) =>
+      guard(async () => {
+        const history = store.history(doc);
+        let d = revision === undefined ? history.head : history.at(revision);
+        const id = pickArtboard(d, artboard);
+        checkSize(d, 1, id);
+        if (layers?.length) d = only(d, id, new Set(layers));
+        const full = await cachedRender(d, id, 1, layers?.length ? `only:${layers.join(",")}` : "");
+        const view = region ? cropRendered(full, region) : full;
+        const origin = region ? [Math.max(0, Math.round(region.x)), Math.max(0, Math.round(region.y))] : [0, 0];
+        const result = {
+          artboard: id,
+          revision: d.revision,
+          ...(region ? { region } : {}),
+          ...(layers?.length ? { layers } : {}),
+          ...measure(view),
+          ...(samples?.length ? { samples: samples.map((p) => sampleAt(full, p, sampleSize)) } : {}),
+        };
+        const content: CallToolResult["content"] = [{ type: "text", text: JSON.stringify(result, null, 1) }];
+        if (map) {
+          const image = map === "clipping" ? clippingMap(view) : sharpnessMap(view);
+          // Large maps are scaled to fit 1024 px; zoom in with a region for full detail.
+          const png = await sharp(await encode(image, "png"))
+            .resize(1024, 1024, { fit: "inside", withoutEnlargement: true, kernel: "nearest" })
+            .png()
+            .toBuffer();
+          content.push({ type: "text", text: `${map} map of ${region ? `region at ${origin.join(",")}` : `artboard ${id}`}` });
+          content.push({ type: "image", mimeType: "image/png", data: png.toString("base64") });
+        }
+        return { content };
       }),
   );
 

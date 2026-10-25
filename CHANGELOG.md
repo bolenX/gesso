@@ -4,6 +4,9 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
 
 ## Unreleased
 
+- **Seeing detail:** `canvas_render` zooms into a region at up to 400%, pixel for pixel, and compares with an earlier revision or with layers hidden. The comparison is side by side or as a difference image, with the share of pixels changed, ΔE and where the changes are.
+- **Measuring:** the new `canvas_inspect` tool works like Photoshop's Histogram and Info panels. It reports tonal range, clipping per channel, contrast, colour cast, chroma, sharpness and noise. Its eyedropper gives hex, RGB, HSB, Lab and the vectorscope angle against the skin-tone line. It also returns clipping and sharpness maps. It can measure a region, some layers on their own, or an earlier revision.
+- **Photoshop reference kit** (`reference/`): 73 cases (adjustments, blend modes, layer styles and filters) to render in Photoshop. A test scores Gesso against those exports in ΔE, writes a report, and fails if a case gets worse.
 - **Hosted Gesso** for claude.ai and ChatGPT connectors: `gesso-mcp --hosted` gives every user a private workspace, with a connector URL, an upload page, and download links for exports. Tools stay inside their own workspace, downloads only reach public addresses, renders are size-limited, and idle workspaces are deleted. There's a Dockerfile and a hosting guide.
 - **Local HTTP** (`--http`) now listens on 127.0.0.1 only, and its download buttons work across requests.
 - **Releases:** every version gets a GitHub release with the Claude Desktop extension attached, under its versioned name and as `gesso.mcpb`.

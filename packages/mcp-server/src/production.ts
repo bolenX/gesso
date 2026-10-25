@@ -17,7 +17,7 @@ const walk = (layers: Layer[], visit: (layer: Layer, parents: Layer[]) => void, 
 };
 
 /** The artboard with only the given layers showing (and the groups around them). */
-function only(doc: Doc, artboardId: string, ids: Set<string>): Doc {
+export function only(doc: Doc, artboardId: string, ids: Set<string>): Doc {
   const keep = (layers: Layer[]): Layer[] =>
     layers.map((layer) => {
       if (ids.has(layer.id)) return layer;
@@ -151,4 +151,11 @@ export async function batch(doc: Doc, request: BatchRequest, baseDir: string, lo
     }
   }
   return { files };
+}
+
+/** The document with some layers hidden, to see what they add. */
+export function hideLayers(doc: Doc, ids: Set<string>): Doc {
+  const hide = (layers: Layer[]): Layer[] =>
+    layers.map((layer) => (ids.has(layer.id) ? ({ ...layer, visible: false } as Layer) : layer.type === "group" ? { ...layer, children: hide(layer.children) } : layer));
+  return { ...doc, artboards: doc.artboards.map((a) => ({ ...a, layers: hide(a.layers) })) };
 }
