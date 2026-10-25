@@ -1,4 +1,5 @@
 import type { Doc, Layer } from "@gesso/core";
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { renderArtboard, writeSvg } from "../src/index.js";
 
@@ -164,5 +165,86 @@ describe("transforms", () => {
     const at = await ink({ warp: bulge });
     expect(at(17, 5)).toBeLessThan(60);
     expect(at(17, 0)).toBeGreaterThan(200);
+  });
+});
+
+describe("refine edge, calculations and stroked masks", () => {
+  // A dark subject with thin dark strands reaching out into a light background, like hair against sky.
+  const hair = async () => {
+    const strands = Array.from({ length: 8 }, (_, i) => `<line x1="${30 + i * 5}" y1="30" x2="${20 + i * 8}" y2="4" stroke="#201810" stroke-width="2"/>`).join("");
+    const svg = `<svg width="100" height="80" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="80" fill="#9CC8F0"/><ellipse cx="50" cy="55" rx="30" ry="25" fill="#201810"/>${strands}</svg>`;
+    return sharp(Buffer.from(svg)).png().toBuffer();
+  };
+  const doc = (mask: object): Doc => ({
+    id: "r",
+    revision: 0,
+    assets: { photo: { uri: "photo", kind: "image" } },
+    artboards: [{ id: "a", name: "A", frame: { x: 0, y: 0, w: 100, h: 80 }, background: "#FF00FF", layers: [{ id: "p", name: "p", type: "image", asset: "photo", fit: "fill", frame: { x: 0, y: 0, w: 100, h: 80 }, mask } as Layer] }],
+  });
+
+  it("refines a rough mask to take in fine strands and leave the background out", async () => {
+    const png = await hair();
+    const loader = async () => png;
+    const rough = { kind: "vector", shape: { kind: "ellipse" }, frame: { x: 20, y: 30, w: 60, h: 50 }, feather: 6 };
+    const before = (await renderArtboard(doc(rough), "a", { loader })).pixels;
+    const after = (await renderArtboard(doc({ ...rough, refine: { radius: 12 } }), "a", { loader })).pixels;
+    // On the fourth strand, outside the rough mask: mostly masked out before, mostly hair after.
+    const strand = (p: Uint8Array) => px(p, 45, 22, 100);
+    console.log("STRAND", strand(before), strand(after), px(after, 90, 20, 100), px(before, 42, 22, 100), px(after, 42, 22, 100));
+    expect(strand(before)[0]).toBeGreaterThan(180);
+    expect(strand(after)[0]).toBeLessThan(140);
+    // Sky between strands, near the subject, stays out (magenta shows through).
+    expect(px(after, 90, 20, 100)).toEqual([255, 0, 255]);
+    // The solid body is fully in.
+    expect(px(after, 50, 60, 100)).toEqual(px(before, 50, 60, 100));
+  });
+
+  it("decontaminates edge colours towards the subject's own", async () => {
+    // A red disc whose soft edge is mixed with the green background.
+    const svg = `<svg width="60" height="60" xmlns="http://www.w3.org/2000/svg"><rect width="60" height="60" fill="#20C020"/><circle cx="30" cy="30" r="18" fill="#C02020"/></svg>`;
+    const png = await sharp(Buffer.from(svg)).blur(2).png().toBuffer();
+    const make = (decontaminate?: number): Doc => ({
+      id: "d",
+      revision: 0,
+      assets: { photo: { uri: "photo", kind: "image" } },
+      artboards: [{ id: "a", name: "A", frame: { x: 0, y: 0, w: 60, h: 60 }, background: "#FFFFFF", layers: [{ id: "p", name: "p", type: "image", asset: "photo", fit: "fill", frame: { x: 0, y: 0, w: 60, h: 60 }, mask: { kind: "color-range", source: "p", color: "#C02020", fuzziness: 120, refine: { radius: 4, ...(decontaminate ? { decontaminate } : {}) } } } as Layer] }],
+    });
+    const loader = async () => png;
+    const [plain, clean] = await Promise.all([renderArtboard(make(), "a", { loader }), renderArtboard(make(100), "a", { loader })]);
+    // On the soft edge, the green fringe falls once decontaminated.
+    const greenness = (p: Uint8Array) => {
+      let g = 0;
+      for (let x = 8; x < 14; x++) g += px(p, x, 30, 60)[1]! - px(p, x, 30, 60)[0]!;
+      return g;
+    };
+    expect(greenness(clean.pixels)).toBeLessThan(greenness(plain.pixels) - 20);
+  });
+
+  it("blends two channels into a mask with Calculations", async () => {
+    const png = await sharp({ create: { width: 20, height: 10, channels: 3, background: "#000000" } })
+      .composite([{ input: Buffer.from('<svg width="20" height="10"><rect width="10" height="10" fill="#4080FF"/><rect x="10" width="10" height="10" fill="#FF8040"/></svg>'), left: 0, top: 0 }])
+      .png()
+      .toBuffer();
+    const calc = { kind: "calculations", a: { source: "p", channel: "blue" }, b: { source: "p", channel: "blue" }, blend: "multiply" };
+    const out = (await renderArtboard({ ...doc(calc), assets: { photo: { uri: "photo", kind: "image" } }, artboards: [{ ...doc(calc).artboards[0]!, frame: { x: 0, y: 0, w: 20, h: 10 }, layers: [{ ...doc(calc).artboards[0]!.layers[0]!, frame: { x: 0, y: 0, w: 20, h: 10 } } as Layer] }] }, "a", { loader: async () => png })).pixels;
+    // Blue × blue: the blue half stays (255·255/255), the orange half (blue 64) nearly vanishes into magenta.
+    const at = (x: number) => [out[(5 * 20 + x) * 4]!, out[(5 * 20 + x) * 4 + 1]!, out[(5 * 20 + x) * 4 + 2]!];
+    expect(at(4)).toEqual([64, 128, 255]);
+    expect(at(15)[1]).toBeLessThan(20);
+  });
+
+  it("strokes a vector mask along a path like a brush", async () => {
+    const solid = await sharp({ create: { width: 40, height: 20, channels: 3, background: "#000000" } }).png().toBuffer();
+    const stroked: Doc = {
+      id: "s",
+      revision: 0,
+      assets: { photo: { uri: "photo", kind: "image" } },
+      artboards: [{ id: "a", name: "A", frame: { x: 0, y: 0, w: 40, h: 20 }, background: "#FFFFFF", layers: [{ id: "p", name: "p", type: "image", asset: "photo", fit: "fill", frame: { x: 0, y: 0, w: 40, h: 20 }, mask: { kind: "vector", shape: { kind: "path", d: "M 5 10 L 35 10" }, stroke: 6 } } as Layer] }],
+    };
+    const out = (await renderArtboard(stroked, "a", { loader: async () => solid })).pixels;
+    expect(px(out, 20, 10, 40)).toEqual([0, 0, 0]);
+    expect(px(out, 20, 2, 40)).toEqual([255, 255, 255]);
+    // Round caps reach past the ends.
+    expect(px(out, 3, 10, 40)[0]).toBeLessThan(128);
   });
 });

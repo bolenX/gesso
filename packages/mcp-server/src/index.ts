@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, PRESETS, presetList, reflowArtboard, select, semanticErrors, xmpPacket } from "@gesso/core";
+import { Doc, docIssues, GENERATOR, type Op, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, PRESETS, presetList, reflowArtboard, select, semanticErrors, xmpPacket } from "@gesso/core";
 import {
   clippingMap,
   cropRendered,
@@ -43,6 +43,7 @@ import { describeRecipes, instantiate } from "./recipes.js";
 import { preflight } from "./preflight.js";
 import { findSlices, renderSlice } from "./slices.js";
 import { batch, hideLayers, only, stamp } from "./production.js";
+import { alignLayers, stackLayers } from "./merge.js";
 import { DocStore } from "./store.js";
 import { download, inside, resolvePath } from "./paths.js";
 import { FILE_TOOL, WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
@@ -72,6 +73,8 @@ export const TOOL_NAMES = [
   "gen_prepare",
   "canvas_stamp",
   "canvas_batch",
+  "canvas_align",
+  "canvas_stack",
 ] as const;
 
 /** How much the width:height ratio changes, as a factor of at least 1. */
@@ -808,6 +811,61 @@ export function createServer({
           content.push({ type: "image", mimeType: "image/png", data: png.toString("base64") });
         }
         return { content };
+      }),
+  );
+
+  /** Applies ops as one revision, saves, and answers with the result and outline (like canvas_patch). */
+  const applyOps = (doc: string, ops: Op[], extra: Record<string, unknown> = {}) => {
+    const history = store.history(doc);
+    const result = history.apply(Patch.parse({ doc, baseRevision: history.head.revision, ops }), author, { selection: store.selection(doc) });
+    if (isConflict(result)) throw new Error("The document changed meanwhile; try again.");
+    store.save(doc);
+    const tree = outline(history.head);
+    return withCard(json({ ...result, ...extra, outline: tree }), { kind: "patch", doc, revision: result.revision, changed: result.changed, warnings: result.warnings, outline: tree });
+  };
+
+  register(
+    "canvas_align",
+    {
+      description:
+        "Edit › Auto-Align Layers: lines up exposures of the same scene (a focus stack, an exposure bracket, burst frames) with a reference layer, by phase correlation. Shifts each layer's frame, and with scale or rotation also corrects focus breathing (±4%) or a slight handheld turn (±2°). Returns what it found per layer, with a confidence (higher is surer; below about 0.05 the match is doubtful).",
+      inputSchema: {
+        doc: docId,
+        artboard: z.string(),
+        reference: z.string().describe("The layer the others line up with (usually the middle exposure or the sharpest frame)"),
+        layers: z.array(z.string()).min(1).describe("Layers to move onto the reference"),
+        scale: z.boolean().optional().describe("Also correct a scale change (focus breathing between focus-stack frames)"),
+        rotation: z.boolean().optional().describe("Also correct a small rotation (handheld frames)"),
+      },
+    },
+    async ({ doc, ...request }) =>
+      guard(async () => {
+        const d = store.get(doc);
+        checkSize(d, 1, request.artboard);
+        const { ops, results } = await alignLayers(d, request, loader);
+        return applyOps(doc, ops, { aligned: results });
+      }),
+  );
+
+  register(
+    "canvas_stack",
+    {
+      description:
+        "Edit › Auto-Blend Layers: merges aligned exposures into one image with a raster mask per layer. mode focus: a focus stack, each part from the frame where it's sharpest. mode exposure: an exposure bracket fused (Mertens exposure fusion), favouring well-exposed, contrasty, saturated pixels, as a natural-looking HDR. The bottom layer shows everywhere; layers above are masked. Align them first with canvas_align.",
+      inputSchema: {
+        doc: docId,
+        artboard: z.string(),
+        layers: z.array(z.string()).min(2).describe("The exposures, all covering the same area"),
+        mode: z.enum(["focus", "exposure"]),
+        smoothness: z.number().positive().max(200).optional().describe("How soft the transitions between frames are, in px (default 1% of the shorter side)"),
+      },
+    },
+    async ({ doc, ...request }) =>
+      guard(async () => {
+        const d = store.get(doc);
+        checkSize(d, 1, request.artboard);
+        const { ops, layers } = await stackLayers(d, request, baseDir, loader);
+        return applyOps(doc, ops, { blended: layers });
       }),
   );
 

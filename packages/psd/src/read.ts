@@ -268,7 +268,15 @@ async function fontFamily(postscriptName: string | undefined, ctx: Ctx): Promise
 function convertShape(layer: PsdLayer, base: Record<string, unknown>, origin: Box, ctx: Ctx): Layer | undefined {
   const fill = layer.vectorStroke?.fillEnabled === false ? undefined : layer.vectorFill ? paint(layer.vectorFill) : undefined;
   const strokeContent = layer.vectorStroke?.strokeEnabled && layer.vectorStroke.content ? paint(layer.vectorStroke.content) : undefined;
-  const stroke = strokeContent ? { paint: strokeContent, width: layer.vectorStroke?.lineWidth?.value ?? 1 } : undefined;
+  const vs = layer.vectorStroke;
+  const stroke = strokeContent
+    ? {
+        paint: strokeContent,
+        width: vs?.lineWidth?.value ?? 1,
+        ...(vs?.lineCapType && vs.lineCapType !== "butt" ? { cap: vs.lineCapType } : {}),
+        ...(vs?.lineJoinType && vs.lineJoinType !== "miter" ? { join: vs.lineJoinType } : {}),
+      }
+    : undefined;
   if (fill === null || strokeContent === null) return undefined;
   const paths = layer.vectorMask?.paths ?? [];
   if (!paths.length) {

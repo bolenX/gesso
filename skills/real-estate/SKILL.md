@@ -73,7 +73,9 @@ Match the direction of the light: if the sun in the new sky is on the wrong side
 Exposure fusion by masks instead of tone mapping:
 
 1. Put the brackets in order: dark (for windows), then mid, then bright.
-2. Use `luminosity` masks: the dark frame where `source: <mid>` is in the lights (`level` 2), the bright frame where the mid is in the darks.
-3. Local contrast: `camera-raw` `clarity` 20–30 on a stamp, or `high-pass` 20 in `soft-light` at 0.3.
+2. Hand-held? `canvas_align` with the mid frame as `reference`.
+3. `canvas_stack` with all the brackets and `mode: "exposure"`: each frame gets a mask that weights its well-exposed, saturated, contrasty pixels (Mertens exposure fusion).
+4. Or by hand, with `luminosity` masks: the dark frame where `source: <mid>` is in the lights (`level` 2), the bright frame where the mid is in the darks.
+5. Local contrast: `camera-raw` `clarity` 20–30 on a stamp, or `high-pass` 20 in `soft-light` at 0.3.
 
 Keep it natural. Check that shadows still read as shadows.

@@ -83,14 +83,15 @@ function needsBackdrop(layer: Layer, pdf = false): boolean {
   if (!isStandardBlend(layer.blend)) return true;
   // Blend If and masks computed from what's below read the pixels beneath.
   if (layer.blendIf) return true;
-  if (isComputedMask(layer.mask) && (layer.mask.source ?? "below") === "below") return true;
+  if (isComputedMask(layer.mask) && (layer.mask.kind === "calculations" ? [layer.mask.a.source, layer.mask.b.source] : [layer.mask.source]).some((s) => (s ?? "below") === "below")) return true;
   return layer.type === "group" && layer.children.some((c) => needsBackdrop(c, pdf));
 }
 
 /** True when the layer (or something inside it) has to be drawn by the renderer. */
 function needsRaster(layer: Layer, pdf = false): boolean {
   if (layer.filters?.length || layer.effects?.length) return true;
-  if (layer.mask && (layer.mask.kind !== "vector" || layer.mask.shape.kind === "compound" || (pdf && layer.mask.feather))) return true;
+  // Refined and stroked masks, like raster and computed ones, are drawn as pixels.
+  if (layer.mask && (layer.mask.kind !== "vector" || layer.mask.shape.kind === "compound" || layer.mask.stroke || layer.mask.refine || (pdf && layer.mask.feather))) return true;
   if (layer.type === "smart" || layer.quad || layer.warp) return true;
   if (layer.type === "image" && layer.fit === "content-aware") return true;
   if (layer.type === "shape" && (isMesh(layer.fill) || isMesh(layer.stroke?.paint))) return true;
@@ -147,7 +148,11 @@ function shape(layer: Extract<Layer, { type: "shape" }>, box: Box, ctx: Ctx): st
   const fill = layer.fill === undefined ? "none" : paintRef(layer.fill, box, ctx);
   const attrs = [`fill="${fill}"`];
   if (layer.fillOpacity !== undefined && layer.fillOpacity < 1) attrs.push(`fill-opacity="${layer.fillOpacity}"`);
-  if (layer.stroke) attrs.push(`stroke="${paintRef(layer.stroke.paint, box, ctx)}"`, `stroke-width="${num(layer.stroke.width)}"`);
+  if (layer.stroke) {
+    attrs.push(`stroke="${paintRef(layer.stroke.paint, box, ctx)}"`, `stroke-width="${num(layer.stroke.width)}"`);
+    if (layer.stroke.cap) attrs.push(`stroke-linecap="${layer.stroke.cap}"`);
+    if (layer.stroke.join) attrs.push(`stroke-linejoin="${layer.stroke.join}"`);
+  }
   const combined = layer.shape.kind === "compound" ? ctx.parts.get(layer.id)?.svgPath : undefined;
   if (combined !== undefined) return `<path d="${esc(combined)}" ${attrs.join(" ")}/>`;
   return shapeElement(layer.shape, box, attrs.join(" "));

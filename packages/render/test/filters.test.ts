@@ -164,3 +164,36 @@ describe("Filter menu", () => {
     expect(rowDiff(2)).toBeLessThan(rowDiff(95) / 3);
   });
 });
+
+describe("filtered layer cache", () => {
+  it("reuses a filtered layer when only other layers change, and re-filters when its filter does", async () => {
+    const { filterCacheStats } = await import("../src/index.js");
+    const photo = await sharp({ create: { width: 120, height: 80, channels: 3, background: "#3080C0" } }).composite([{ input: Buffer.from('<svg width="120" height="80"><circle cx="60" cy="40" r="25" fill="#FFC21A"/></svg>'), left: 0, top: 0 }]).png().toBuffer();
+    const loader = async () => photo;
+    const doc = (radius: number, tint: string): Doc => ({
+      id: "cache",
+      revision: 0,
+      assets: { photo: { uri: "photo", kind: "image" } },
+      artboards: [
+        {
+          id: "a",
+          name: "A",
+          frame: { x: 0, y: 0, w: 120, h: 80 },
+          layers: [
+            { id: "p", name: "p", type: "image", asset: "photo", fit: "fill", frame: { x: 0, y: 0, w: 120, h: 80 }, filters: [{ kind: "surface-blur", radius, threshold: 20 }] } as Layer,
+            { id: "t", name: "t", type: "shape", shape: { kind: "rect" }, fill: tint, frame: { x: 10, y: 10, w: 20, h: 20 } } as Layer,
+          ],
+        },
+      ],
+    });
+    const first = await renderArtboard(doc(5, "#FF0000"), "a", { loader });
+    const hits = filterCacheStats.hits;
+    const second = await renderArtboard(doc(5, "#00FF00"), "a", { loader });
+    expect(filterCacheStats.hits).toBe(hits + 1);
+    // The filtered photo is the same pixels; only the small square changed colour.
+    expect(Buffer.from(second.pixels.subarray((60 * 120 + 100) * 4, (60 * 120 + 100) * 4 + 4))).toEqual(Buffer.from(first.pixels.subarray((60 * 120 + 100) * 4, (60 * 120 + 100) * 4 + 4)));
+    const misses = filterCacheStats.misses;
+    await renderArtboard(doc(8, "#00FF00"), "a", { loader });
+    expect(filterCacheStats.misses).toBe(misses + 1);
+  });
+});

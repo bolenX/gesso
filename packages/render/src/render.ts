@@ -10,6 +10,7 @@ import type {
   Layer,
   Mask,
   Paint as GessoPaint,
+  Refine,
   Shape,
   SmartLayer,
   SmartObject,
@@ -19,7 +20,7 @@ import { adjustmentAssets, filterAssets, isComputedMask, paintColor } from "@ges
 import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
 import { DISSOLVE, setBlend } from "./blend.js";
-import { blendIfWeights, computeMask } from "./masks.js";
+import { blendIfWeights, computeCalculations, computeMask, refineMask } from "./masks.js";
 import { seamMap } from "./retouch.js";
 import { boxPlane, gaussBlur, readRaster, writeRaster } from "./cpu.js";
 import { applyFilter, filterReach, type FilterKit } from "./filters.js";
@@ -217,6 +218,8 @@ export async function softProof(rendered: Rendered, profile = "cmyk"): Promise<R
 
 type Resources = {
   images: Map<string, Image>;
+  /** Content hash of each image by asset id, so caches notice a changed file behind the same name. */
+  hashes: Map<string, string>;
   fonts: TypefaceFontProvider;
   families: Set<string>;
   /** Font file bytes by family, for text that's laid out glyph by glyph (text on a path). */
@@ -229,7 +232,28 @@ type Resources = {
 
 // Decoded images, kept between renders by content hash: decoding a large photo costs far
 // more than reading it, and agents render the same document over and over.
-type Cached = { image: Image; bytes: number; users: number; used: number };
+type Cached = { image: Image; bytes: number; users: number; used: number; key: string };
+
+// Layers with smart filters, as filtered, kept between renders: filters are the costly part of a render,
+// and an agent changing one layer re-renders all the others unchanged. Keyed by everything that shapes
+// the result: the layer's content and filters, where it sits, the scale and the images it reads.
+type Filtered = { pixels: Uint8Array; w: number; h: number; x: number; y: number; box: Box; warnings: string[] };
+const filteredCache = new Map<string, Filtered>();
+let filteredBytes = 0;
+const FILTERED_LIMIT = 384 * 1024 * 1024;
+
+/** How often filtered layers came from the cache, for tests and diagnostics. */
+export const filterCacheStats = { hits: 0, misses: 0 };
+
+function keepFiltered(key: string, entry: Filtered): void {
+  filteredCache.set(key, entry);
+  filteredBytes += entry.pixels.length;
+  for (const [k, e] of filteredCache) {
+    if (filteredBytes <= FILTERED_LIMIT) break;
+    filteredCache.delete(k);
+    filteredBytes -= e.pixels.length;
+  }
+}
 const imageCache = new Map<string, Cached>();
 const CACHE_BUDGET = 512 * 1024 * 1024;
 
@@ -276,7 +300,7 @@ async function decodeImage(ck: CanvasKit, id: string, asset: Asset, bytes: Uint8
       info.width * 4,
     );
     if (!image) throw new Error(`Could not decode asset "${id}"`);
-    cached = { image, bytes: info.width * info.height * 4, users: 0, used: 0 };
+    cached = { image, bytes: info.width * info.height * 4, users: 0, used: 0, key };
     imageCache.set(key, cached);
   }
   cached.used = Date.now();
@@ -300,6 +324,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
   for (const artboard of artboards) visit(artboard.layers);
 
   const images = new Map<string, Image>();
+  const hashes = new Map<string, string>();
   const held: Cached[] = [];
   const warnings: string[] = [];
   const release = () => held.forEach((c) => c.users--);
@@ -311,6 +336,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
       cached.users++;
       held.push(cached);
       images.set(id, cached.image);
+      hashes.set(id, cached.key);
     }
   } catch (err) {
     release();
@@ -348,6 +374,7 @@ async function loadResources(ck: CanvasKit, doc: Doc, artboards: Artboard[], loa
 
   return {
     images,
+    hashes,
     fonts,
     families,
     fontData,
@@ -450,7 +477,17 @@ class Compositor {
         }
         part.matrix = compose(inherited, layerTransform(layer, part.box));
         if (part.quad && part.matrix) part.quad = part.quad.map(([x, y]) => transformPoint(part.matrix, x, y));
-        if (layer.mask) part.mask = this.readImageAlpha(this.maskImage(layer.mask, part.box, parent, layer.id));
+        if (layer.mask) {
+          let mask = this.maskImage(layer.mask, part.box, parent, layer.id);
+          const refine = "refine" in layer.mask ? layer.mask.refine : undefined;
+          if (refine) {
+            const content = this.renderLayer(layer, parent, false);
+            const [refinedMask, refinedContent] = this.refined(mask, content, refine);
+            refinedContent.delete();
+            mask = refinedMask;
+          }
+          part.mask = this.readImageAlpha(mask);
+        }
         const patterns = (layer.effects ?? []).filter((e): e is Extract<Effect, { kind: "pattern-overlay" }> => e.kind === "pattern-overlay");
         if (patterns.length && layer.type !== "adjustment") part.overlays = this.patternParts(layer, parent, patterns);
         parts.set(layer.id, part);
@@ -552,7 +589,45 @@ class Compositor {
    * big as they reach (blur included), placed at (x, y) in device pixels. Allocating and
    * blurring artboard-sized surfaces per layer is what made large posters slow.
    */
+  /** The filtered-layer cache key: what the layer draws and its filters, where, at what scale, from which images. */
+  private filteredKey(layer: Layer, parent: Box, inherited?: Affine): string {
+    const content: Record<string, unknown> = { ...layer };
+    // Applied after the bounded render (opacity, blend, mask…) or only labels: they don't change it.
+    for (const key of ["name", "opacity", "blend", "visible", "clip", "blendIf", "mask", "meta", "fillOpacity"]) delete content[key];
+    const smart = layer.type === "smart" ? this.symbols[layer.symbol] ?? null : null;
+    return createHash("sha1")
+      .update(JSON.stringify([content, parent, inherited ?? null, this.scale, this.width, this.height, smart, [...this.res.hashes].sort()]))
+      .digest("hex");
+  }
+
   private renderBounded(layer: Layer, parent: Box, inherited?: Affine): { box: Box; image?: Image; x: number; y: number } {
+    // Text keeps its fitted sizes and laid-out lines as side results, so only other layers come from the cache.
+    const key = layer.filters?.length && layer.type !== "text" && layer.type !== "group" ? this.filteredKey(layer, parent, inherited) : undefined;
+    if (key) {
+      const hit = filteredCache.get(key);
+      if (hit) {
+        filteredCache.delete(key);
+        filteredCache.set(key, hit);
+        filterCacheStats.hits++;
+        this.warnings.push(...hit.warnings);
+        if (!hit.w) return { box: hit.box, x: hit.x, y: hit.y };
+        const info = { width: hit.w, height: hit.h, colorType: this.ck.ColorType.RGBA_8888, alphaType: this.ck.AlphaType.Premul, colorSpace: this.ck.ColorSpace.SRGB };
+        return { box: hit.box, image: this.ck.MakeImage(info, hit.pixels, hit.w * 4)!, x: hit.x, y: hit.y };
+      }
+      filterCacheStats.misses++;
+    }
+    const warningsBefore = this.warnings.length;
+    const result = this.renderBoundedFresh(layer, parent, inherited);
+    if (key) {
+      const pixels = result.image
+        ? (result.image.readPixels(0, 0, { width: result.image.width(), height: result.image.height(), colorType: this.ck.ColorType.RGBA_8888, alphaType: this.ck.AlphaType.Premul, colorSpace: this.ck.ColorSpace.SRGB }) as Uint8Array)
+        : new Uint8Array(0);
+      keepFiltered(key, { pixels, w: result.image?.width() ?? 0, h: result.image?.height() ?? 0, x: result.x, y: result.y, box: result.box, warnings: this.warnings.slice(warningsBefore) });
+    }
+    return result;
+  }
+
+  private renderBoundedFresh(layer: Layer, parent: Box, inherited?: Affine): { box: Box; image?: Image; x: number; y: number } {
     const recorder = new this.ck.PictureRecorder();
     const limit = 1e6;
     const canvas = recorder.beginRecording(this.ck.LTRBRect(-limit, -limit, limit, limit), true);
@@ -1142,7 +1217,9 @@ class Compositor {
       for (const filter of layer.filters ?? []) image = this.filter(image, filter, resolveFrame(layer.frame, parent), 0, 0);
     }
     if (withMask && layer.mask) {
-      const mask = this.maskImage(layer.mask, box, parent, layer.id, below);
+      let mask = this.maskImage(layer.mask, box, parent, layer.id, below);
+      const refine = "refine" in layer.mask ? layer.mask.refine : undefined;
+      if (refine) [mask, image] = this.refined(mask, image, refine);
       const out = this.surface();
       out.getCanvas().drawImage(image, 0, 0);
       this.drawImage(out, mask, undefined, 1, "DstIn");
@@ -1247,6 +1324,8 @@ class Compositor {
             const p = this.paint(layer.stroke.paint, box);
             p.setStyle(this.ck.PaintStyle.Stroke);
             p.setStrokeWidth(layer.stroke.width);
+            if (layer.stroke.cap) p.setStrokeCap({ butt: this.ck.StrokeCap.Butt, round: this.ck.StrokeCap.Round, square: this.ck.StrokeCap.Square }[layer.stroke.cap]);
+            if (layer.stroke.join) p.setStrokeJoin({ miter: this.ck.StrokeJoin.Miter, round: this.ck.StrokeJoin.Round, bevel: this.ck.StrokeJoin.Bevel }[layer.stroke.join]);
             this.drawShape(c, layer.shape, box, p);
           }
         });
@@ -1549,6 +1628,20 @@ class Compositor {
   }
 
   /** Builds a coverage image whose alpha is the mask. */
+  /** Select and Mask: the mask refined against the layer's own pixels, and the content with its edge colours cleaned if asked. Consumes both images. */
+  private refined(mask: Image, content: Image, refine: Refine): [Image, Image] {
+    const { ck } = this;
+    const pixels = content.readPixels(0, 0, this.info(ck.AlphaType.Unpremul)) as Uint8Array;
+    const coverage = this.readImageAlpha(mask);
+    const result = refineMask(pixels, coverage, this.width, this.height, refine, this.scale);
+    const rgba = new Uint8Array(result.coverage.length * 4).fill(255);
+    for (let i = 0; i < result.coverage.length; i++) rgba[i * 4 + 3] = result.coverage[i]!;
+    const refinedMask = ck.MakeImage(this.info(ck.AlphaType.Unpremul), rgba, this.width * 4)!;
+    if (!result.content) return [refinedMask, content];
+    content.delete();
+    return [refinedMask, ck.MakeImage(this.info(ck.AlphaType.Unpremul), result.content, this.width * 4)!];
+  }
+
   private maskImage(mask: Mask, box: Box, parent: Box, layerId?: string, below?: Surface): Image {
     const { ck } = this;
     if (isComputedMask(mask)) {
@@ -1563,13 +1656,23 @@ class Compositor {
     const canvas = s.getCanvas();
     if (mask.kind === "vector") {
       const at = mask.frame ? resolveFrame(mask.frame, box) : box;
+      // A stroked mask is the shape's outline drawn with a round brush of that width.
+      const brush = (p: Paint) => {
+        if (mask.stroke) {
+          p.setStyle(ck.PaintStyle.Stroke);
+          p.setStrokeWidth(mask.stroke);
+          p.setStrokeCap(ck.StrokeCap.Round);
+          p.setStrokeJoin(ck.StrokeJoin.Round);
+        }
+        return p;
+      };
       if (mask.invert) {
         this.drawScaled(canvas, (c) => c.drawRect(ck.XYWHRect(box.x, box.y, box.w, box.h), this.paint("#ffffff", box)));
-        const cut = this.paint("#ffffff", at);
+        const cut = brush(this.paint("#ffffff", at));
         cut.setBlendMode(ck.BlendMode.DstOut);
         this.drawScaled(canvas, (c) => this.drawShape(c, mask.shape, at, cut));
       } else {
-        this.drawScaled(canvas, (c) => this.drawShape(c, mask.shape, at, this.paint("#ffffff", at)));
+        this.drawScaled(canvas, (c) => this.drawShape(c, mask.shape, at, brush(this.paint("#ffffff", at))));
       }
     } else if (mask.kind === "raster") {
       const image = this.res.images.get(mask.asset)!;
@@ -1600,7 +1703,23 @@ class Compositor {
 
   /** Adjustment layers recolour everything below them in scope, weighted by opacity, mask and clip base. */
   /** A computed mask's coverage per output pixel, from a layer or from what's below. */
-  private computedMask(mask: Extract<Mask, { kind: "luminosity" | "color-range" | "channel" }>, parent: Box, layerId: string | undefined, below: Surface | undefined): Uint8Array {
+  private computedMask(mask: Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "calculations" }>, parent: Box, layerId: string | undefined, below: Surface | undefined): Uint8Array {
+    if (mask.kind === "calculations") {
+      const given = layerId ? this.givenMasks?.get(layerId) : undefined;
+      if (given && given.length === this.width * this.height) return given;
+      const read = (source: string | undefined) => {
+        if ((source ?? "below") === "below") return below ? this.readPixels(below) : new Uint8Array(this.width * this.height * 4);
+        const layer = this.byId.get(source!);
+        if (!layer) throw new Error(`Mask refers to missing layer "${source}"`);
+        const image = this.renderLayer(layer, parent, false);
+        const pixels = image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array;
+        image.delete();
+        return pixels;
+      };
+      const coverage = computeCalculations(read(mask.a.source), read(mask.b.source), mask);
+      if (layerId && ((mask.a.source ?? "below") === "below" || (mask.b.source ?? "below") === "below")) this.masks.set(layerId, coverage);
+      return coverage;
+    }
     const from = mask.source ?? "below";
     if (from !== "below") {
       const source = this.byId.get(from);

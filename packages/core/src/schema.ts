@@ -142,12 +142,35 @@ export const Shape = z.discriminatedUnion("kind", [
 ]);
 export type Shape = z.infer<typeof Shape>;
 
+/**
+ * Select and Mask / Refine Edge: snaps a mask's soft edge to the detail in the layer's own pixels (hair, fur,
+ * foliage), estimating each edge pixel's coverage from the nearby subject and background colours, then shapes it. Decontaminating replaces the old background's colour in
+ * the semi-transparent edge with the subject's own nearby colours.
+ */
+export const Refine = z.object({
+  /** How far from the edge to look for detail, in px (Photoshop's edge radius): 2–6 for hard edges, 10–30 for hair. */
+  radius: z.number().positive().max(250).optional(),
+  /** Smooths jagged edges before refining, 0..100. */
+  smooth: z.number().min(0).max(100).optional(),
+  /** Hardens the soft edge, 0..100. */
+  contrast: z.number().min(0).max(100).optional(),
+  /** Moves the edge in (negative) or out (positive), −100..100. */
+  shift: z.number().min(-100).max(100).optional(),
+  /** Decontaminate Colors: how much of the old background's colour to remove from the edge, 0..100. */
+  decontaminate: z.number().min(0).max(100).optional(),
+});
+export type Refine = z.infer<typeof Refine>;
+
+/** One channel of a layer (or of everything below) for Calculations; gray is luminosity. */
+const CalcChannel = z.object({ source: z.string().optional(), channel: z.enum(["red", "green", "blue", "gray"]), invert: z.boolean().optional() });
+
 export const Mask = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("raster"),
     asset: z.string(),
     invert: z.boolean().optional(),
     feather: z.number().nonnegative().optional(),
+    refine: Refine.optional(),
   }),
   z.object({
     kind: z.literal("vector"),
@@ -157,6 +180,9 @@ export const Mask = z.discriminatedUnion("kind", [
     frame: Frame.optional(),
     /** Hide inside the shape instead of outside it. */
     invert: z.boolean().optional(),
+    /** With a width, the mask is the shape's outline stroked this wide (round caps): a brush stroke along a path. */
+    stroke: z.number().positive().optional(),
+    refine: Refine.optional(),
   }),
   z.object({ kind: z.literal("luminance-of"), layer: Id }),
   /**
@@ -174,6 +200,7 @@ export const Mask = z.discriminatedUnion("kind", [
     softness: z.number().min(0).max(255).optional(),
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
+    refine: Refine.optional(),
   }),
   z.object({
     /** Color Range: where colours are within `fuzziness` (colour distance) of `color`. */
@@ -183,6 +210,7 @@ export const Mask = z.discriminatedUnion("kind", [
     fuzziness: z.number().min(0).max(200),
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
+    refine: Refine.optional(),
   }),
   z.object({
     /** A colour channel as a mask, with levels (`black`, `white`) to push it to black and white: the channel-mask technique for hair, trees and skies. */
@@ -193,13 +221,31 @@ export const Mask = z.discriminatedUnion("kind", [
     white: z.number().min(0).max(255).optional(),
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
+    refine: Refine.optional(),
+  }),
+  z.object({
+    /**
+     * Calculations (Image › Calculations): two channels blended into a mask, then levels: blue with itself in
+     * multiply for a deep sky selection, or red against blue in subtract to separate skin from background.
+     */
+    kind: z.literal("calculations"),
+    a: CalcChannel,
+    b: CalcChannel,
+    blend: z.enum(["multiply", "screen", "overlay", "soft-light", "hard-light", "add", "subtract", "difference", "darken", "lighten"]),
+    /** Opacity of the blend over channel a, 0..1. */
+    opacity: z.number().min(0).max(1).optional(),
+    black: z.number().min(0).max(255).optional(),
+    white: z.number().min(0).max(255).optional(),
+    feather: z.number().nonnegative().optional(),
+    invert: z.boolean().optional(),
+    refine: Refine.optional(),
   }),
 ]);
 export type Mask = z.infer<typeof Mask>;
 
 /** Masks computed from pixels (luminosity, colour range, channel). */
-export const isComputedMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "luminosity" | "color-range" | "channel" }> =>
-  mask?.kind === "luminosity" || mask?.kind === "color-range" || mask?.kind === "channel";
+export const isComputedMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "calculations" }> =>
+  mask?.kind === "luminosity" || mask?.kind === "color-range" || mask?.kind === "channel" || mask?.kind === "calculations";
 
 const Range = z.tuple([z.number().min(0).max(255), z.number().min(0).max(255), z.number().min(0).max(255), z.number().min(0).max(255)]);
 /**
@@ -384,7 +430,14 @@ export const ImageLayer = LayerBase.extend({
   focus: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]).optional(),
 });
 
-export const Stroke = z.object({ paint: Paint, width: z.number().nonnegative() });
+export const Stroke = z.object({
+  paint: Paint,
+  width: z.number().nonnegative(),
+  /** Line ends on open paths: butt (default), round (a brush) or square. */
+  cap: z.enum(["butt", "round", "square"]).optional(),
+  /** Corners: miter (default), round or bevel. */
+  join: z.enum(["miter", "round", "bevel"]).optional(),
+});
 
 export const ShapeLayer = LayerBase.extend({
   type: z.literal("shape"),
