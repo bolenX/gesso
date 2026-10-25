@@ -131,6 +131,10 @@ These replace the layer's colours inside its shape. Put them on a shape layer (a
 | `maximum` / `minimum` | `radius` | grow or shrink light areas (choke or spread mattes, thicken or thin type) |
 | `offset` | `x`, `y`, `edges`? wrap / repeat / transparent | seamless-pattern checks (offset by half the size and look for seams) |
 
+## Retouching
+
+`heal`, `content-aware-fill` and `clone` take `spots` (centre and size as fractions of the box) and remove blemishes and objects. The retouching skill covers them.
+
 ## Image › Adjustments as filters
 
 `shadows-highlights`, `desaturate`, `equalize`, `match-color` and `replace-color` are also filters. The adjustments skill covers them, along with the live adjustment layers (curves, levels, colour balance and the rest).

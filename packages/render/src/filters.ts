@@ -33,6 +33,7 @@ import {
   type Raster,
 } from "./cpu.js";
 import type { Box } from "./layout.js";
+import { blendPlanes, contentAwareFill, heal, shifted, spotMask } from "./retouch.js";
 import { directionField, samplePath, shaderEffect, shearRows } from "./shaders.js";
 
 // Photoshop's Filter menu. Most filters work on the layer's pixels on the CPU (see cpu.ts);
@@ -342,6 +343,11 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
       return matchColor(ctx, image, filter);
     case "replace-color":
       return js((r) => replaceColor(r, filter));
+    // ── Retouching
+    case "content-aware-fill":
+    case "clone":
+    case "heal":
+      return js((r) => retouch(ctx, r, filter));
   }
 }
 
@@ -1569,4 +1575,44 @@ function replaceColor(r: Raster, filter: Of<"replace-color">): Raster {
     shiftHsl(shifted, filter.hue ?? 0, filter.saturation ?? 0, filter.lightness ?? 0);
     for (let j = 0; j < 3; j++) c[j] = c[j]! + (shifted[j]! - c[j]!) * weight;
   });
+}
+
+// ── Retouching ───────────────────────────────────────────────────────────────────────────
+
+function retouch(ctx: Ctx, r: Raster, filter: Of<"content-aware-fill"> | Of<"clone"> | Of<"heal">): Raster {
+  const { k, box, ox, oy } = ctx;
+  const { w, h } = r;
+  const { rgb, a } = planes(r);
+  const region = spotMask(filter.spots, w, h, box.x * k - ox, box.y * k - oy, box.w * k, box.h * k, k);
+  // Work only around the spots (plus room to sample from), not the whole layer.
+  let [x0, y0, x1, y1] = [w, h, -1, -1];
+  for (let i = 0; i < w * h; i++)
+    if (region[i]! > 0) {
+      const [x, y] = [i % w, Math.floor(i / w)];
+      [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
+    }
+  if (x1 < 0) return r;
+  const offset = filter.kind === "content-aware-fill" ? undefined : filter.offset;
+  const reach = Math.max(48, Math.max(x1 - x0, y1 - y0) * 2) + (offset ? Math.max(Math.abs(offset[0]), Math.abs(offset[1])) * k : 0);
+  const [cx0, cy0] = [Math.max(0, Math.floor(x0 - reach)), Math.max(0, Math.floor(y0 - reach))];
+  const [cx1, cy1] = [Math.min(w - 1, Math.ceil(x1 + reach)), Math.min(h - 1, Math.ceil(y1 + reach))];
+  const [cw, ch] = [cx1 - cx0 + 1, cy1 - cy0 + 1];
+  const crop = (p: Float32Array) => {
+    const out = new Float32Array(cw * ch);
+    for (let y = 0; y < ch; y++) out.set(p.subarray((cy0 + y) * w + cx0, (cy0 + y) * w + cx0 + cw), y * cw);
+    return out;
+  };
+  const local = rgb.map(crop);
+  const mask = crop(region);
+  let fill: Float32Array[];
+  if (offset) fill = shifted(local, cw, ch, offset[0] * k, offset[1] * k);
+  else {
+    const hole = new Uint8Array(cw * ch);
+    for (let i = 0; i < hole.length; i++) hole[i] = mask[i]! > 0.01 ? 1 : 0;
+    fill = contentAwareFill(local, hole, cw, ch);
+  }
+  const done = filter.kind === "heal" ? heal(local, fill, mask, cw, ch) : blendPlanes(local, fill, mask);
+  const out = rgb.map((p) => p.slice());
+  for (let c = 0; c < 3; c++) for (let y = 0; y < ch; y++) out[c]!.set(done[c]!.subarray(y * cw, (y + 1) * cw), (cy0 + y) * w + cx0);
+  return fromPlanes(w, h, out, a);
 }

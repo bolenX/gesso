@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Doc, docIssues, GENERATOR, GESSO_URL, GESSO_VERSION, isConflict, normalizeDoc, outline, Patch, PRESETS, presetList, reflowArtboard, select, semanticErrors, xmpPacket } from "@gesso/core";
-import { encode, renderArtboard, renderDoc, writePdf, writeSvg, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type EncodeFormat, type InstalledFont } from "@gesso/render";
+import { encode, renderArtboard, renderDoc, softProof, writePdf, writeSvg, defaultAssetLoader, fontUri, scanFonts, systemFontDirs, type AssetLoader, type ColorOptions, type EncodeFormat, type InstalledFont } from "@gesso/render";
 import { importPsd, writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
@@ -15,6 +15,8 @@ import { DOC_FORMAT } from "./format.js";
 import { prepareJob } from "./gen.js";
 import { importAsset } from "./import.js";
 import { loadSkills } from "./skills.js";
+import { findSlices, renderSlice } from "./slices.js";
+import { batch, stamp } from "./production.js";
 import { DocStore } from "./store.js";
 import { FILE_TOOL, WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
 
@@ -39,6 +41,8 @@ export const TOOL_NAMES = [
   "asset_import",
   "canvas_history",
   "gen_prepare",
+  "canvas_stamp",
+  "canvas_batch",
 ] as const;
 
 /** How much the width:height ratio changes, as a factor of at least 1. */
@@ -84,6 +88,7 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".webp": "image/webp",
+  ".tif": "image/tiff",
   ".svg": "image/svg+xml",
   ".pdf": "application/pdf",
   ".json": "application/json",
@@ -369,7 +374,8 @@ export function createServer({
   register(
     "canvas_patch",
     {
-      description: "Apply atomic, ID-addressed operations against a baseRevision.",
+      description:
+        "Apply atomic, ID-addressed operations against a baseRevision: set (a field by dot path), insert, move, remove, duplicate (Copy/Paste and Duplicate Layer: a copy with a new id, optionally offset or placed elsewhere), replace-text (Find and Replace Text across text layers, plain or regex, keeping styled runs), asset and artboard.",
       inputSchema: Patch.shape,
     },
     async (args) =>
@@ -477,14 +483,18 @@ export function createServer({
     "gen_prepare",
     {
       description:
-        "Prepare an image-generation job for a layer: expand (outpaint an image to fill its frame without cropping), generate (a new image for a layer's frame from a prompt), remove-background, or upscale. Gesso doesn't generate images: it writes the source, padded canvas and mask to the Gesso folder and returns sizes, a prompt, the asset id to import the result under, and the canvas_patch ops that place it as a new layer with provenance. Run the job with an image tool the user has connected.",
+        "Prepare an image-generation job for a layer: expand (outpaint an image to fill its frame without cropping), generate (a new image for a layer's frame from a prompt), fill (Generative Fill or Remove in regions of an image layer, with or without a prompt), remove-background, or upscale. Gesso doesn't generate images: it writes the source, padded canvas and mask to the Gesso folder and returns sizes, a prompt, the asset id to import the result under, and the canvas_patch ops that place it as a new layer with provenance. Run the job with an image tool the user has connected.",
       inputSchema: {
         doc: docId,
-        job: z.enum(["expand", "generate", "remove-background", "upscale"]),
+        job: z.enum(["expand", "generate", "remove-background", "upscale", "fill"]),
         artboard: z.string().describe("Artboard ID"),
         layer: z.string().describe("Layer ID: the image layer to work on, or for generate the layer whose frame the new image fills"),
         prompt: z.string().optional().describe("What to generate; expand has a sensible default"),
         factor: z.number().int().min(2).max(8).optional().describe("Upscale factor, default 2"),
+        regions: z
+          .array(z.object({ at: z.tuple([z.number(), z.number()]), size: z.tuple([z.number(), z.number()]), shape: z.enum(["ellipse", "rect"]).optional() }))
+          .optional()
+          .describe("fill: where to fill, as centre and size fractions of the layer's box"),
       },
     },
     async ({ doc, job, ...request }) =>
@@ -529,12 +539,17 @@ export function createServer({
         doc: docId,
         artboard: z.string().optional().describe("Artboard ID; omit to render every artboard"),
         scale: z.number().positive().max(2).default(0.5),
+        proof: z
+          .string()
+          .optional()
+          .describe('Soft proof (View › Proof Colors): "cmyk" for a standard press, or the path of a CMYK ICC profile; shows colours as they would print'),
       },
     },
-    async ({ doc, artboard, scale }) =>
+    async ({ doc, artboard, scale, proof }) =>
       guard(async () => {
         const d = store.get(doc);
-        const rendered = artboard ? [await renderArtboard(d, artboard, { scale, loader })] : await renderDoc(d, { scale, loader });
+        let rendered = artboard ? [await renderArtboard(d, artboard, { scale, loader })] : await renderDoc(d, { scale, loader });
+        if (proof) rendered = await Promise.all(rendered.map((r) => softProof(r, profilePath(proof))));
         const content: CallToolResult["content"] = [];
         const previews: NonNullable<CardData["previews"]> = [];
         for (const r of rendered) {
@@ -548,6 +563,58 @@ export function createServer({
   );
 
   register(
+    "canvas_stamp",
+    {
+      description:
+        "Merge layers into one pixel layer: Stamp Visible (everything visible, when no layers are given), Copy Merged and Paste, Merge Layers (merge: true removes the originals) or Rasterize (one layer). Renders them, saves the pixels in the Gesso folder and inserts an image layer above them. Use it for techniques that work on a merged copy: frequency separation, high-pass sharpening, dodge & burn, content-aware fill across layers.",
+      inputSchema: {
+        doc: docId,
+        artboard: z.string(),
+        id: z.string().describe("Id for the new layer and its image asset"),
+        layers: z.array(z.string()).optional().describe("Layer ids to merge; every visible layer when left out"),
+        region: z.object({ x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive() }).optional().describe("Part of the artboard to keep; all of it by default"),
+        merge: z.boolean().optional().describe("Remove the merged layers (Merge Layers)"),
+      },
+    },
+    async ({ doc, ...request }) =>
+      guard(async () => {
+        const history = store.history(doc);
+        const { ops, warnings } = await stamp(history.head, request, baseDir, loader);
+        const result = history.apply({ doc, baseRevision: history.head.revision, ops }, author);
+        if (isConflict(result)) return error("The document changed while stamping; try again");
+        store.save(doc);
+        const tree = outline(history.head);
+        return withCard(json({ ...result, warnings: [...result.warnings, ...warnings], outline: tree }), { kind: "patch", doc, revision: result.revision, changed: result.changed, outline: tree });
+      }),
+  );
+
+  register(
+    "canvas_batch",
+    {
+      description:
+        "Run a document as a template over many images or rows of data (Photoshop's File › Automate › Batch and Variables / data sets). With sources (a folder or a list of images) and layer, each image takes that image layer's place (keeping its frame, fit, filters and effects). With rows, each row is a set of values by layer id: text layers take the text, image layers a path; \"name\" names the file. Every artboard is exported per image or row.",
+      inputSchema: {
+        doc: docId,
+        layer: z.string().optional().describe("The image layer id each source image replaces"),
+        sources: z.union([z.string(), z.array(z.string())]).optional().describe("A folder of images, or a list of image paths, relative to the Gesso folder"),
+        rows: z.array(z.record(z.string())).optional().describe('Data rows, e.g. [{ "name": "spring", "headline": "Spring Sale", "photo": "photos/spring.jpg" }]'),
+        outDir: z.string(),
+        format: z.enum(["png", "jpeg", "webp", "tiff", "psd"]).default("png"),
+        scale: z.number().positive().max(4).default(1),
+        color: z.enum(["rgb", "cmyk"]).optional(),
+        profile: z.string().optional(),
+      },
+    },
+    async ({ doc, color, profile, ...request }) =>
+      guard(async () => {
+        const d = store.get(doc);
+        const { files } = await batch(d, { ...request, color: { ...(color ? { color } : {}), ...(profile ? { profile: profilePath(profile) } : {}) } }, baseDir, loader);
+        for (const f of files) exported.add(f.path);
+        return json({ doc, revision: d.revision, files });
+      }),
+  );
+
+  register(
     "canvas_export",
     {
       description:
@@ -555,24 +622,33 @@ export function createServer({
       inputSchema: {
         doc: docId,
         outDir: z.string().describe("Directory to write into, relative to the server's base directory"),
-        format: z.enum(["png", "jpeg", "webp", "psd", "svg", "pdf"]).default("png"),
+        format: z.enum(["png", "jpeg", "webp", "tiff", "psd", "svg", "pdf"]).default("png"),
         scale: z.number().positive().max(4).default(1).describe("Ignored for PSD, which is always full size"),
         images: z.boolean().default(true).describe("With format psd, svg or pdf, also write a flat PNG of each artboard"),
         dpi: z.number().positive().optional().describe("PDF: pixels per inch for the page size; default 300 for print presets (A4, Letter…), else 72"),
         bleed: z.number().min(0).max(20).optional().describe("PDF: bleed in mm on every side (3 is standard); layers touching the edge extend into it"),
         marks: z.boolean().optional().describe("PDF: add crop marks"),
+        color: z.enum(["rgb", "cmyk"]).optional().describe("Image colour: rgb (default) or cmyk for print (jpeg and tiff), converted through the profile"),
+        profile: z
+          .string()
+          .optional()
+          .describe('ICC profile to convert into and embed (Convert to Profile): "srgb", "p3", "cmyk" (a standard press), or a path to an .icc/.icm file'),
+        slices: z
+          .boolean()
+          .optional()
+          .describe('Also export each layer named like a file ("logo.png", "200% hero.jpg", "hero.jpg80", "512x512 icon.png"), alone and cropped, as Photoshop\'s Generate › Image Assets does'),
       },
     },
-    async ({ doc, outDir, format, scale, images, dpi, bleed, marks }, extra) =>
+    async ({ doc, outDir, format, scale, images, dpi, bleed, marks, color, profile, slices }, extra) =>
       guard(async () => {
         const d = store.get(doc);
         const dir = resolve(baseDir, outDir);
         // Large documents can take longer than an agent waits for one tool call. The export keeps
         // running in the background; calling again with the same arguments picks up the result.
-        const key = JSON.stringify([d.id, d.revision, dir, format, scale, images, dpi, bleed, marks]);
+        const key = JSON.stringify([d.id, d.revision, dir, format, scale, images, dpi, bleed, marks, color, profile, slices]);
         let job = exports.get(key);
         if (!job) {
-          job = runExport(d, dir, format, scale, images, { dpi, bleed, marks });
+          job = runExport(d, dir, format, scale, images, { dpi, bleed, marks }, { ...(color ? { color } : {}), ...(profile ? { profile: profilePath(profile) } : {}) }, slices ?? false);
           exports.set(key, job);
           job.then(
             () => setTimeout(() => exports.delete(key), 10 * 60_000).unref(),
@@ -604,14 +680,20 @@ export function createServer({
       }),
   );
 
+  /** A profile name stays a built-in name; anything else is a path relative to the Gesso folder. */
+  const profilePath = (profile: string) => (["srgb", "p3", "cmyk"].includes(profile) ? profile : resolve(baseDir, profile));
+
   async function runExport(
     d: Doc,
     dir: string,
-    format: "png" | "jpeg" | "webp" | "psd" | "svg" | "pdf",
+    format: "png" | "jpeg" | "webp" | "tiff" | "psd" | "svg" | "pdf",
     scale: number,
     images: boolean,
     print: { dpi?: number; bleed?: number; marks?: boolean } = {},
+    color: ColorOptions = {},
+    slices = false,
   ): Promise<CallToolResult> {
+    if (color.color === "cmyk" && format !== "jpeg" && format !== "tiff") throw new Error("CMYK export needs format jpeg or tiff (PSD and PDF stay RGB)");
     await mkdir(dir, { recursive: true });
     const xmp = xmpPacket(d.id, d.revision);
     const files = [];
@@ -640,11 +722,22 @@ export function createServer({
     // PSD and SVG exports also write a flat PNG of each artboard unless images is false.
     const imageFormat = format === "psd" || format === "svg" || format === "pdf" ? (images ? "png" : undefined) : format;
     if (imageFormat) {
-      const ext = imageFormat === "jpeg" ? "jpg" : imageFormat;
+      const ext = imageFormat === "jpeg" ? "jpg" : imageFormat === "tiff" ? "tif" : imageFormat;
       for (const r of flats ?? (await renderDoc(d, { scale, loader }))) {
         const path = resolve(dir, `${r.artboard}.${ext}`);
-        await writeFile(path, await encode(r, imageFormat as EncodeFormat, 90, xmp));
+        await writeFile(path, await encode(r, imageFormat as EncodeFormat, 90, xmp, imageFormat === format ? color : {}));
         files.push({ artboard: r.artboard, path, width: r.width, height: r.height, warnings: r.warnings });
+      }
+    }
+    if (slices) {
+      const found = findSlices(d);
+      if (!found.length) throw new Error('No layers are named like files ("logo.png", "200% hero.jpg"); rename the layers to export as slices');
+      await mkdir(resolve(dir, "assets"), { recursive: true });
+      for (const slice of found) {
+        const { bytes, width, height, warnings } = await renderSlice(d, { ...slice, scale: slice.scale * scale }, loader, slice.format === "jpeg" || slice.format === "tiff" ? color : {});
+        const path = resolve(dir, "assets", slice.file);
+        await writeFile(path, bytes);
+        files.push({ artboard: slice.artboard, layer: slice.layer, path, width, height, warnings });
       }
     }
     const manifestPath = resolve(dir, "manifest.json");

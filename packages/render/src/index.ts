@@ -8,6 +8,8 @@ export {
   transformPoint,
   type Affine,
   type EncodeFormat,
+  type ColorOptions,
+  softProof,
   type LayerPart,
   type LayerParts,
   type TextLine,

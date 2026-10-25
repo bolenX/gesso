@@ -173,3 +173,43 @@ describe("text runs", () => {
     expect(() => applyOps(promo, [{ op: "set", target: `#${head.id}`, path: "runs", value: [{ text: "nope" }] }])).toThrow(/runs don't add up/);
   });
 });
+
+describe("edit ops", () => {
+  const doc: Doc = {
+    id: "e",
+    revision: 0,
+    assets: {},
+    artboards: [
+      {
+        id: "a",
+        name: "A",
+        frame: { x: 0, y: 0, w: 100, h: 100 },
+        layers: [
+          { id: "t1", name: "t1", type: "text", content: "Spring Sale now", style: { font: "A", size: 10 }, frame: { x: 0, y: 0, w: 50, h: 10 } },
+          { id: "t2", name: "t2", type: "text", content: "SPRING deals", runs: [{ text: "SPRING" }, { text: " deals", fill: "#FF0000" }], style: { font: "A", size: 10 }, frame: { x: 0, y: 20, w: 50, h: 10 } },
+          { id: "g", name: "Group", type: "group", frame: { x: 0, y: 0, w: 100, h: 100 }, children: [{ id: "dot", name: "dot", type: "shape", shape: { kind: "ellipse" }, fill: "#000000", frame: { x: 10, y: 10, w: 5, h: 5 } }] },
+        ] as Doc["artboards"][0]["layers"],
+      },
+    ],
+  };
+
+  it("finds and replaces text, keeping styled runs", () => {
+    const { doc: out, changed } = applyOps(doc, [{ op: "replace-text", find: "spring", replace: "Summer", matchCase: false }]);
+    const [t1, t2] = out.artboards[0]!.layers as Array<Extract<Doc["artboards"][0]["layers"][0], { type: "text" }>>;
+    expect(changed.sort()).toEqual(["t1", "t2"]);
+    expect(t1!.content).toBe("Summer Sale now");
+    expect(t2!.runs).toEqual([{ text: "Summer" }, { text: " deals", fill: "#FF0000" }]);
+    const regex = applyOps(doc, [{ op: "replace-text", target: "#t1", find: "(\\w+) Sale", replace: "$1 Event", regex: true }]).doc;
+    expect((regex.artboards[0]!.layers[0] as { content: string }).content).toBe("Spring Event now");
+  });
+
+  it("duplicates a group with fresh ids, offset", () => {
+    const out = applyOps(doc, [{ op: "duplicate", target: "#g", id: "g2" }]).doc;
+    const layers = out.artboards[0]!.layers;
+    expect(layers.map((l) => l.id)).toEqual(["t1", "t2", "g", "g2"]);
+    expect(layers[3]).toMatchObject({ name: "Group copy", children: [{ id: "g2-dot" }] });
+    const moved = applyOps(doc, [{ op: "duplicate", target: "#t1", id: "t1b", offset: [5, 7], before: "#t1" }]).doc;
+    expect(moved.artboards[0]!.layers[0]).toMatchObject({ id: "t1b", frame: { x: 5, y: 7 } });
+    expect(() => applyOps(doc, [{ op: "duplicate", target: "#t1", id: "t2" }])).toThrow(/already exists/);
+  });
+});

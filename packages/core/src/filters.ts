@@ -8,6 +8,8 @@ import { BlendMode, Color } from "./primitives.js";
 // are pixels unless noted.
 
 const Point = z.tuple([z.number(), z.number()]);
+/** A retouching spot: centre and size as fractions of the layer's box, an ellipse (default) or rectangle, a soft edge in pixels. */
+const Spot = z.object({ at: Point, size: Point, shape: z.enum(["ellipse", "rect"]).optional(), feather: z.number().nonnegative().optional() });
 const Fade = { opacity: z.number().min(0).max(1).optional(), blend: BlendMode.optional() };
 const f = <K extends string, T extends z.ZodRawShape>(kind: K, shape: T) => z.object({ kind: z.literal(kind), ...shape, ...Fade });
 
@@ -186,6 +188,16 @@ export const Filter = z.discriminatedUnion("kind", [
     saturation: z.number().min(-100).max(100).optional(),
     lightness: z.number().min(-100).max(100).optional(),
   }),
+  // ── Retouching (Edit › Content-Aware Fill, Clone Stamp, Healing Brush) ─────────────────
+  /** Content-Aware Fill: replaces the spots with texture found elsewhere in the layer. */
+  f("content-aware-fill", { spots: z.array(Spot).min(1).max(64) }),
+  /** Clone Stamp: paints the spots with the pixels `offset` [x, y] px away. */
+  f("clone", { spots: z.array(Spot).min(1).max(64), offset: Point }),
+  /**
+   * Healing Brush / Spot Healing: like Clone Stamp from `offset`, or Content-Aware Fill without one,
+   * then blended so the light and colour match the surroundings. For blemishes, dust, wires and stray hairs.
+   */
+  f("heal", { spots: z.array(Spot).min(1).max(64), offset: Point.optional() }),
   // ── Camera Raw ────────────────────────────────────────────────────────────────────────
   /** Camera Raw Filter: the Basic panel and more, each −100..100 (exposure in stops, −5..5). */
   f("camera-raw", {

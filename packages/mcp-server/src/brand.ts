@@ -36,4 +36,6 @@ export const TOOL_TITLES: Record<string, string> = {
   asset_import: "Import asset",
   canvas_history: "History",
   gen_prepare: "Prepare generation",
+  canvas_stamp: "Merge layers",
+  canvas_batch: "Batch export",
 };
