@@ -6,6 +6,7 @@ import type { Adjustment, Doc, Effect, Layer } from "@gesso/core";
 import { renderArtboard } from "@gesso/render";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
+import { readPsd } from "ag-psd";
 import { importPsd, writePsd } from "../src/index.js";
 
 const FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
@@ -189,5 +190,84 @@ describe("importPsd", () => {
     expect(byKind(square!.effects!)).toEqual(byKind(effects.filter((e) => e.kind !== "pattern-overlay")));
     expect(overlay).toMatchObject({ name: "Square · pattern overlay", type: "image", clip: true });
     expect(overlay!.opacity).toBeCloseTo(0.5, 2);
+  });
+});
+
+describe("smart objects for filters and distortion", () => {
+  const photo = () => sharp({ create: { width: 80, height: 60, channels: 3, background: "#3080C0" } }).composite([{ input: Buffer.from('<svg width="80" height="60"><rect x="20" y="15" width="40" height="30" fill="#FFC21A"/></svg>'), left: 0, top: 0 }]).png().toBuffer();
+  const doc = (layers: Layer[]): Doc => ({ id: "fx", revision: 2, assets: { photo: { uri: "photo.png", kind: "image" } }, artboards: [{ id: "a", name: "A", frame: { x: 0, y: 0, w: 200, h: 120 }, background: "#FFFFFF", layers }] });
+
+  it("writes Photoshop-compatible filters as live smart filters and reads them back", async () => {
+    const files = { "photo.png": await photo() };
+    const loader = async ({ uri }: { uri: string }) => files[uri as "photo.png"];
+    const filters = [
+      { kind: "gaussian-blur", radius: 3 },
+      { kind: "sharpen", amount: 1.5, radius: 2, threshold: 4, opacity: 0.5, blend: "luminosity" },
+      { kind: "offset", x: 10, y: 5, edges: "repeat" },
+    ] as const;
+    const source = doc([
+      { id: "soft", name: "Soft", type: "image", asset: "photo", fit: "fill", frame: { x: 10, y: 10, w: 80, h: 60 }, filters: [...filters] } as Layer,
+      { id: "glass", name: "Glass", type: "image", asset: "photo", fit: "fill", frame: { x: 110, y: 10, w: 80, h: 60 }, filters: [{ kind: "glass", size: 10, amount: 6 }] } as Layer,
+    ]);
+    const { bytes, warnings } = await writePsd(source, { loader });
+    expect(warnings.join(" ")).toMatch(/"glass" has filters Photoshop can't keep live \(glass\)/);
+    const psd = readPsd(bytes, { useImageData: true });
+    const [soft, glass] = psd.children![0]!.children!.slice(1);
+    expect(soft!.placedLayer!.filter!.list.map((f) => f.type)).toEqual(["gaussian blur", "unsharp mask", "offset"]);
+    expect(soft!.placedLayer!.filter!.list[1]).toMatchObject({ name: "Unsharp Mask", opacity: 0.5, blendMode: "luminosity", filter: { amount: 150, threshold: 4 } });
+    expect(soft!.placedLayer!.transform).toEqual([10, 10, 90, 10, 90, 70, 10, 70]);
+    expect(glass!.placedLayer).toBeUndefined();
+
+    const dir = await mkdtemp(join(tmpdir(), "gesso-fx-"));
+    const { doc: back } = await importPsd(bytes, { id: "fx", assetDir: dir, uriBase: dir });
+    const smart = back.artboards[0]!.layers.find((l) => l.id === "soft")!;
+    expect(smart).toMatchObject({ type: "smart", filters: [{ kind: "gaussian-blur", radius: 3 }, { kind: "sharpen", amount: 1.5, radius: 2, threshold: 4, opacity: 0.5, blend: "luminosity" }, { kind: "offset", x: 10, y: 5, edges: "repeat" }] });
+    // The smart object holds the unfiltered image; rendered with its filters, it looks as before.
+    const before = await renderArtboard(source, "a", { loader });
+    const after = await renderArtboard(back, "a", { loader: async ({ uri }) => readFile(uri) });
+    let diff = 0;
+    for (let y = 10; y < 70; y++) for (let x = 10; x < 90; x++) for (let c = 0; c < 3; c++) diff += Math.abs(before.pixels[(y * 200 + x) * 4 + c]! - after.pixels[(y * 200 + x) * 4 + c]!);
+    expect(diff / (80 * 60 * 3)).toBeLessThan(4);
+  });
+
+  it("writes distorted text and shapes as smart objects pinned by their corners, with live content inside", async () => {
+    const quad: Array<[number, number]> = [[20, 10], [180, 20], [170, 110], [30, 100]];
+    const layers: Layer[] = [{ id: "panel", name: "Panel", type: "shape", shape: { kind: "rect", radius: 8 }, fill: "#2440E6", frame: { x: 20, y: 10, w: 160, h: 100 }, quad } as Layer];
+    if (existsSync(FONT)) layers.push({ id: "label", name: "Label", type: "text", content: "Tilted", style: { font: "DejaVu Sans Bold", size: 24, fill: "#FFFFFF" }, frame: { x: 40, y: 40, w: 120, h: 40 }, quad: [[40, 42], [160, 46], [158, 82], [42, 80]] } as Layer);
+    const source: Doc = { ...doc(layers), assets: existsSync(FONT) ? { bold: { uri: FONT, kind: "font", family: "DejaVu Sans Bold", postscriptName: "DejaVuSans-Bold" } } : {} };
+    const { bytes, warnings } = await writePsd(source);
+    expect(warnings.join(" ")).not.toMatch(/written as pixels/);
+    const psd = readPsd(bytes, { useImageData: true });
+    const panel = psd.children![0]!.children!.find((l) => l.name === "Panel")!;
+    expect(panel.placedLayer).toMatchObject({ width: 160, height: 100, transform: quad.flat() });
+    const inner = readPsd(psd.linkedFiles!.find((f) => f.id === panel.placedLayer!.id)!.data!, { useImageData: true });
+    expect(inner.children![0]).toMatchObject({ name: "Panel", vectorFill: { type: "color" } });
+    if (existsSync(FONT)) {
+      const label = psd.children![0]!.children!.find((l) => l.name === "Label")!;
+      const labelInner = readPsd(psd.linkedFiles!.find((f) => f.id === label.placedLayer!.id)!.data!, { useImageData: true });
+      expect(labelInner.children![0]!.text?.text).toBe("Tilted");
+    }
+  });
+
+  it("embeds an sRGB colour profile", async () => {
+    const { bytes } = await writePsd(doc([]));
+    const view = new DataView(bytes.buffer, bytes.byteOffset);
+    let at = 26 + 4 + view.getUint32(26) + 4;
+    const end = at + view.getUint32(at - 4);
+    const ids: number[] = [];
+    let icc: Uint8Array | undefined;
+    while (at < end) {
+      const id = view.getUint16(at + 4);
+      const nameLength = bytes[at + 6]!;
+      const dataAt = at + 6 + ((nameLength + 2) & ~1);
+      const size = view.getUint32(dataAt);
+      ids.push(id);
+      if (id === 1039) icc = bytes.subarray(dataAt + 4, dataAt + 4 + size);
+      at = dataAt + 4 + size + (size % 2);
+    }
+    expect(ids).toContain(1039);
+    expect(new TextDecoder().decode(icc!.subarray(36, 40))).toBe("acsp");
+    // The file still reads, and so does its XMP.
+    expect(readPsd(bytes, { useImageData: true }).imageResources?.xmpMetadata).toContain("Gesso");
   });
 });

@@ -9,7 +9,7 @@ Agents create and edit layered compositions as data, and every output opens in P
 
 What works today:
 
-- **Document and editing:** the document IR, atomic patches with revision history, and PSD import and export (artboards, live text, shapes, adjustments, layer styles, smart objects).
+- **Document and editing:** the document IR, atomic patches with revision history, and PSD import and export (artboards, live text, shapes, adjustments, layer styles, smart objects, and smart filters wherever Photoshop has the same filter).
 - **Exports:** SVG, print PDF, and PNG/JPEG/WebP/TIFF, in RGB or CMYK with ICC profiles.
 - **Filters:** Photoshop's whole Filter menu as smart filters, including Blur Gallery, Liquify, Puppet Warp and Camera Raw.
 - **Adjustments:** every adjustment layer, plus the Image › Adjustments commands as filters.

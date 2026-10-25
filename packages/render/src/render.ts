@@ -80,8 +80,10 @@ export type LayerPart = {
   fontSize?: number;
   /** Laid-out lines of a text layer: UTF-16 ranges of content, with x and baseline in artboard units. */
   lines?: TextLine[];
-  /** Corner pin in artboard pixels (TL, TR, BR, BL), for smart layers. Includes any rotation. */
+  /** Corner pin in artboard pixels (TL, TR, BR, BL), for smart layers and distorted layers. Includes any rotation. */
   quad?: Array<[number, number]>;
+  /** The layer's own box before any distortion (quad or warp), in artboard pixels. */
+  frame?: Box;
   /**
    * For SVG path shapes: each subpath as cubic segments in artboard pixels, before rotation:
    * [x0, y0, c1x, c1y, c2x, c2y, x1, y1, …], with `closed` per subpath.
@@ -418,6 +420,8 @@ class Compositor {
     const visit = (layers: Layer[], parent: Box, inherited: Affine | undefined) => {
       for (const layer of layers) {
         const part: LayerPart = { id: layer.id, box: resolveFrame(layer.frame, parent) };
+        if (layer.quad || layer.warp) part.frame = { ...part.box };
+        if (layer.quad && layer.type !== "smart") part.quad = layer.quad.map(([x, y]) => [parent.x + x, parent.y + y] as [number, number]);
         if (layer.type !== "group" && layer.type !== "adjustment") {
           const drawn = this.partBounded(layer, parent, inherited);
           part.box = drawn.box;
