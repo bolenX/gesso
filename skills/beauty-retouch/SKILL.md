@@ -17,6 +17,8 @@ group "colour"        grading adjustments
 sharpen               a stamp with high-pass, last
 ```
 
+**Masks for skin, eyes and lips.** If the user has a face-parsing or segmentation tool connected, start with one `gen_prepare` `segment` job on the photo, with `targets: ["skin", "eyes", "lips", "hair", "teeth"]`. Import each mask with `kind: "mask"`, then use them on the steps below: `{ "kind": "raster", "asset": "<assetId>", "of": "<photo id>" }` on an adjustment or a group keeps it to that part of the face. Without one, use feathered vector ellipses and `color-range` masks.
+
 Use `canvas_stamp` whenever a step needs the pixels so far. Work at full size, and check with `canvas_render` at scale 1 cropped to the face. Use the `region` of a stamp to keep files small.
 
 ## 1. Skin clean-up

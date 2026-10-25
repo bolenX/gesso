@@ -21,7 +21,7 @@ A campaign set is one idea delivered at every size a channel needs. Build the ma
 4. **Re-place per size.** Adapting re-places layers by their edges and roles. Then fix each size by hand with `canvas_patch`:
    - Stories need the text higher, out of the bottom 340 px.
    - Landscape needs the headline beside the image, not below it.
-5. **Extend backgrounds** that are too small for a size with one shared `gen_prepare` expand job. See the adapt-sizes skill.
+5. **Extend backgrounds** that are too small for a size with one shared `gen_prepare` expand job: `artboards` lists every size, and they all get the same plate. See the adapt-sizes skill.
 
 ## Rules
 

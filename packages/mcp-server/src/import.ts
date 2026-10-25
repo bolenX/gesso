@@ -50,6 +50,11 @@ export async function importAsset(request: ImportRequest, baseDir: string, confi
     uri = fontUri(path, baseDir);
   }
 
+  if (request.kind === "mask") {
+    // Saved as a grey mask, whatever the tool returned: a cut-out's transparency, or a black-and-white image's brightness.
+    bytes = await toMask(bytes);
+    uri = undefined;
+  }
   const asset = await describe(bytes, request);
   if (uri === undefined) {
     // Downloaded or pasted: keep a copy in the Gesso folder.
@@ -61,6 +66,19 @@ export async function importAsset(request: ImportRequest, baseDir: string, confi
     uri = `assets/${id}${ext}`;
   }
   return { uri, ...asset };
+}
+
+/** A grey PNG, white where selected: the alpha of a cut-out, or the luminance of an opaque mask. */
+async function toMask(bytes: Uint8Array): Promise<Buffer> {
+  const meta = await sharp(bytes)
+    .metadata()
+    .catch(() => undefined);
+  if (!meta?.width || !meta.height) throw new Error("That file isn't an image Gesso can read as a mask (PNG, JPEG, WebP, TIFF)");
+  if (meta.hasAlpha) {
+    const alpha = await sharp(bytes).extractChannel("alpha").raw().toBuffer({ resolveWithObject: true });
+    if (alpha.data.some((v) => v < 250)) return sharp(alpha.data, { raw: { width: alpha.info.width, height: alpha.info.height, channels: 1 } }).png().toBuffer();
+  }
+  return sharp(bytes).removeAlpha().toColourspace("b-w").png().toBuffer();
 }
 
 async function describe(bytes: Uint8Array, request: ImportRequest): Promise<Omit<Asset, "uri">> {

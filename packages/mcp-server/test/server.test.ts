@@ -260,7 +260,7 @@ describe("gesso MCP server", () => {
     await client.callTool({ name: "canvas_create", arguments: { doc } });
     const body = (r: Awaited<ReturnType<typeof client.callTool>>) => (r.content as Array<{ text: string }>)[0]!.text;
     const job = JSON.parse(body(await client.callTool({ name: "gen_prepare", arguments: { doc: "wide", job: "expand", artboard: "banner", layer: "photo" } })));
-    expect(job).toMatchObject({ job: "expand", aspectRatio: "16:9", expandBy: { left: 155, top: 0, right: 156, bottom: 0 }, assetId: "expand-photo-r0" });
+    expect(job).toMatchObject({ job: "expand", aspectRatio: "16:9", expandBy: { left: 156, top: 0, right: 156, bottom: 0 }, assetId: "expand-photo-r0" });
     const [mw, mh] = [(await sharp(job.files.mask).metadata()).width, (await sharp(job.files.padded).metadata()).height];
     expect([mw, mh]).toEqual(job.targetSize);
 

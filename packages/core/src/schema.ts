@@ -168,6 +168,12 @@ export const Mask = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("raster"),
     asset: z.string(),
+    /**
+     * An image layer whose pixels the mask was made from (a selection like Select Subject or Select Sky): the
+     * mask then follows that layer's frame, fit, focus, rotation, flips, skew, distortion and warp, on any layer.
+     * Without it, the mask stretches over this layer's own box.
+     */
+    of: Id.optional(),
     invert: z.boolean().optional(),
     feather: z.number().nonnegative().optional(),
     refine: Refine.optional(),

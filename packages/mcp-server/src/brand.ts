@@ -37,7 +37,7 @@ export const TOOL_TITLES: Record<string, string> = {
   skill_apply: "Apply recipe",
   asset_import: "Import asset",
   canvas_history: "History",
-  gen_prepare: "Prepare generation",
+  gen_prepare: "Prepare AI job",
   canvas_stamp: "Merge layers",
   canvas_batch: "Batch export",
   canvas_align: "Auto-align",

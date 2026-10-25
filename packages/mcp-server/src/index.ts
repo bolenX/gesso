@@ -299,7 +299,7 @@ export function createServer({
         id: z.string().describe('Asset ID to use in layers, e.g. "hero-photo"'),
         source: z.string().optional().describe("Path (relative to the Gesso folder, or absolute) or http(s) URL"),
         data: z.string().optional().describe("Base64 file contents, when there's no path or URL"),
-        kind: z.enum(["image", "font", "mask", "lut"]).optional().describe('Detected from the file when left out; "lut" is a .cube colour lookup table for a color-lookup adjustment'),
+        kind: z.enum(["image", "font", "mask", "lut"]).optional().describe('Detected from the file when left out. "mask" saves a grey mask for raster masks: from a cut-out\'s transparency, or a black-and-white image\'s brightness. "lut" is a .cube colour lookup table for a color-lookup adjustment'),
         face: z.number().int().nonnegative().optional().describe("Face index in a .ttc font collection"),
         description: z.string().optional(),
         replace: z.boolean().optional().describe("Replace an existing asset with this id"),
@@ -546,10 +546,10 @@ export function createServer({
     "gen_prepare",
     {
       description:
-        "Prepare an image-generation job for a layer: expand (outpaint an image to fill its frame without cropping), generate (a new image for a layer's frame from a prompt), fill (Generative Fill or Remove in regions of an image layer, with or without a prompt), remove-background, or upscale. Gesso doesn't generate images: it writes the source, padded canvas and mask to the Gesso folder and returns sizes, a prompt, the asset id to import the result under, and the canvas_patch ops that place it as a new layer with provenance. Run the job with an image tool the user has connected.",
+        "Prepare an image-model job for a layer: expand (outpaint an image to fill its frame without cropping; with artboards, one shared plate for every size), generate (a new image for a layer's frame from a prompt), fill (Generative Fill or Remove in regions of an image layer, with or without a prompt), segment (Select Subject, Select Sky, or face parts like skin, eyes and lips, returned as masks that follow the photo), remove-background, or upscale. Gesso doesn't run models: it writes the source, padded canvas and mask to the Gesso folder and returns sizes, a prompt, the asset ids to import the results under, and the canvas_patch ops that place them with provenance. Run the job with an image tool the user has connected.",
       inputSchema: {
         doc: docId,
-        job: z.enum(["expand", "generate", "remove-background", "upscale", "fill"]),
+        job: z.enum(["expand", "generate", "remove-background", "upscale", "fill", "segment"]),
         artboard: z.string().describe("Artboard ID"),
         layer: z.string().describe("Layer ID: the image layer to work on, or for generate the layer whose frame the new image fills"),
         prompt: z.string().optional().describe("What to generate; expand has a sensible default"),
@@ -558,6 +558,15 @@ export function createServer({
           .array(z.object({ at: z.tuple([z.number(), z.number()]), size: z.tuple([z.number(), z.number()]), shape: z.enum(["ellipse", "rect"]).optional() }))
           .optional()
           .describe("fill: where to fill, as centre and size fractions of the layer's box"),
+        artboards: z.array(z.string()).max(32).optional().describe("expand: more artboards with the same image layer (same id, as adapted sizes have), all covered by one generated plate"),
+        targets: z
+          .array(z.string().min(1).max(80))
+          .min(1)
+          .max(12)
+          .optional()
+          .describe('segment: what to select, one mask each: subject, person, sky, background, skin, face, hair, eyes, brows, lips, teeth, clothes, or a short description like "the red car"'),
+        onto: z.string().optional().describe("segment: a layer to mask with the first target right away: the photo itself (a cut-out), or an adjustment or group above it"),
+        invert: z.boolean().optional().describe("segment with onto: mask everything except the target"),
       },
     },
     async ({ doc, job, ...request }) =>

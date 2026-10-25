@@ -17,7 +17,7 @@ What works today:
 - **Merging exposures:** Auto-Align and Auto-Blend for focus stacks and exposure brackets.
 - **Shapes and transforms:** boolean shapes, skew, distort, perspective and warp.
 - **Retouching:** content-aware fill, healing, clone stamp and content-aware scale.
-- **Production:** batch runs, slices, and jobs prepared for the user's own image models.
+- **Production:** batch runs, slices, and jobs prepared for the user's own image models: Generative Fill and Expand (one plate for every size), and Select Subject, Select Sky and face parts as masks that follow the photo.
 - **Skills:** 30 skills, each with checks, and most with recipes applied in one step (`skill_apply`) and tested by examples. They cover retouching, grading and compositing workflows (beauty, product, real estate, manipulation, restoration), graphic design (type, grids, brand, posters, duotone) and adapting designs to sizes and channels.
 - **Checking work:** region zoom to 400%, before/after comparison, measurements like Photoshop's Histogram and Info panels (`canvas_inspect`), and a layout preflight.
 
