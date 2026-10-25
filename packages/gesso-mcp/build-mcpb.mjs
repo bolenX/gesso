@@ -44,12 +44,14 @@ const tools = [
   ["canvas_patch", "Edit layers with atomic, ID-addressed operations"],
   ["canvas_history", "List revisions or revert to one"],
   ["canvas_render", "Render preview images"],
-  ["canvas_export", "Export PNG, JPEG, WebP, a layered PSD, SVG or print-ready PDF"],
+  ["canvas_export", "Export PNG, JPEG, WebP, TIFF (RGB or CMYK with ICC profiles), a layered PSD, SVG, print-ready PDF, or slices named like files"],
+  ["canvas_stamp", "Merge layers into one pixel layer: stamp visible, copy merged, merge, rasterize"],
+  ["canvas_batch", "Run a document as a template over a folder of images or rows of data"],
   ["artboard_create", "Add a size, or adapt an artboard to one"],
   ["font_list", "Find installed fonts"],
-  ["skill_read", "Read a recipe, such as adapting a design to more sizes"],
-  ["asset_import", "Add an image or font from a path, URL or data"],
-  ["gen_prepare", "Prepare an expand, generate, cut-out or upscale job for a connected image tool"],
+  ["skill_read", "Read a recipe: filters, adjustments, compositing, retouching, production, and workflows by niche"],
+  ["asset_import", "Add an image, font or .cube LUT from a path, URL or data"],
+  ["gen_prepare", "Prepare an expand, generate, fill, cut-out or upscale job for a connected image tool"],
 ].map(([name, description]) => ({ name, description }));
 
 const manifest = {
