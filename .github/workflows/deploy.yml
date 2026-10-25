@@ -1,0 +1,99 @@
+name: Deploy mcp.gesso.run
+
+# Deploys hosted Gesso to Fly.io (deploy/fly.toml): by hand from the Actions tab, or after each new
+# release (publish.yml calls this). Needs a FLY_API_TOKEN repository secret; without one it does
+# nothing. The app name comes from the FLY_APP repository variable (default gesso-mcp).
+#
+# The first time, run it by hand with "first-time setup" ticked: it creates the app, its volume and
+# its signing secret, deploys, adds the certificate for the domain, and prints the DNS record to add.
+# See deploy/README.md.
+on:
+  workflow_dispatch:
+    inputs:
+      setup:
+        description: First-time setup (create the app, volume, secret and certificate)
+        type: boolean
+        default: false
+      region:
+        description: Fly.io region for a new app (iad = Virginia, ams = Amsterdam, sin = Singapore…)
+        default: iad
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mcp
+  cancel-in-progress: false
+
+env:
+  APP: ${{ vars.FLY_APP || 'gesso-mcp' }}
+  DOMAIN: mcp.gesso.run
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for a Fly token
+        id: token
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -n "$FLY_API_TOKEN" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "No FLY_API_TOKEN secret, so nothing to deploy."; fi
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.ok == 'true'
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: steps.token.outputs.ok == 'true'
+
+      - name: First-time setup
+        if: steps.token.outputs.ok == 'true' && inputs.setup
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          REGION: ${{ inputs.region || 'iad' }}
+        run: |
+          set -e
+          flyctl status --app "$APP" >/dev/null 2>&1 || flyctl apps create "$APP"
+          if ! flyctl volumes list --app "$APP" --json | grep -q '"gesso_data"'; then
+            flyctl volumes create gesso_data --app "$APP" --region "$REGION" --size 20 --yes
+          fi
+          # The signing secret is made here and never printed: keep it, it signs everyone's sign-ins.
+          if ! flyctl secrets list --app "$APP" --json | grep -q '"GESSO_SECRET"'; then
+            flyctl secrets set --app "$APP" --stage GESSO_SECRET="$(openssl rand -hex 32)"
+          fi
+
+      - name: Deploy
+        if: steps.token.outputs.ok == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          REGION: ${{ inputs.region || 'iad' }}
+          SETUP: ${{ inputs.setup && 'true' || '' }}
+        # The region only matters when the app is new; later deploys update its machine where it is.
+        run: flyctl deploy --app "$APP" ${SETUP:+--primary-region "$REGION"} --remote-only --config deploy/fly.toml --dockerfile Dockerfile
+
+      - name: Certificate and DNS
+        if: steps.token.outputs.ok == 'true' && inputs.setup
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl certs show "$DOMAIN" --app "$APP" >/dev/null 2>&1 || flyctl certs add "$DOMAIN" --app "$APP"
+          {
+            echo "## Add this DNS record for $DOMAIN"
+            echo
+            echo "In the DNS settings for gesso.run, add a **CNAME** record: name \`mcp\`, value \`$APP.fly.dev\`."
+            echo "(If you use Cloudflare, set it to *DNS only*, the grey cloud.)"
+            echo
+            echo "Fly.io then issues the HTTPS certificate on its own, usually within minutes. Details:"
+            echo
+            echo '```'
+            flyctl certs show "$DOMAIN" --app "$APP" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check it answers
+        if: steps.token.outputs.ok == 'true'
+        run: |
+          url="https://$APP.fly.dev"
+          for i in $(seq 1 30); do curl -sf "$url/health" && break; sleep 5; done
+          curl -sf "$url/health"
+          curl -s -o /dev/null -w '%{http_code}\n' -X POST "$url/mcp" -H 'content-type: application/json' -d '{}' | grep -q 401
+          echo "Gesso answers at $url. Once DNS and the certificate are ready, connect to https://$DOMAIN/mcp" >> "$GITHUB_STEP_SUMMARY"

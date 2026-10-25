@@ -151,6 +151,8 @@ export type ServerOptions = {
   state?: ServerState;
   /** Hosted: a page where the user can upload files into this workspace. */
   uploadUrl?: string;
+  /** Tools this server leaves out, e.g. gen_prepare on a server listed where AI-generation tools aren't allowed. */
+  disabledTools?: ReadonlySet<string>;
 };
 
 /** Exports still running, files this workspace exported (the only ones the download tool serves), and recent full renders. */
@@ -175,6 +177,7 @@ export function createServer({
   maxPixels,
   state = newServerState(),
   uploadUrl,
+  disabledTools,
 }: ServerOptions = {}): McpServer {
   const { exports, exported } = state;
   /** Refuses renders bigger than maxPixels, so one request can't exhaust a shared server's memory. */
@@ -220,8 +223,8 @@ export function createServer({
   // open the result card.
 
   const CARD_TOOLS = new Set(["canvas_create", "psd_import", "canvas_patch", "canvas_render", "canvas_export"]);
-  const register: typeof server.registerTool = (name, config, cb) =>
-    server.registerTool(
+  const register: typeof server.registerTool = (name, config, cb) => {
+    const tool = server.registerTool(
       name,
       {
         title: TOOL_TITLES[name] ?? name,
@@ -231,6 +234,9 @@ export function createServer({
       },
       cb,
     );
+    if (disabledTools?.has(name)) tool.disable();
+    return tool;
+  };
 
   register(
     "canvas_list",

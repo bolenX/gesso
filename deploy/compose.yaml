@@ -1,0 +1,36 @@
+# Hosted Gesso on any Linux server, with Caddy for HTTPS. See deploy/README.md.
+#
+#   cp deploy/gesso.env.example deploy/gesso.env   # then fill it in
+#   docker compose -f deploy/compose.yaml up -d --build
+
+services:
+  gesso:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: gesso.env
+    environment:
+      GESSO_PROXY_HOPS: "1"
+      GESSO_BLOCKLIST: /data/blocklist.txt
+    volumes:
+      - gesso-data:/data
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [gesso]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      GESSO_DOMAIN: ${GESSO_DOMAIN:-mcp.gesso.run}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  gesso-data:
+  caddy-data:

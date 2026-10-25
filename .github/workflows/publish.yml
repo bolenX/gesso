@@ -41,8 +41,8 @@ jobs:
       - name: Publish
         if: steps.check.outputs.skip != 'true'
         working-directory: packages/gesso-mcp
-        # Provenance needs a public repository; add --provenance once bolenX/gesso is public.
-        run: npm publish --access public
+        # Provenance links the npm package to the commit and workflow that built it.
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -54,6 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      created: ${{ steps.check.outputs.skip != 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -87,3 +89,10 @@ jobs:
           [ -s notes.md ] || echo "Gesso $VERSION" > notes.md
           gh release create "gesso-mcp-v$VERSION" "packages/gesso-mcp/gesso-$VERSION.mcpb" packages/gesso-mcp/gesso.mcpb \
             --title "Gesso $VERSION" --notes-file notes.md --target "$GITHUB_SHA"
+
+  # A new version also goes out to the hosted server (when a FLY_API_TOKEN secret is set).
+  deploy:
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
