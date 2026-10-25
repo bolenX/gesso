@@ -12,8 +12,8 @@ Pick the agent you use:
 | VS Code (Copilot agent mode) | One terminal command | Ready |
 | Gemini CLI | Add to `settings.json` | Ready |
 | Hermes Agent | Add to `config.yaml` | Ready |
-| claude.ai on the web | Custom connector | Coming soon |
-| ChatGPT | Developer-mode app | Coming soon |
+| claude.ai on the web | Custom connector to a hosted Gesso | Self-host; official hosting coming soon |
+| ChatGPT | Developer-mode app with a hosted Gesso | Self-host; official hosting coming soon |
 
 Every route except the Claude Desktop extension runs Gesso with `npx`, so it needs **Node 22 or later** (`node -v` to check; get it from [nodejs.org](https://nodejs.org)).
 
@@ -116,14 +116,14 @@ mcp_servers:
 
 Start `hermes chat`. If Hermes is already running, run `/reload-mcp`. Gesso's tools appear as `mcp_gesso_<tool>`.
 
-## claude.ai and ChatGPT (coming soon)
+## claude.ai and ChatGPT
 
-Both connect only to MCP servers on the public internet over HTTPS, so they need a hosted Gesso. `npx -y gesso-mcp --http 3333` starts Gesso as a web server at `/mcp`; once it's hosted:
+Both connect only to MCP servers on the public internet over HTTPS, so they need a hosted Gesso. There's no official one yet, but you can run your own with `npx -y gesso-mcp --hosted` or the Docker image: [hosting.md](hosting.md) has the steps. Open `https://your-host/new` to make a private workspace; its page shows your connector URL, `https://your-host/mcp/<key>`. Then:
 
-- **claude.ai:** **Settings › Connectors › Add custom connector** with `https://your-host/mcp`.
-- **ChatGPT:** turn on **Settings › Apps › Advanced settings › Developer mode**, then **Create app** with `https://your-host/mcp`. Developer mode is limited to some ChatGPT plans.
+- **claude.ai:** **Settings › Connectors › Add custom connector** with your connector URL.
+- **ChatGPT:** turn on **Settings › Apps › Advanced settings › Developer mode**, then **Create app** with your connector URL. Developer mode is limited to some ChatGPT plans.
 
-A hosted Gesso can't read files on your computer. The agent can still bring in your images and fonts from a URL, or pass them in directly, with `asset_import`.
+A hosted Gesso can't read files on your computer. Upload images and fonts on your workspace page, or the agent brings them in from a URL with `asset_import`. Exports come back as download links.
 
 ## Try it
 
@@ -168,8 +168,8 @@ Copy for the **Install** or **Get started** section, matching the guide above. F
 | VS Code | `color/vscode.svg` | | The `code --add-mcp …` command, with a copy button. Line: Then use Copilot Chat in Agent mode. |
 | Gemini CLI | `color/gemini-cli.svg` | | The `settings.json` block, with a copy button. Line: Add to `~/.gemini/settings.json`. |
 | Hermes | `mono/hermes.svg` | | The `config.yaml` block, with a copy button. Line: Add to `~/.hermes/config.yaml`, then `/reload-mcp`. |
-| claude.ai | `color/claude.svg` | Coming soon | Line: Web connector support is in progress. |
-| ChatGPT | `mono/chatgpt.svg` | Coming soon | Line: ChatGPT app support is in progress. |
+| claude.ai | `color/claude.svg` | Coming soon | Line: Official hosting is in progress. You can host your own today: link to the hosting guide. |
+| ChatGPT | `mono/chatgpt.svg` | Coming soon | Line: Official hosting is in progress. You can host your own today: link to the hosting guide. |
 
 **Under the tabs, for every route except the Desktop extension:** Requires Node 22 or later.
 
@@ -182,12 +182,12 @@ With eight tabs, let the tab row scroll sideways on phones rather than wrapping.
 - npm package: `gesso-mcp`. Every config runs `npx -y gesso-mcp`.
 - Extension file: `gesso-<version>.mcpb`, about 62 MB, built with `node packages/gesso-mcp/build-mcpb.mjs`. Includes macOS (Apple silicon and Intel), Windows and Linux support.
 - Default Gesso folder: `~/Documents/Gesso`, set with `GESSO_WORKDIR`.
-- claude.ai and ChatGPT: not available yet. Don't say they're supported.
+- claude.ai and ChatGPT: there's no official hosted Gesso yet. A self-hosted one ([hosting.md](hosting.md)) works over the same protocol, but hasn't been tested against those connectors yet. Don't say they're supported out of the box.
 - Logos are the official marks from Lobe Icons, Iconify and Devicon (see `brand/agents/README.md`). Don't redraw or recolour them.
 
 ### Hosting the extension download
 
 The `.mcpb` file is too large to commit to the repo. Host it in one of these places and link the Download button to it:
 
-- **GitHub Releases** (recommended): attach the file to a release; `https://github.com/bolenX/gesso/releases/latest/download/gesso-<version>.mcpb` then always points to the latest. While the repository is private, only people with access can download it, so make the repo public before launch.
+- **GitHub Releases** (recommended): every version bump that lands on `main` creates a release with the extension attached, as `gesso-<version>.mcpb` and as `gesso.mcpb`. Link the button to `https://github.com/bolenX/gesso/releases/latest/download/gesso.mcpb`, which always points to the newest version. While the repository is private, only people with access can download it, so make the repo public before launch.
 - **The site's own hosting:** put the file next to the landing page, outside the git repository.

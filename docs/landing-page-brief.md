@@ -39,7 +39,7 @@ Before you start, read the current site and compare it with this brief. Keep the
 | Repository | `github.com/bolenX/gesso`, still **private** |
 | Cost | Gesso is free. It never calls or pays for an image model: generative jobs go to the user's own connected tools. |
 
-**Download button.** No GitHub release exists yet and the repo is private, so `https://github.com/bolenX/gesso/releases/latest/download/gesso-0.10.0.mcpb` would fail for visitors. Until the repo is public with a release attached, host the `.mcpb` with the site (outside its git repo). If you can't do either, tell the user rather than shipping a broken link.
+**Download button.** Link it to `https://github.com/bolenX/gesso/releases/latest/download/gesso.mcpb`. Every release attaches the extension under that name, so the link always gives the newest version. The repo is still private, so the link only works for people with access. Until the repo is public, host the `.mcpb` with the site (outside its git repo), or tell the user rather than shipping a link visitors can't open.
 
 ## Positioning
 
@@ -209,7 +209,7 @@ For a section titled something like "Open it in Photoshop". Suggested copy:
 
 **Elsewhere:**
 
-- claude.ai and ChatGPT are still "coming soon". Don't say they're supported.
+- claude.ai and ChatGPT are still "coming soon": there's no official hosted Gesso. People can host their own ([hosting.md](hosting.md)), which you can mention as "self-host today". Don't say they're supported out of the box.
 - Rendering runs on the CPU, so don't claim real-time speed.
 - Gesso isn't affiliated with Adobe. Use "Photoshop" to describe compatibility and feature names, not as part of Gesso's brand, and consider a footer line: "Photoshop is a trademark of Adobe Inc. Gesso is not affiliated with or endorsed by Adobe."
 

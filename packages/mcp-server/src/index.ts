@@ -6,7 +6,6 @@ import { importPsd, writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
@@ -18,6 +17,7 @@ import { loadSkills } from "./skills.js";
 import { findSlices, renderSlice } from "./slices.js";
 import { batch, stamp } from "./production.js";
 import { DocStore } from "./store.js";
+import { download, inside, resolvePath } from "./paths.js";
 import { FILE_TOOL, WIDGET_MIME, WIDGET_URI, widgetHtml } from "./widget.js";
 
 export { FILE_TOOL };
@@ -109,16 +109,48 @@ export type ServerOptions = {
   /** Where relative asset paths and export directories resolve. */
   baseDir?: string;
   loader?: AssetLoader;
+  /** Hosted: tool paths must stay inside baseDir, and downloads must reach public addresses. */
+  confined?: boolean;
+  /** A public link to a file in baseDir, when the server is hosted; added to exports and jobs. */
+  fileUrl?: (path: string) => string | undefined;
+  /** Largest artboard area, in pixels at the requested scale, that renders and exports accept. */
+  maxPixels?: number;
+  /** State shared by servers that serve one workspace, when each request gets its own server (HTTP). */
+  state?: ServerState;
+};
+
+/** Exports still running, and files this workspace exported (the only ones the download tool serves). */
+export type ServerState = { exports: Map<string, Promise<CallToolResult>>; exported: Set<string> };
+
+export const newServerState = (): ServerState => ({ exports: new Map(), exported: new Set() });
+
+/** Reads only the workspace and the system font folders, and downloads only from public addresses. */
+export const confinedLoader = (baseDir: string): AssetLoader => {
+  const roots = [baseDir, ...systemFontDirs()];
+  return defaultAssetLoader(baseDir, { allow: (path) => roots.some((root) => inside(root, path)), download: async (url) => (await download(url, true)).bytes });
 };
 
 export function createServer({
   author = "agent",
   baseDir = process.cwd(),
   store = new DocStore(baseDir),
-  loader = defaultAssetLoader(baseDir),
+  confined = false,
+  loader = confined ? confinedLoader(baseDir) : defaultAssetLoader(baseDir),
   exportWaitMs = 45_000,
+  fileUrl,
+  maxPixels,
+  state = newServerState(),
 }: ServerOptions = {}): McpServer {
-  const exports = new Map<string, Promise<CallToolResult>>();
+  const { exports, exported } = state;
+  /** Refuses renders bigger than maxPixels, so one request can't exhaust a shared server's memory. */
+  const checkSize = (d: Doc, scale: number, artboard?: string) => {
+    if (!maxPixels) return;
+    for (const a of d.artboards) {
+      if (artboard && a.id !== artboard) continue;
+      const pixels = a.frame.w * a.frame.h * scale * scale;
+      if (pixels > maxPixels) throw new Error(`Artboard "${a.id}" at scale ${scale} is ${Math.round(pixels / 1e6)} megapixels; this server renders up to ${Math.round(maxPixels / 1e6)}. Use a smaller scale or artboard.`);
+    }
+  };
   const skills = loadSkills();
   const server = new McpServer(
     { name: "gesso", title: "Gesso", version: GESSO_VERSION, websiteUrl: GESSO_URL, icons: ICONS },
@@ -150,8 +182,6 @@ export function createServer({
   );
 
   // Every tool gets a human title; the tools that produce something also open the result card.
-  // Files this server exported; the download tool serves only these.
-  const exported = new Set<string>();
 
   const CARD_TOOLS = new Set(["canvas_create", "psd_import", "canvas_patch", "canvas_render", "canvas_export"]);
   const register: typeof server.registerTool = (name, config, cb) =>
@@ -249,7 +279,7 @@ export function createServer({
         if (request.id in history.head.assets && !replace) {
           return error(`Asset "${request.id}" already exists: ${JSON.stringify(history.head.assets[request.id])}. Pass replace: true to swap it, or use another id.`);
         }
-        const asset = await importAsset(request, baseDir);
+        const asset = await importAsset(request, baseDir, confined);
         const result = history.apply({ doc, baseRevision: history.head.revision, ops: [{ op: "asset", id: request.id, asset }] }, author);
         if (isConflict(result)) return error("The document changed while importing; try again.");
         store.save(doc);
@@ -312,8 +342,8 @@ export function createServer({
     },
     async ({ path, id, replace }) =>
       guard(async () => {
-        const file = resolve(baseDir, path.startsWith("~/") ? join(homedir(), path.slice(2)) : path);
-        if (!existsSync(file)) return error(`No file at ${file}`);
+        const file = resolvePath(baseDir, path, confined);
+        if (!existsSync(file)) return error(confined ? `No file "${path}" in your workspace. Upload it first.` : `No file at ${file}`);
         const docId = (id ?? basename(file).replace(/\.ps[db]$/i, "")).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "imported";
         if (store.exists(docId) && !replace) return error(`A document called "${docId}" already exists. Pass another id, or replace: true.`);
         const fonts = await installedFonts();
@@ -395,6 +425,7 @@ export function createServer({
         const card: CardData = { kind: "patch", doc: patch.doc, revision: result.revision, changed: result.changed, warnings: result.warnings, outline: tree };
         const response = json({ ...result, outline: tree });
         if (patch.returnPreview) {
+          checkSize(history.head, patch.returnPreview);
           const rendered = await renderDoc(history.head, { scale: patch.returnPreview, loader });
           card.previews = [];
           for (const r of rendered) {
@@ -498,7 +529,16 @@ export function createServer({
       },
     },
     async ({ doc, job, ...request }) =>
-      guard(async () => json(await prepareJob(store.get(doc), { kind: job, ...request }, baseDir, loader))),
+      guard(async () => {
+        const prepared = await prepareJob(store.get(doc), { kind: job, ...request }, baseDir, loader);
+        if (!fileUrl) return json(prepared);
+        // Hosted: the image tool reads the job's files from their links, not from this server's disk.
+        const urls = Object.fromEntries(Object.entries(prepared.files).flatMap(([name, path]) => {
+          const url = fileUrl(path);
+          return url ? [[name, url]] : [];
+        }));
+        return json({ ...prepared, urls });
+      }),
   );
 
   register(
@@ -548,6 +588,7 @@ export function createServer({
     async ({ doc, artboard, scale, proof }) =>
       guard(async () => {
         const d = store.get(doc);
+        checkSize(d, scale, artboard);
         let rendered = artboard ? [await renderArtboard(d, artboard, { scale, loader })] : await renderDoc(d, { scale, loader });
         if (proof) rendered = await Promise.all(rendered.map((r) => softProof(r, profilePath(proof))));
         const content: CallToolResult["content"] = [];
@@ -579,6 +620,7 @@ export function createServer({
     async ({ doc, ...request }) =>
       guard(async () => {
         const history = store.history(doc);
+        checkSize(history.head, 1, request.artboard);
         const { ops, warnings } = await stamp(history.head, request, baseDir, loader);
         const result = history.apply({ doc, baseRevision: history.head.revision, ops }, author);
         if (isConflict(result)) return error("The document changed while stamping; try again");
@@ -608,9 +650,10 @@ export function createServer({
     async ({ doc, color, profile, ...request }) =>
       guard(async () => {
         const d = store.get(doc);
-        const { files } = await batch(d, { ...request, color: { ...(color ? { color } : {}), ...(profile ? { profile: profilePath(profile) } : {}) } }, baseDir, loader);
+        checkSize(d, request.scale);
+        const { files } = await batch(d, { ...request, color: { ...(color ? { color } : {}), ...(profile ? { profile: profilePath(profile) } : {}) } }, baseDir, loader, confined);
         for (const f of files) exported.add(f.path);
-        return json({ doc, revision: d.revision, files });
+        return json({ doc, revision: d.revision, files: files.map((f) => withUrl(f)) });
       }),
   );
 
@@ -642,7 +685,8 @@ export function createServer({
     async ({ doc, outDir, format, scale, images, dpi, bleed, marks, color, profile, slices }, extra) =>
       guard(async () => {
         const d = store.get(doc);
-        const dir = resolve(baseDir, outDir);
+        checkSize(d, format === "psd" ? 1 : scale);
+        const dir = resolvePath(baseDir, outDir, confined);
         // Large documents can take longer than an agent waits for one tool call. The export keeps
         // running in the background; calling again with the same arguments picks up the result.
         const key = JSON.stringify([d.id, d.revision, dir, format, scale, images, dpi, bleed, marks, color, profile, slices]);
@@ -681,7 +725,13 @@ export function createServer({
   );
 
   /** A profile name stays a built-in name; anything else is a path relative to the Gesso folder. */
-  const profilePath = (profile: string) => (["srgb", "p3", "cmyk"].includes(profile) ? profile : resolve(baseDir, profile));
+  const profilePath = (profile: string) => (["srgb", "p3", "cmyk"].includes(profile) ? profile : resolvePath(baseDir, profile, confined));
+
+  /** Adds the file's public link, when the server is hosted. */
+  const withUrl = <T extends { path: string }>(file: T): T & { url?: string } => {
+    const url = fileUrl?.(file.path);
+    return url ? { ...file, url } : file;
+  };
 
   async function runExport(
     d: Doc,
@@ -756,7 +806,8 @@ export function createServer({
         bytes: (await stat(f.path)).size,
       });
     }
-    return withCard(json(manifest), {
+    const manifestUrl = fileUrl?.(manifestPath);
+    return withCard(json({ ...manifest, files: files.map(withUrl), ...(manifestUrl ? { manifestUrl } : {}) }), {
       kind: "export",
       doc: d.id,
       revision: d.revision,

@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.gesso
+.git
+coverage
+packages/gesso-mcp/mcpb
+packages/gesso-mcp/*.mcpb
+packages/gesso-mcp/assets
+packages/gesso-mcp/vendor

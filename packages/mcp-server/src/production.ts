@@ -1,9 +1,10 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, extname, join } from "node:path";
 import type { Asset, Doc, Layer, Op } from "@gesso/core";
 import { encode, renderArtboard, type AssetLoader, type ColorOptions, type EncodeFormat, type Rendered } from "@gesso/render";
 import { writePsd } from "@gesso/psd";
 import { importAsset } from "./import.js";
+import { resolvePath } from "./paths.js";
 
 // Production tools: Stamp Visible / Merge Layers (merged pixels as a new layer) and Batch /
 // data-driven graphics (a template run over many images or rows of data).
@@ -98,13 +99,13 @@ export type BatchRequest = {
 };
 
 /** Runs the template once per source image or data row and writes every artboard of each. */
-export async function batch(doc: Doc, request: BatchRequest, baseDir: string, loader: AssetLoader) {
+export async function batch(doc: Doc, request: BatchRequest, baseDir: string, loader: AssetLoader, confined = false) {
   let rows: Array<Record<string, string>> = request.rows ?? [];
   if (request.sources !== undefined) {
     if (!request.layer) throw new Error("With sources, name the image layer they replace in \"layer\"");
     let paths = Array.isArray(request.sources) ? request.sources : [];
     if (typeof request.sources === "string") {
-      const dir = resolve(baseDir, request.sources);
+      const dir = resolvePath(baseDir, request.sources, confined);
       paths = (await readdir(dir)).filter((f) => IMAGE_EXT.has(extname(f).toLowerCase())).sort().map((f) => join(dir, f));
       if (!paths.length) throw new Error(`No images in ${dir}`);
     }
@@ -113,7 +114,7 @@ export async function batch(doc: Doc, request: BatchRequest, baseDir: string, lo
   if (!rows.length) throw new Error("Give sources (images) or rows (data) to run the template over");
   const layers = new Map<string, Layer>();
   for (const artboard of doc.artboards) walk(artboard.layers, (l) => layers.set(l.id, l));
-  const dir = resolve(baseDir, request.outDir);
+  const dir = resolvePath(baseDir, request.outDir, confined);
   await mkdir(dir, { recursive: true });
   const files: Array<{ row: string; artboard?: string; path: string; warnings: string[] }> = [];
   for (const [index, row] of rows.entries()) {
@@ -130,7 +131,7 @@ export async function batch(doc: Doc, request: BatchRequest, baseDir: string, lo
         delete layer.runs;
       } else if (layer.type === "image") {
         const id = `batch-${key}-${index + 1}`;
-        variant.assets[id] = await importAsset({ id, source: value }, baseDir);
+        variant.assets[id] = await importAsset({ id, source: value }, baseDir, confined);
         layer.asset = id;
       } else throw new Error(`Row ${index + 1}: layer "${key}" is a ${layer.type}; rows fill text and image layers`);
     }

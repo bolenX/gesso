@@ -18,7 +18,12 @@ export function parseSlices(name: string): Array<Omit<Slice, "layer" | "artboard
     const format: EncodeFormat = ext.startsWith("jp") ? "jpeg" : ext.startsWith("tif") ? "tiff" : (ext as EncodeFormat);
     return [
       {
-        file: `${m[4]!.trim()}.${ext === "jpeg" ? "jpg" : ext === "tiff" ? "tif" : ext}`,
+        // Subfolders ("icons/logo.png") are kept; "..", "." and absolute paths are dropped, so a layer name can't write outside the export folder.
+        file: `${m[4]!
+          .trim()
+          .split(/[\\/]+/)
+          .filter((s) => s && s !== "." && s !== "..")
+          .join("/")}.${ext === "jpeg" ? "jpg" : ext === "tiff" ? "tif" : ext}`,
         format,
         scale: m[1] ? Number(m[1]) / 100 : 1,
         quality: m[6] ? Math.min(100, Number(m[6])) : 90,

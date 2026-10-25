@@ -19,3 +19,14 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+
+  # The hosted server's image (docs/hosting.md): build it and check it answers.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t gesso .
+      - run: |
+          docker run -d --name gesso -p 8080:8080 gesso
+          for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 1; done
+          curl -sf -o /dev/null -w '%{http_code}\n' localhost:8080/new | grep 303

@@ -17,7 +17,7 @@ export {
   type Rendered,
   type RenderOptions,
 } from "./render.js";
-export { defaultAssetLoader, type AssetLoader } from "./assets.js";
+export { defaultAssetLoader, type AssetLoader, type LoaderOptions } from "./assets.js";
 export { resolveFrame, type Box } from "./layout.js";
 export { applyAdjustment, curveLut, parseCube, type Lut3D } from "./adjust.js";
 export { rectToQuad, project, type Point } from "./perspective.js";
