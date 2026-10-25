@@ -24,7 +24,7 @@ export const Role = z.enum([
 ]);
 export type Role = z.infer<typeof Role>;
 
-export { BlendMode, Color } from "./primitives.js";
+export { BlendMode, Color, isStandardBlend, STANDARD_BLENDS } from "./primitives.js";
 import { BlendMode, Color } from "./primitives.js";
 
 export const GradientStop = z.object({ offset: z.number().min(0).max(1), color: Color });
@@ -120,10 +120,25 @@ export const Frame = z.union([
 ]);
 export type Frame = z.infer<typeof Frame>;
 
-export const Shape = z.discriminatedUnion("kind", [
+const BasicShape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("rect"), radius: z.number().nonnegative().optional() }),
   z.object({ kind: z.literal("ellipse") }),
   z.object({ kind: z.literal("path"), d: z.string() }),
+]);
+export const Shape = z.discriminatedUnion("kind", [
+  ...BasicShape.options,
+  /**
+   * Shapes combined like Photoshop's path operations (Pathfinder in Illustrator): each part sits
+   * in its own frame within the box and is added to, subtracted from, intersected with, or
+   * excluded from (XOR) the parts before it.
+   */
+  z.object({
+    kind: z.literal("compound"),
+    parts: z
+      .array(z.object({ shape: BasicShape, frame: Frame.optional(), op: z.enum(["add", "subtract", "intersect", "exclude"]).optional() }))
+      .min(1)
+      .max(64),
+  }),
 ]);
 export type Shape = z.infer<typeof Shape>;
 
@@ -144,8 +159,61 @@ export const Mask = z.discriminatedUnion("kind", [
     invert: z.boolean().optional(),
   }),
   z.object({ kind: z.literal("luminance-of"), layer: Id }),
+  /**
+   * Computed masks (Photoshop selections kept live): they read a source's pixels, either "below"
+   * (everything under this layer, the default) or a layer id, and recompute on every render.
+   * In a PSD they're written as pixel masks.
+   */
+  z.object({
+    /** Luminosity mask: lights, darks or midtones (level 1..5 narrows them, like Lights 2, Lights 3), or a [low, high] band in levels. */
+    kind: z.literal("luminosity"),
+    source: z.string().optional(),
+    range: z.union([z.enum(["lights", "darks", "midtones"]), z.tuple([z.number().min(0).max(255), z.number().min(0).max(255)])]),
+    level: z.number().int().min(1).max(5).optional(),
+    /** Soft edge of a band, in levels. */
+    softness: z.number().min(0).max(255).optional(),
+    feather: z.number().nonnegative().optional(),
+    invert: z.boolean().optional(),
+  }),
+  z.object({
+    /** Color Range: where colours are within `fuzziness` (colour distance) of `color`. */
+    kind: z.literal("color-range"),
+    source: z.string().optional(),
+    color: Color,
+    fuzziness: z.number().min(0).max(200),
+    feather: z.number().nonnegative().optional(),
+    invert: z.boolean().optional(),
+  }),
+  z.object({
+    /** A colour channel as a mask, with levels (`black`, `white`) to push it to black and white: the channel-mask technique for hair, trees and skies. */
+    kind: z.literal("channel"),
+    source: z.string().optional(),
+    channel: z.enum(["red", "green", "blue"]),
+    black: z.number().min(0).max(255).optional(),
+    white: z.number().min(0).max(255).optional(),
+    feather: z.number().nonnegative().optional(),
+    invert: z.boolean().optional(),
+  }),
 ]);
 export type Mask = z.infer<typeof Mask>;
+
+/** Masks computed from pixels (luminosity, colour range, channel). */
+export const isComputedMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "luminosity" | "color-range" | "channel" }> =>
+  mask?.kind === "luminosity" || mask?.kind === "color-range" || mask?.kind === "channel";
+
+const Range = z.tuple([z.number().min(0).max(255), z.number().min(0).max(255), z.number().min(0).max(255), z.number().min(0).max(255)]);
+/**
+ * Layer Style › Blend If: hides the layer where its own brightness ("this") or what's beneath it
+ * ("underlying") falls outside a range. A range is [black, black split, white split, white] in
+ * levels: fully shown between the splits, fading to hidden at black and white (split equal to its
+ * end for a hard cut). Photoshop's default is [0, 0, 255, 255].
+ */
+export const BlendIf = z.object({
+  channel: z.enum(["gray", "red", "green", "blue"]).optional(),
+  this: Range.optional(),
+  underlying: Range.optional(),
+});
+export type BlendIf = z.infer<typeof BlendIf>;
 
 export { Filter, filterAssets, type FilterKind } from "./filters.js";
 import { Filter } from "./filters.js";
@@ -184,6 +252,78 @@ export const Effect = z.discriminatedUnion("kind", [
     kind: z.literal("color-overlay"),
     color: Color,
     opacity: z.number().min(0).max(1).optional(),
+    blend: BlendMode.optional(),
+  }),
+  z.object({
+    /** A shadow inside the layer's edges, as if it were cut into the surface (multiply by default). */
+    kind: z.literal("inner-shadow"),
+    color: Color.optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    angle: z.number().optional(),
+    distance: z.number().nonnegative().optional(),
+    size: z.number().nonnegative().optional(),
+    /** 0..1: how much of the size is solid before it fades. */
+    choke: z.number().min(0).max(1).optional(),
+    blend: BlendMode.optional(),
+  }),
+  z.object({
+    /** A glow inside the layer, from its edges or its centre (screen by default). */
+    kind: z.literal("inner-glow"),
+    color: Color.optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    size: z.number().nonnegative().optional(),
+    choke: z.number().min(0).max(1).optional(),
+    source: z.enum(["edge", "center"]).optional(),
+    blend: BlendMode.optional(),
+  }),
+  z.object({
+    /** Bevel & Emboss: lights and shades the layer's edges as if raised (or sunk) from the surface. */
+    kind: z.literal("bevel"),
+    style: z.enum(["inner-bevel", "outer-bevel", "emboss", "pillow-emboss"]).optional(),
+    /** Steepness in %, 1..1000 (100 by default). */
+    depth: z.number().min(1).max(1000).optional(),
+    direction: z.enum(["up", "down"]).optional(),
+    size: z.number().nonnegative().optional(),
+    soften: z.number().nonnegative().optional(),
+    /** Light direction in degrees (120: from the upper left) and height above the surface (30). */
+    angle: z.number().optional(),
+    altitude: z.number().min(0).max(90).optional(),
+    highlight: Color.optional(),
+    highlightOpacity: z.number().min(0).max(1).optional(),
+    shadow: Color.optional(),
+    shadowOpacity: z.number().min(0).max(1).optional(),
+  }),
+  z.object({
+    /** Satin: soft interior shading from the layer's own shape, offset and blurred (multiply by default). */
+    kind: z.literal("satin"),
+    color: Color.optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    angle: z.number().optional(),
+    distance: z.number().nonnegative().optional(),
+    size: z.number().nonnegative().optional(),
+    invert: z.boolean().optional(),
+    blend: BlendMode.optional(),
+  }),
+  z.object({
+    /** A gradient over the layer's pixels, aligned to its box. */
+    kind: z.literal("gradient-overlay"),
+    stops: z.array(GradientStop).min(2),
+    angle: z.number().optional(),
+    style: z.enum(["linear", "radial", "reflected"]).optional(),
+    /** Size of the gradient relative to the box, in % (10..150). */
+    scale: z.number().min(10).max(150).optional(),
+    reverse: z.boolean().optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    blend: BlendMode.optional(),
+  }),
+  z.object({
+    /** A repeating image (asset) over the layer's pixels, anchored to the artboard. In a PSD it's a clipped pixel layer. */
+    kind: z.literal("pattern-overlay"),
+    asset: z.string(),
+    /** % of the image's size (100 by default). */
+    scale: z.number().min(1).max(1000).optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    blend: BlendMode.optional(),
   }),
   /**
    * Frosted glass: blurs whatever is beneath the layer, inside the layer's shape, like Figma's
@@ -198,6 +338,8 @@ export const Effect = z.discriminatedUnion("kind", [
 ]);
 export type Effect = z.infer<typeof Effect>;
 
+const Point = z.tuple([z.number(), z.number()]);
+
 const LayerBase = z.object({
   id: Id,
   name: z.string(),
@@ -207,6 +349,7 @@ const LayerBase = z.object({
   /** Fades the layer's own pixels but not its effects, like Photoshop's Fill and Figma's fill opacity. */
   fillOpacity: z.number().min(0).max(1).optional(),
   blend: BlendMode.optional(),
+  blendIf: BlendIf.optional(),
   /** Clips to the nearest non-clipped layer below. */
   clip: z.boolean().optional(),
   mask: Mask.optional(),
@@ -217,6 +360,19 @@ const LayerBase = z.object({
   rotation: z.number().optional(),
   /** Mirrors the layer around the centre of its box, before rotation. */
   flip: z.enum(["horizontal", "vertical", "both"]).optional(),
+  /** Slants the layer, in degrees: [horizontal, vertical] (Edit › Transform › Skew), after flipping and before rotating. */
+  skew: z.tuple([z.number().min(-89).max(89), z.number().min(-89).max(89)]).optional(),
+  /**
+   * Distort / Perspective: pins the box's corners (top-left, top-right, bottom-right, bottom-left)
+   * at these [x, y] points in the parent's coordinates. Overrides rotation, flip and skew.
+   */
+  quad: z.tuple([Point, Point, Point, Point]).optional(),
+  /**
+   * Warp (Edit › Transform › Warp): a grid of points, rows top to bottom, each [x, y] as fractions
+   * of the box, that the layer bends through smoothly. An undistorted 3×3 grid is
+   * [[[0,0],[0.5,0],[1,0]],[[0,0.5],[0.5,0.5],[1,0.5]],[[0,1],[0.5,1],[1,1]]].
+   */
+  warp: z.array(z.array(Point).min(2).max(16)).min(2).max(16).optional(),
 });
 
 export const ImageLayer = LayerBase.extend({
@@ -284,7 +440,6 @@ export const AdjustmentLayer = LayerBase.extend({
   adjustment: Adjustment,
 });
 
-const Point = z.tuple([z.number(), z.number()]);
 
 /**
  * A placed smart object: an instance of a document-level symbol. With a quad it is

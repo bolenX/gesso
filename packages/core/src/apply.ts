@@ -223,6 +223,9 @@ export function semanticErrors(doc: Doc): string[] {
           else if (doc.assets[id]!.kind !== "lut") errors.push(`adjustment "${layer.id}" needs a .cube LUT, but asset "${id}" is a ${doc.assets[id]!.kind}`);
         }
       }
+      for (const effect of layer.effects ?? []) {
+        if (effect.kind === "pattern-overlay" && !(effect.asset in doc.assets)) errors.push(`pattern overlay on "${layer.id}" uses missing asset "${effect.asset}"`);
+      }
       for (const id of (layer.filters ?? []).flatMap(filterAssets)) {
         if (!(id in doc.assets)) errors.push(`a filter on "${layer.id}" uses missing asset "${id}"`);
       }

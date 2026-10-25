@@ -37,6 +37,12 @@ describe("reflowArtboard", () => {
     expect(layers[0]!.filters).toEqual([{ kind: "box-blur", radius: 4 }, { kind: "crystallize", size: 3 }, { kind: "displace", map: "m", scale: [10, 5] }, { kind: "pinch", amount: 50 }]);
   });
 
+  it("scales layer style sizes with the layout", () => {
+    const card = { ...rect("card", { x: 100, y: 100, w: 200, h: 200 }), effects: [{ kind: "drop-shadow", distance: 10, size: 20, angle: 90 }, { kind: "bevel", size: 8, soften: 2, depth: 150 }, { kind: "stroke", color: "#000000", width: 4 }] } as Layer;
+    const { layers } = reflowArtboard(board([card]), { w: 500, h: 500 });
+    expect(layers[0]!.effects).toEqual([{ kind: "drop-shadow", distance: 5, size: 10, angle: 90 }, { kind: "bevel", size: 4, soften: 1, depth: 150 }, { kind: "stroke", color: "#000000", width: 2 }]);
+  });
+
   it("adds and removes artboards through the artboard op", () => {
     const extra = { id: "story", name: "Story", frame: { x: 2000, y: 0, w: 1080, h: 1920 }, layers: [] };
     const added = applyOps(promo, [{ op: "artboard", id: "story", artboard: extra }]).doc;

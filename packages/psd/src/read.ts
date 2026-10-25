@@ -56,6 +56,17 @@ const BLEND: Record<string, BlendMode> = {
   saturation: "saturation",
   color: "color",
   luminosity: "luminosity",
+  dissolve: "dissolve",
+  "linear burn": "linear-burn",
+  "darker color": "darker-color",
+  "linear dodge": "linear-dodge",
+  "lighter color": "lighter-color",
+  "vivid light": "vivid-light",
+  "linear light": "linear-light",
+  "pin light": "pin-light",
+  "hard mix": "hard-mix",
+  subtract: "subtract",
+  divide: "divide",
 };
 
 export async function importPsd(bytes: Uint8Array, options: ImportOptions): Promise<ImportResult> {
@@ -129,6 +140,8 @@ async function convertLayer(layer: PsdLayer, origin: Box, ctx: Ctx): Promise<Lay
   if (layer.opacity !== undefined && layer.opacity < 1) base.opacity = round(layer.opacity, 3);
   if (layer.fillOpacity !== undefined && layer.fillOpacity < 1) base.fillOpacity = round(layer.fillOpacity, 3);
   if (layer.clipping) base.clip = true;
+  const blendIf = convertBlendIf(layer.blendingRanges);
+  if (blendIf) base.blendIf = blendIf;
   if (layer.blendMode && layer.blendMode !== "normal" && layer.blendMode !== "pass through") {
     const blend = BLEND[layer.blendMode];
     if (blend) base.blend = blend;
@@ -434,6 +447,21 @@ async function convertAdjustment(adj: NonNullable<PsdLayer["adjustment"]>, id: s
   return undefined;
 }
 
+/** Photoshop's blending ranges as Blend If, when they hide anything: grey first, else the first channel that does. */
+function convertBlendIf(ranges: PsdLayer["blendingRanges"]): Layer["blendIf"] | undefined {
+  if (!ranges) return undefined;
+  const open = (r?: number[]) => !r || (r[0] === 0 && r[1] === 0 && r[2] === 255 && r[3] === 255);
+  const range = (r?: number[]) => (open(r) ? undefined : (r!.slice(0, 4) as [number, number, number, number]));
+  const pairs: Array<[NonNullable<Layer["blendIf"]>["channel"], number[] | undefined, number[] | undefined]> = [
+    ["gray", ranges.compositeGrayBlendSource, ranges.compositeGraphBlendDestinationRange],
+    ...(["red", "green", "blue"] as const).map((c, i) => [c, ranges.ranges[i]?.sourceRange, ranges.ranges[i]?.destRange] as [NonNullable<Layer["blendIf"]>["channel"], number[] | undefined, number[] | undefined]),
+  ];
+  const found = pairs.find(([, a, b]) => !open(a) || !open(b));
+  if (!found) return undefined;
+  const [channel, a, b] = found;
+  return { ...(channel === "gray" ? {} : { channel }), ...(range(a) ? { this: range(a) } : {}), ...(range(b) ? { underlying: range(b) } : {}) };
+}
+
 function convertEffects(layer: PsdLayer, ctx: Ctx): Effect[] {
   const fx = layer.effects!;
   if (fx.disabled) return [];
@@ -448,9 +476,56 @@ function convertEffects(layer: PsdLayer, ctx: Ctx): Effect[] {
     if (e.fillType && e.fillType !== "color") ctx.warnings.push(`layer "${layer.name}": gradient and pattern strokes import as solid colour`);
     out.push({ kind: "stroke", color: hex(e.color), width: e.size?.value ?? 1, position: e.position ?? "outside", ...(e.opacity !== undefined && e.opacity < 1 ? { opacity: round(e.opacity, 3) } : {}) });
   }
-  for (const e of on(fx.solidFill)) out.push({ kind: "color-overlay", color: hex(e.color), ...(e.opacity !== undefined && e.opacity < 1 ? { opacity: round(e.opacity, 3) } : {}) });
-  const skipped = (["innerShadow", "innerGlow", "bevel", "satin", "gradientOverlay", "patternOverlay"] as const).filter((k) => on(fx[k] as never).length);
-  if (skipped.length) ctx.warnings.push(`layer "${layer.name}": ${skipped.join(", ")} effects aren't supported yet; left out`);
+  const blendOf = (mode: string | undefined, fallback: string) => (mode && mode !== fallback && BLEND[mode] ? { blend: BLEND[mode] } : {});
+  const opacityOf = (o: number | undefined, fallback: number) => (o !== undefined && Math.abs(o - fallback) > 0.001 ? { opacity: round(o, 3) } : {});
+  for (const e of on(fx.solidFill)) out.push({ kind: "color-overlay", color: hex(e.color), ...opacityOf(e.opacity, 1), ...blendOf(e.blendMode, "normal") });
+  for (const e of on(fx.innerShadow)) {
+    out.push({ kind: "inner-shadow", color: hex(e.color), opacity: round(e.opacity ?? 0.75, 3), angle: e.angle ?? 120, distance: e.distance?.value ?? 0, size: e.size?.value ?? 0, ...(e.choke?.value ? { choke: round(e.choke.value / 100, 2) } : {}), ...blendOf(e.blendMode, "multiply") });
+  }
+  for (const e of on(fx.innerGlow)) {
+    out.push({ kind: "inner-glow", color: hex(e.color), opacity: round(e.opacity ?? 0.75, 3), size: e.size?.value ?? 0, ...(e.choke?.value ? { choke: round(e.choke.value / 100, 2) } : {}), ...(e.source === "center" ? { source: "center" as const } : {}), ...blendOf(e.blendMode, "screen") });
+  }
+  for (const e of on(fx.bevel)) {
+    const style = ({ "inner bevel": "inner-bevel", "outer bevel": "outer-bevel", emboss: "emboss", "pillow emboss": "pillow-emboss" } as const)[e.style as "inner bevel"];
+    if (!style) ctx.warnings.push(`layer "${layer.name}": stroke emboss imports as an inner bevel`);
+    out.push({
+      kind: "bevel",
+      style: style ?? "inner-bevel",
+      depth: e.strength ?? 100,
+      direction: e.direction === "down" ? "down" : "up",
+      size: e.size?.value ?? 5,
+      ...(e.soften?.value ? { soften: e.soften.value } : {}),
+      angle: e.angle ?? 120,
+      altitude: e.altitude ?? 30,
+      highlight: hex(e.highlightColor),
+      highlightOpacity: round(e.highlightOpacity ?? 0.75, 3),
+      shadow: hex(e.shadowColor),
+      shadowOpacity: round(e.shadowOpacity ?? 0.75, 3),
+    });
+  }
+  for (const e of on(fx.satin)) {
+    out.push({ kind: "satin", color: hex(e.color), opacity: round(e.opacity ?? 0.5, 3), angle: e.angle ?? 19, distance: e.distance?.value ?? 11, size: e.size?.value ?? 14, ...(e.invert ? { invert: true } : {}), ...blendOf(e.blendMode, "multiply") });
+  }
+  for (const e of on(fx.gradientOverlay)) {
+    const g = e.gradient;
+    if (!g || g.type !== "solid" || g.colorStops.length < 2) {
+      ctx.warnings.push(`layer "${layer.name}": a noise gradient overlay isn't supported; left out`);
+      continue;
+    }
+    const style = e.type === "radial" || e.type === "reflected" ? e.type : "linear";
+    if (e.type && e.type !== style) ctx.warnings.push(`layer "${layer.name}": ${e.type} gradient overlays import as linear`);
+    out.push({
+      kind: "gradient-overlay",
+      stops: g.colorStops.map((st) => ({ offset: round(st.location, 4), color: hex(st.color) })),
+      angle: e.angle ?? 90,
+      ...(style !== "linear" ? { style } : {}),
+      ...(e.scale && e.scale !== 100 ? { scale: Math.min(150, Math.max(10, e.scale)) } : {}),
+      ...(e.reverse ? { reverse: true } : {}),
+      ...opacityOf(e.opacity, 1),
+      ...blendOf(e.blendMode, "normal"),
+    });
+  }
+  if (on(fx.patternOverlay as never).length) ctx.warnings.push(`layer "${layer.name}": pattern overlays can't be read from PSD files yet; left out`);
   return out;
 }
 

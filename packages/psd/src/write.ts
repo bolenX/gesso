@@ -84,7 +84,7 @@ export async function writePsd(doc: Doc, options: PsdOptions = {}): Promise<PsdR
     blit(composite, width, rendered.pixels, rendered.width, rendered.height, ox, oy);
     flats.push(rendered);
 
-    const { parts, width: artboardWidth, warnings: w } = await renderLayerParts(doc, artboard.id, options.loader ? { loader: options.loader } : {});
+    const { parts, width: artboardWidth, warnings: w } = await renderLayerParts(doc, artboard.id, { ...(options.loader ? { loader: options.loader } : {}), ...(rendered.masks?.size ? { masks: rendered.masks } : {}) });
     warnings.push(...w.map((msg) => `${artboard.id}: ${msg}`));
     const ctx: Ctx = { doc, parts, ox, oy, width: artboardWidth, warnings, symbolFiles, artboard: artboard.id, luts };
 
@@ -142,6 +142,30 @@ type Ctx = {
  * blur, so the frosted part is a pixel layer and the glass shape above it stays live.
  */
 function withBackdrop(layer: Layer, ctx: Ctx): PsdLayer[] {
+  return [...backdropAndLayer(layer, ctx), ...patternOverlays(layer, ctx)];
+}
+
+/** Pattern overlays as pixel layers clipped to the layer: Photoshop files written here can't carry the patterns. */
+function patternOverlays(layer: Layer, ctx: Ctx): PsdLayer[] {
+  const overlays = ctx.parts.get(layer.id)?.overlays ?? [];
+  if (!overlays.length) return [];
+  if (!ctx.warnings.some((w) => w.startsWith("pattern overlay"))) ctx.warnings.push("pattern overlay is written as a pixel layer clipped above its layer");
+  if (layer.clip) ctx.warnings.push(`layer "${layer.id}" is clipped, so its pattern overlay clips to the layer below it instead`);
+  return overlays.map((o) => ({
+    name: `${layer.name} · pattern overlay`,
+    opacity: o.opacity,
+    blendMode: psdBlend(o.blend),
+    hidden: layer.visible === false,
+    clipping: true,
+    left: ctx.ox + o.box.x,
+    top: ctx.oy + o.box.y,
+    right: ctx.ox + o.box.x + o.box.w,
+    bottom: ctx.oy + o.box.y + o.box.h,
+    imageData: { width: o.box.w, height: o.box.h, data: o.pixels },
+  }));
+}
+
+function backdropAndLayer(layer: Layer, ctx: Ctx): PsdLayer[] {
   const out = toPsdLayer(layer, ctx);
   const glass = ctx.backdrops?.get(layer.id);
   if (!glass) return [out];
@@ -172,6 +196,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
     hidden: layer.visible === false,
     clipping: layer.clip === true,
     ...(layer.fillOpacity !== undefined ? { fillOpacity: layer.fillOpacity } : {}),
+    ...(layer.blendIf ? { blendingRanges: blendingRanges(layer.blendIf) } : {}),
   };
   if (layer.meta?.locked) out.protected = { transparency: true, composite: true, position: true };
   if (part.mask) out.mask = maskData(part.mask, ctx);
@@ -180,6 +205,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
   switch (layer.type) {
     case "group":
       out.opened = true;
+      if (layer.quad || layer.warp) ctx.warnings.push(`group "${layer.id}" is ${layer.warp ? "warped" : "distorted"}; Photoshop gets its layers undistorted`);
       if ((layer.isolation ?? "pass-through") === "pass-through" && (layer.blend ?? "normal") === "normal") {
         out.blendMode = "pass through";
       }
@@ -190,6 +216,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       return out;
     case "text":
       Object.assign(out, pixelData(part, ctx));
+      if (distorted(layer, ctx)) return out;
       if (layer.path) {
         ctx.warnings.push(`text "${layer.id}" follows a path, which is written as pixels; Photoshop type on a path isn't supported yet`);
         return out;
@@ -198,6 +225,7 @@ function toPsdLayer(layer: Layer, ctx: Ctx): PsdLayer {
       return out;
     case "shape": {
       Object.assign(out, pixelData(part, ctx));
+      if (distorted(layer, ctx)) return out;
       Object.assign(out, vectorShape(layer, part, ctx));
       return out;
     }
@@ -540,7 +568,80 @@ function psdEffects(effects: Effect[]): LayerEffectsInfo {
     } else if (e.kind === "stroke") {
       (info.stroke ??= []).push({ ...on, size: px(e.width), position: e.position ?? "outside", fillType: "color", color: rgb(e.color), opacity: e.opacity ?? 1, blendMode: "normal" });
     } else if (e.kind === "color-overlay") {
-      (info.solidFill ??= []).push({ ...on, color: rgb(e.color), opacity: e.opacity ?? 1, blendMode: "normal" });
+      (info.solidFill ??= []).push({ ...on, color: rgb(e.color), opacity: e.opacity ?? 1, blendMode: psdBlend(e.blend) });
+    } else if (e.kind === "inner-shadow") {
+      (info.innerShadow ??= []).push({
+        ...on,
+        color: rgb(e.color ?? "#000000"),
+        opacity: e.opacity ?? 0.75,
+        angle: e.angle ?? 120,
+        useGlobalLight: false,
+        distance: px(e.distance ?? 5),
+        size: px(e.size ?? 5),
+        choke: px(Math.round((e.choke ?? 0) * 100)),
+        blendMode: psdBlend(e.blend ?? "multiply"),
+      });
+    } else if (e.kind === "inner-glow") {
+      info.innerGlow = {
+        ...on,
+        color: rgb(e.color ?? "#FFFFBE"),
+        opacity: e.opacity ?? 0.75,
+        size: px(e.size ?? 5),
+        choke: px(Math.round((e.choke ?? 0) * 100)),
+        source: e.source ?? "edge",
+        blendMode: psdBlend(e.blend ?? "screen"),
+      };
+    } else if (e.kind === "bevel") {
+      info.bevel = {
+        ...on,
+        style: ({ "inner-bevel": "inner bevel", "outer-bevel": "outer bevel", emboss: "emboss", "pillow-emboss": "pillow emboss" } as const)[e.style ?? "inner-bevel"],
+        technique: "smooth",
+        strength: e.depth ?? 100,
+        direction: e.direction ?? "up",
+        size: px(e.size ?? 5),
+        soften: px(e.soften ?? 0),
+        angle: e.angle ?? 120,
+        altitude: e.altitude ?? 30,
+        useGlobalLight: false,
+        highlightColor: rgb(e.highlight ?? "#FFFFFF"),
+        highlightOpacity: e.highlightOpacity ?? 0.75,
+        highlightBlendMode: "screen",
+        shadowColor: rgb(e.shadow ?? "#000000"),
+        shadowOpacity: e.shadowOpacity ?? 0.75,
+        shadowBlendMode: "multiply",
+      };
+    } else if (e.kind === "satin") {
+      info.satin = {
+        ...on,
+        color: rgb(e.color ?? "#000000"),
+        opacity: e.opacity ?? 0.5,
+        angle: e.angle ?? 19,
+        distance: px(e.distance ?? 11),
+        size: px(e.size ?? 14),
+        invert: e.invert ?? false,
+        blendMode: psdBlend(e.blend ?? "multiply"),
+      };
+    } else if (e.kind === "gradient-overlay") {
+      (info.gradientOverlay ??= []).push({
+        ...on,
+        opacity: e.opacity ?? 1,
+        blendMode: psdBlend(e.blend),
+        angle: e.angle ?? 90,
+        type: e.style ?? "linear",
+        scale: e.scale ?? 100,
+        reverse: e.reverse ?? false,
+        align: true,
+        gradient: {
+          name: "Gesso gradient",
+          type: "solid",
+          smoothness: 1,
+          colorStops: e.stops.map((st) => ({ color: rgb(st.color), location: st.offset, midpoint: 0.5 })),
+          opacityStops: [
+            { opacity: 1, location: 0, midpoint: 0.5 },
+            { opacity: 1, location: 1, midpoint: 0.5 },
+          ],
+        },
+      });
     }
   }
   return info;
@@ -592,6 +693,25 @@ function placePoints(points: number[], matrix: Affine | undefined, ctx: Ctx): nu
 function textTransform(part: LayerPart, baseline: number, ctx: Ctx): number[] {
   const [a, b, c, d, e, f] = compose(part.matrix, [1, 0, 0, 1, part.box.x, part.box.y + baseline])!;
   return [a, b, c, d, e + ctx.ox, f + ctx.oy];
+}
+
+/** Distorted and warped text and shapes are written as pixels: Photoshop's warp data can't be written here. */
+function distorted(layer: Layer, ctx: Ctx): boolean {
+  if (!layer.warp && !layer.quad) return false;
+  ctx.warnings.push(`${layer.type} "${layer.id}" is ${layer.warp ? "warped" : "distorted"}, so it's written as pixels`);
+  return true;
+}
+
+/** Blend If as Photoshop's blending ranges: grey in the composite pair, colours per channel. */
+function blendingRanges(blendIf: NonNullable<Layer["blendIf"]>): NonNullable<PsdLayer["blendingRanges"]> {
+  const all = [0, 0, 255, 255];
+  const channel = blendIf.channel ?? "gray";
+  const pick = (c: string) => (channel === c ? { sourceRange: [...(blendIf.this ?? all)], destRange: [...(blendIf.underlying ?? all)] } : { sourceRange: all, destRange: all });
+  return {
+    compositeGrayBlendSource: channel === "gray" ? [...(blendIf.this ?? all)] : all,
+    compositeGraphBlendDestinationRange: channel === "gray" ? [...(blendIf.underlying ?? all)] : all,
+    ranges: ["red", "green", "blue"].map(pick),
+  };
 }
 
 function psdBlend(blend: BlendMode | undefined): PsdBlendMode {

@@ -114,6 +114,24 @@ const scenes: Record<string, Layer[]> = {
       mask: { kind: "vector", shape: { kind: "rect" }, frame: { x: i * 25, y: 0, w: 25, h: 150 } },
     }) as Layer),
   ],
+  "layer-styles": [
+    rect("bg", "#E9E4DA", { x: 0, y: 0, w: 200, h: 150 }),
+    ...(
+      [
+        [{ kind: "bevel", size: 8, soften: 1 }],
+        [{ kind: "bevel", style: "pillow-emboss", size: 6, direction: "down" }],
+        [{ kind: "inner-shadow", distance: 5, size: 6 }, { kind: "drop-shadow", distance: 3, size: 6, opacity: 0.3 }],
+        [{ kind: "inner-glow", color: "#FFF4C0", size: 10, opacity: 1 }],
+        [{ kind: "gradient-overlay", angle: 45, style: "reflected", stops: [{ offset: 0, color: "#FF4F1A" }, { offset: 1, color: "#2440E6" }] }],
+        [{ kind: "satin", size: 10, distance: 10, opacity: 0.6 }, { kind: "stroke", color: "#111110", width: 2, position: "inside" }],
+      ] as const
+    ).map((effects, i) => ({
+      id: `fx-${i}`, name: `fx-${i}`, type: "shape", shape: { kind: "rect", radius: 10 }, fill: "#5B7FD6",
+      frame: { x: 12 + (i % 3) * 62, y: 12 + Math.floor(i / 3) * 70, w: 52, h: 56 }, effects,
+    }) as Layer),
+    { id: "lb", name: "lb", type: "shape", shape: { kind: "ellipse" }, fill: "#FFC21A", frame: { x: 150, y: 100, w: 40, h: 40 }, blend: "linear-burn" } as Layer,
+    { id: "vl", name: "vl", type: "shape", shape: { kind: "ellipse" }, fill: "#2D9C6A", frame: { x: 160, y: 85, w: 30, h: 30 }, blend: "vivid-light" } as Layer,
+  ],
   adjustments: [
     { id: "photo", name: "photo", type: "image", asset: "photo", fit: "cover", frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
     { id: "warm", name: "warm", type: "adjustment", adjustment: { kind: "hue-saturation", hue: 25, saturation: -40, lightness: 0 }, frame: { x: 0, y: 0, w: 200, h: 150 } } as Layer,
