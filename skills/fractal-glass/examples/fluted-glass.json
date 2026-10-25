@@ -1,0 +1,46 @@
+{
+ "description": "Each strip smears the colours beneath it; the area outside the glass is untouched",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "fluted-glass",
+   "params": {
+    "artboard": "a",
+    "above": "landscape",
+    "region": {
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 360
+    },
+    "count": 6
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "under the glass the image softens",
+   "metric": "sharpness",
+   "region": [
+    10,
+    120,
+    280,
+    120
+   ],
+   "less": 0.6
+  },
+  {
+   "what": "outside the glass nothing changes",
+   "sample": [
+    420,
+    300
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1
+   }
+  }
+ ]
+}

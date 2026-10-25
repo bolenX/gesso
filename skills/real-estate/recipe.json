@@ -1,0 +1,307 @@
+{
+  "recipes": {
+    "flambient": {
+      "description": "Blends a flash frame over an ambient frame: the flash in luminosity for clean, neutral light and detail, a copy in colour at 40% to tame the ambient's colour cast, and a balance layer that neutralises warm bulbs.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "ambient": {
+          "type": "layer",
+          "description": "The ambient frame (natural light, warm and soft)"
+        },
+        "flash": {
+          "type": "layer",
+          "description": "The flash frame, same framing"
+        },
+        "colour": {
+          "type": "number",
+          "description": "How much of the flash's colour to take, 0..1",
+          "default": 0.4
+        }
+      },
+      "ops": [
+        {
+          "op": "move",
+          "target": "#{{flash}}",
+          "to": {
+            "after": "#{{ambient}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{flash}}",
+          "path": "blend",
+          "value": "luminosity"
+        },
+        {
+          "op": "duplicate",
+          "target": "#{{flash}}",
+          "id": "{{flash}}-colour"
+        },
+        {
+          "op": "set",
+          "target": "#{{flash}}-colour",
+          "path": "name",
+          "value": "Flash colour"
+        },
+        {
+          "op": "set",
+          "target": "#{{flash}}-colour",
+          "path": "blend",
+          "value": "color"
+        },
+        {
+          "op": "set",
+          "target": "#{{flash}}-colour",
+          "path": "opacity",
+          "value": "{{colour}}"
+        },
+        {
+          "op": "insert",
+          "after": "#{{flash}}-colour",
+          "layer": {
+            "id": "flambient-balance",
+            "name": "Neutralise warm light",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "color-balance",
+              "midtones": [
+                -6,
+                0,
+                10
+              ],
+              "highlights": [
+                -8,
+                0,
+                12
+              ],
+              "preserveLuminosity": true
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    },
+    "window-pull": {
+      "description": "Brings back blown windows from a frame exposed for the view: that frame goes above the interior, masked to the interior's near-white areas.",
+      "params": {
+        "interior": {
+          "type": "layer",
+          "description": "The frame exposed for the room (windows blown out)"
+        },
+        "window": {
+          "type": "layer",
+          "description": "The frame exposed for the view outside"
+        },
+        "threshold": {
+          "type": "number",
+          "description": "Interior brightness, 0..255, above which the window frame shows",
+          "default": 240
+        },
+        "softness": {
+          "type": "number",
+          "description": "Soft edge of the mask, in levels",
+          "default": 12
+        }
+      },
+      "ops": [
+        {
+          "op": "move",
+          "target": "#{{window}}",
+          "to": {
+            "after": "#{{interior}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{window}}",
+          "path": "mask",
+          "value": {
+            "kind": "luminosity",
+            "source": "{{interior}}",
+            "range": [
+              "{{threshold}}",
+              255
+            ],
+            "softness": "{{softness}}"
+          }
+        }
+      ]
+    },
+    "twilight": {
+      "description": "Turns a daytime exterior to dusk: exposure down 1.3 stops and shadows and midtones pushed blue. Then replace the sky (sky-replace) and add warm window glows.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the grade just above this layer"
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "twilight-exposure",
+            "name": "Twilight: darken",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "exposure",
+              "exposure": -1.3
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#twilight-exposure",
+          "layer": {
+            "id": "twilight-blue",
+            "name": "Twilight: blue hour",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "color-balance",
+              "shadows": [
+                -25,
+                0,
+                35
+              ],
+              "midtones": [
+                -12,
+                0,
+                18
+              ],
+              "preserveLuminosity": true
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    },
+    "sky-replace": {
+      "description": "Replaces a dull sky: the photo's sky is masked out by its colour (Color Range on the photo itself), and the new sky goes below it.",
+      "params": {
+        "photo": {
+          "type": "layer",
+          "description": "The photo with the dull sky"
+        },
+        "sky": {
+          "type": "layer",
+          "description": "The new sky image layer"
+        },
+        "skyColor": {
+          "type": "color",
+          "description": "The dull sky's colour (sample it with canvas_inspect)"
+        },
+        "fuzziness": {
+          "type": "number",
+          "description": "Color Range fuzziness: how far from that colour still counts as sky",
+          "default": 30
+        }
+      },
+      "ops": [
+        {
+          "op": "move",
+          "target": "#{{sky}}",
+          "to": {
+            "before": "#{{photo}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{photo}}",
+          "path": "mask",
+          "value": {
+            "kind": "color-range",
+            "source": "{{photo}}",
+            "color": "{{skyColor}}",
+            "fuzziness": "{{fuzziness}}",
+            "invert": true,
+            "feather": 1
+          }
+        }
+      ]
+    },
+    "lawn-boost": {
+      "description": "Greens up a patchy lawn: Hue/Saturation pulls yellow-browns towards green and lifts saturation, masked to the lawn.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put it just above this layer"
+        },
+        "region": {
+          "type": "json",
+          "description": "The lawn: {\"x\", \"y\", \"w\", \"h\"} in artboard pixels (a soft-edged rectangle)"
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "lawn-boost",
+            "name": "Lawn",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "hue-saturation",
+              "hue": 0,
+              "saturation": 0,
+              "lightness": 0,
+              "ranges": {
+                "yellows": {
+                  "hue": 30,
+                  "saturation": 25
+                },
+                "greens": {
+                  "saturation": 15
+                },
+                "reds": {
+                  "hue": 25,
+                  "saturation": 10
+                }
+              }
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            },
+            "mask": {
+              "kind": "vector",
+              "shape": {
+                "kind": "rect"
+              },
+              "frame": "{{region}}",
+              "feather": 6
+            }
+          }
+        }
+      ]
+    }
+  }
+}

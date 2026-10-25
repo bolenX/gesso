@@ -1,11 +1,12 @@
-// Selectors: #id, @role, .tag, $selection, optionally scoped by artboard
+// Selectors: #id, @role, .tag, $selection, * (every layer), optionally scoped by artboard
 // ("story-9x16 #headline"). See docs/spec-v0.1.md, "Agent interface".
 
 export type SelectorTerm =
   | { kind: "id"; value: string }
   | { kind: "role"; value: string }
   | { kind: "tag"; value: string }
-  | { kind: "selection" };
+  | { kind: "selection" }
+  | { kind: "all" };
 
 export type Selector = { artboard?: string; term: SelectorTerm };
 
@@ -32,11 +33,12 @@ export function parseSelector(input: string): Selector {
 
 function parseTerm(raw: string): SelectorTerm {
   if (raw === "$selection") return { kind: "selection" };
+  if (raw === "*") return { kind: "all" };
   const sigil = raw[0];
   const value = raw.slice(1);
   const kind = sigil === "#" ? "id" : sigil === "@" ? "role" : sigil === "." ? "tag" : undefined;
   if (!kind || !NAME.test(value)) {
-    throw new SelectorError(`Invalid selector term "${raw}": use #id, @role, .tag or $selection`);
+    throw new SelectorError(`Invalid selector term "${raw}": use #id, @role, .tag, $selection or *`);
   }
   return { kind, value };
 }

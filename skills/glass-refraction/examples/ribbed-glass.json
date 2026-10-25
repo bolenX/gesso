@@ -1,0 +1,32 @@
+{
+ "description": "Ribs shift slices of the image: edges move, overall tone stays",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "ribbed-glass",
+   "params": {
+    "source": "landscape"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the sun's edge moves",
+   "sample": [
+    362,
+    70
+   ],
+   "size": 3,
+   "deltaE": {
+    "min": 5
+   }
+  },
+  {
+   "what": "overall tone stays",
+   "metric": "luminance.mean",
+   "keep": 3
+  }
+ ]
+}

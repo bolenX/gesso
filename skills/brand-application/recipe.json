@@ -1,0 +1,80 @@
+{
+  "recipes": {
+    "apply-brand": {
+      "description": "Applies a palette and font by role: backgrounds take the primary colour, headlines and body text the font and text colour, CTAs the accent, decorations the secondary colour. Every artboard.",
+      "params": {
+        "primary": {
+          "type": "color",
+          "description": "Background colour"
+        },
+        "secondary": {
+          "type": "color",
+          "description": "Decoration colour"
+        },
+        "accent": {
+          "type": "color",
+          "description": "Call-to-action colour"
+        },
+        "text": {
+          "type": "color",
+          "description": "Text colour"
+        },
+        "font": {
+          "type": "string",
+          "description": "Brand font family"
+        }
+      },
+      "ops": [
+        {
+          "forEach": "@background",
+          "op": "set",
+          "target": "#{{each}}",
+          "path": "fill",
+          "value": "{{primary}}"
+        },
+        {
+          "forEach": "@decoration",
+          "op": "set",
+          "target": "#{{each}}",
+          "path": "fill",
+          "value": "{{secondary}}"
+        },
+        {
+          "forEach": "@cta",
+          "op": "set",
+          "target": "#{{each}}",
+          "path": "fill",
+          "value": "{{accent}}"
+        },
+        {
+          "forEach": "@headline",
+          "op": "set",
+          "target": "#{{each}}",
+          "path": "style.font",
+          "value": "{{font}}"
+        },
+        {
+          "forEach": "@headline",
+          "op": "set",
+          "target": "#{{each}}",
+          "path": "style.fill",
+          "value": "{{text}}"
+        },
+        {
+          "forEach": "@body",
+          "op": "set",
+          "target": "#{{each}}",
+          "path": "style.font",
+          "value": "{{font}}"
+        },
+        {
+          "forEach": "@body",
+          "op": "set",
+          "target": "#{{each}}",
+          "path": "style.fill",
+          "value": "{{text}}"
+        }
+      ]
+    }
+  }
+}

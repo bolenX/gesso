@@ -1,0 +1,29 @@
+{
+ "description": "Levels from the measured range and a curve restore a faded print's contrast",
+ "layers": [
+  "old-photo"
+ ],
+ "steps": [
+  {
+   "recipe": "faded-contrast",
+   "params": {
+    "artboard": "a",
+    "above": "old-photo",
+    "black": 60,
+    "white": 200
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the tonal range widens",
+   "metric": "luminance.contrast",
+   "more": 1.3
+  },
+  {
+   "what": "nothing clips badly",
+   "metric": "luminance.clipped.highlights",
+   "max": 3
+  }
+ ]
+}

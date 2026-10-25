@@ -1,0 +1,189 @@
+{
+ "recipes": {
+  "mask-to": {
+   "description": "Limits a layer to a region with a soft-edged vector mask (a quick selection: ellipse or rectangle).",
+   "params": {
+    "layer": {
+     "type": "layer",
+     "description": "The layer to mask"
+    },
+    "region": {
+     "type": "json",
+     "description": "{\"x\", \"y\", \"w\", \"h\"} in the layer's pixels"
+    },
+    "shape": {
+     "type": "string",
+     "description": "ellipse or rect",
+     "default": "ellipse"
+    },
+    "feather": {
+     "type": "number",
+     "description": "Soft edge in px",
+     "default": 12
+    }
+   },
+   "ops": [
+    {
+     "op": "set",
+     "target": "#{{layer}}",
+     "path": "mask",
+     "value": {
+      "kind": "vector",
+      "shape": {
+       "kind": "{{shape}}"
+      },
+      "frame": "{{region}}",
+      "feather": "{{feather}}"
+     }
+    }
+   ]
+  },
+  "mask-out": {
+   "description": "Hides a region of a layer (protects it from the layer's effect): an inverted, soft-edged vector mask. Use it to keep labels and text out of a smoothing or despeckle layer.",
+   "params": {
+    "layer": {
+     "type": "layer",
+     "description": "The layer to mask"
+    },
+    "region": {
+     "type": "json",
+     "description": "{\"x\", \"y\", \"w\", \"h\"} in the layer's pixels to protect"
+    },
+    "shape": {
+     "type": "string",
+     "description": "ellipse or rect",
+     "default": "rect"
+    },
+    "feather": {
+     "type": "number",
+     "description": "Soft edge in px",
+     "default": 4
+    }
+   },
+   "ops": [
+    {
+     "op": "set",
+     "target": "#{{layer}}",
+     "path": "mask",
+     "value": {
+      "kind": "vector",
+      "shape": {
+       "kind": "{{shape}}"
+      },
+      "frame": "{{region}}",
+      "feather": "{{feather}}",
+      "invert": true
+     }
+    }
+   ]
+  },
+  "vignette": {
+   "description": "Darkens the edges to draw the eye in: black in multiply, with a large feathered ellipse cut out of the middle.",
+   "params": {
+    "artboard": {
+     "type": "artboard",
+     "description": "The artboard"
+    },
+    "above": {
+     "type": "layer",
+     "description": "Put it just above this layer (usually the top)"
+    },
+    "amount": {
+     "type": "number",
+     "description": "Opacity, 0..1",
+     "default": 0.5
+    }
+   },
+   "ops": [
+    {
+     "op": "insert",
+     "after": "#{{above}}",
+     "layer": {
+      "id": "vignette",
+      "name": "Vignette",
+      "type": "shape",
+      "shape": {
+       "kind": "rect"
+      },
+      "fill": "#000000",
+      "frame": {
+       "x": 0,
+       "y": 0,
+       "w": "{{artboard.w}}",
+       "h": "{{artboard.h}}"
+      },
+      "blend": "multiply",
+      "opacity": "{{amount}}",
+      "mask": {
+       "kind": "vector",
+       "shape": {
+        "kind": "ellipse"
+       },
+       "invert": true,
+       "frame": {
+        "x": "{{= artboard.w * 0.08}}",
+        "y": "{{= artboard.h * 0.08}}",
+        "w": "{{= artboard.w * 0.84}}",
+        "h": "{{= artboard.h * 0.84}}"
+       },
+       "feather": "{{= min(artboard.w, artboard.h) / 5}}"
+      }
+     }
+    }
+   ]
+  },
+  "orton-glow": {
+   "description": "The Orton glow: a blurred copy in screen over the image, for a soft, luminous, dreamy look.",
+   "params": {
+    "source": {
+     "type": "layer",
+     "description": "The image"
+    },
+    "radius": {
+     "type": "number",
+     "description": "Blur radius in px",
+     "default": 18
+    },
+    "amount": {
+     "type": "number",
+     "description": "Opacity, 0..1",
+     "default": 0.4
+    }
+   },
+   "ops": [
+    {
+     "op": "duplicate",
+     "target": "#{{source}}",
+     "id": "{{source}}-glow"
+    },
+    {
+     "op": "set",
+     "target": "#{{source}}-glow",
+     "path": "name",
+     "value": "Orton glow"
+    },
+    {
+     "op": "set",
+     "target": "#{{source}}-glow",
+     "path": "filters.+",
+     "value": {
+      "kind": "gaussian-blur",
+      "radius": "{{radius}}"
+     }
+    },
+    {
+     "op": "set",
+     "target": "#{{source}}-glow",
+     "path": "blend",
+     "value": "screen"
+    },
+    {
+     "op": "set",
+     "target": "#{{source}}-glow",
+     "path": "opacity",
+     "value": "{{amount}}"
+    }
+   ]
+  }
+ }
+}

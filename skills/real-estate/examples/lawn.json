@@ -1,0 +1,45 @@
+{
+ "description": "The lawn's brown patches turn green; the house is untouched",
+ "layers": [
+  "exterior"
+ ],
+ "steps": [
+  {
+   "recipe": "lawn-boost",
+   "params": {
+    "artboard": "a",
+    "above": "exterior",
+    "region": {
+     "x": 0,
+     "y": 250,
+     "w": 480,
+     "h": 110
+    }
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the lawn is greener",
+   "metric": "color.lab.1",
+   "region": [
+    0,
+    260,
+    480,
+    100
+   ],
+   "less": 1.15
+  },
+  {
+   "what": "the house is untouched",
+   "sample": [
+    200,
+    160
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1
+   }
+  }
+ ]
+}

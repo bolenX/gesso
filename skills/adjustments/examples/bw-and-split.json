@@ -1,0 +1,45 @@
+{
+ "description": "Black & white removes colour; split toning tints it back slightly",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "bw-contrast",
+   "params": {
+    "artboard": "a",
+    "above": "landscape"
+   }
+  },
+  {
+   "recipe": "split-tone",
+   "params": {
+    "artboard": "a",
+    "above": "bw-curve"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "colour is nearly gone",
+   "metric": "color.chroma.mean",
+   "max": 15
+  },
+  {
+   "what": "the image keeps its contrast",
+   "metric": "luminance.contrast",
+   "more": 0.9
+  },
+  {
+   "what": "shadows lean cool",
+   "metric": "color.lab.2",
+   "region": [
+    0,
+    320,
+    480,
+    40
+   ],
+   "max": 0
+  }
+ ]
+}

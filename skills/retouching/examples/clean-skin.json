@@ -1,0 +1,416 @@
+{
+ "description": "Tone smoothing and healing clear blemishes and blotches while keeping texture and eyes",
+ "layers": [
+  "portrait"
+ ],
+ "steps": [
+  {
+   "recipe": "frequency-separation",
+   "params": {
+    "source": "portrait",
+    "radius": 6
+   }
+  },
+  {
+   "recipe": "heal-spots",
+   "params": {
+    "source": "portrait-high",
+    "spots": [
+     {
+      "at": [
+       0.3542,
+       0.5694
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.3792,
+       0.6167
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.3333,
+       0.6389
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.625,
+       0.5833
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.65,
+       0.6333
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.6083,
+       0.6556
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.4688,
+       0.3056
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.5312,
+       0.2833
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.5,
+       0.3472
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.4271,
+       0.6806
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.5833,
+       0.6944
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.3958,
+       0.5278
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.6146,
+       0.5333
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.5167,
+       0.5556
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "recipe": "heal-spots",
+   "params": {
+    "source": "portrait-low",
+    "spots": [
+     {
+      "at": [
+       0.3542,
+       0.5694
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.3792,
+       0.6167
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.3333,
+       0.6389
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.625,
+       0.5833
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.65,
+       0.6333
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.6083,
+       0.6556
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.4688,
+       0.3056
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.5312,
+       0.2833
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.5,
+       0.3472
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.4271,
+       0.6806
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.5833,
+       0.6944
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.3958,
+       0.5278
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.6146,
+       0.5333
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     },
+     {
+      "at": [
+       0.5167,
+       0.5556
+      ],
+      "size": [
+       0.03,
+       0.04
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "recipe": "smooth-tone",
+   "params": {
+    "low": "portrait-low",
+    "id": "smooth-left",
+    "region": {
+     "x": 140,
+     "y": 180,
+     "w": 80,
+     "h": 80
+    }
+   }
+  },
+  {
+   "recipe": "smooth-tone",
+   "params": {
+    "low": "portrait-low",
+    "id": "smooth-right",
+    "region": {
+     "x": 260,
+     "y": 180,
+     "w": 80,
+     "h": 80
+    }
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "a blemish on the cheek is gone",
+   "sample": [
+    170,
+    205
+   ],
+   "size": 3,
+   "deltaE": {
+    "min": 8
+   }
+  },
+  {
+   "what": "a blemish on the forehead is gone",
+   "sample": [
+    225,
+    110
+   ],
+   "size": 3,
+   "deltaE": {
+    "min": 8
+   }
+  },
+  {
+   "what": "the left cheek's tone is more even",
+   "metric": "luminance.contrast",
+   "region": [
+    150,
+    195,
+    60,
+    50
+   ],
+   "less": 0.85
+  },
+  {
+   "what": "the left cheek keeps its texture",
+   "metric": "noise",
+   "region": [
+    150,
+    195,
+    60,
+    50
+   ],
+   "more": 0.6
+  },
+  {
+   "what": "the eyes are untouched",
+   "sample": [
+    195,
+    165
+   ],
+   "size": 3,
+   "deltaE": {
+    "max": 3
+   }
+  },
+  {
+   "what": "the eyes stay sharp",
+   "metric": "sharpness",
+   "region": [
+    170,
+    150,
+    140,
+    30
+   ],
+   "more": 0.9
+  },
+  {
+   "what": "skin colour is kept",
+   "sample": [
+    200,
+    200
+   ],
+   "size": 11,
+   "deltaE": {
+    "max": 6
+   }
+  }
+ ]
+}

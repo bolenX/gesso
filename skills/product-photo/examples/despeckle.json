@@ -1,0 +1,49 @@
+{
+ "description": "Despeckling removes dust specks from the backdrop and keeps its smooth gradient",
+ "layers": [
+  "product"
+ ],
+ "steps": [
+  {
+   "recipe": "despeckle",
+   "params": {
+    "source": "product"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "specks are gone from the backdrop",
+   "metric": "luminance.contrast",
+   "region": [
+    20,
+    30,
+    160,
+    260
+   ],
+   "less": 0.85
+  },
+  {
+   "what": "the backdrop's tone is kept",
+   "metric": "luminance.mean",
+   "region": [
+    20,
+    30,
+    160,
+    260
+   ],
+   "keep": 2
+  },
+  {
+   "what": "the bottle's edge stays sharp",
+   "metric": "sharpness",
+   "region": [
+    190,
+    100,
+    30,
+    40
+   ],
+   "more": 0.8
+  }
+ ]
+}

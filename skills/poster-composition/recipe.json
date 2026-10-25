@@ -1,0 +1,120 @@
+{
+  "recipes": {
+    "bottom-scrim": {
+      "description": "A gradient from dark at the bottom to transparent, behind type at the bottom of an image.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put it just above the image"
+        },
+        "coverage": {
+          "type": "number",
+          "description": "How much of the height it covers, 0..1",
+          "default": 0.45
+        },
+        "strength": {
+          "type": "number",
+          "description": "Darkness at the edge, 0..1",
+          "default": 0.75
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "scrim-bottom",
+            "name": "Scrim (bottom)",
+            "type": "shape",
+            "shape": {
+              "kind": "rect"
+            },
+            "frame": {
+              "x": 0,
+              "y": "{{= artboard.h * (1 - coverage)}}",
+              "w": "{{artboard.w}}",
+              "h": "{{= artboard.h * coverage}}"
+            },
+            "opacity": "{{strength}}",
+            "fill": {
+              "kind": "linear-gradient",
+              "angle": 90,
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "#000000"
+                },
+                {
+                  "offset": 1,
+                  "color": "#00000000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "top-scrim": {
+      "description": "A gradient from dark at the top to transparent, behind type at the top of an image.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put it just above the image"
+        },
+        "coverage": {
+          "type": "number",
+          "description": "How much of the height it covers, 0..1",
+          "default": 0.35
+        },
+        "strength": {
+          "type": "number",
+          "description": "Darkness at the edge, 0..1",
+          "default": 0.7
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "scrim-top",
+            "name": "Scrim (top)",
+            "type": "shape",
+            "shape": {
+              "kind": "rect"
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{= artboard.h * coverage}}"
+            },
+            "opacity": "{{strength}}",
+            "fill": {
+              "kind": "linear-gradient",
+              "angle": 270,
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "#000000"
+                },
+                {
+                  "offset": 1,
+                  "color": "#00000000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

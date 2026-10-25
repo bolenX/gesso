@@ -1,0 +1,56 @@
+{
+ "description": "Match Color as a recipe changes the subject's colour towards the plate",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "ops": [
+    {
+     "op": "insert",
+     "after": "#landscape",
+     "layer": {
+      "id": "card",
+      "name": "Card",
+      "type": "shape",
+      "shape": {
+       "kind": "rect"
+      },
+      "fill": "#D04030",
+      "frame": {
+       "x": 140,
+       "y": 90,
+       "w": 200,
+       "h": 180
+      }
+     }
+    }
+   ],
+   "setup": true
+  },
+  {
+   "recipe": "match-to-plate",
+   "params": {
+    "subject": "card",
+    "plate": "landscape"
+   }
+  }
+ ],
+ "before": [
+  "landscape",
+  "card"
+ ],
+ "checks": [
+  {
+   "what": "the card's colour moves towards the plate",
+   "sample": [
+    240,
+    180
+   ],
+   "size": 11,
+   "deltaE": {
+    "min": 8
+   }
+  }
+ ]
+}

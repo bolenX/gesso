@@ -1,0 +1,74 @@
+{
+ "description": "Haze lowers contrast in the distance only; grain adds even texture; the fantasy grade changes the palette",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "atmospheric-haze",
+   "params": {
+    "artboard": "a",
+    "above": "landscape",
+    "region": {
+     "x": 0,
+     "y": 110,
+     "w": 480,
+     "h": 120
+    }
+   }
+  },
+  {
+   "recipe": "grain-match",
+   "params": {
+    "artboard": "a",
+    "above": "haze"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the mountains are hazier (lower contrast)",
+   "metric": "luminance.contrast",
+   "region": [
+    0,
+    140,
+    480,
+    60
+   ],
+   "less": 0.9
+  },
+  {
+   "what": "the mountains are lighter",
+   "metric": "luminance.mean",
+   "region": [
+    0,
+    160,
+    480,
+    40
+   ],
+   "more": 1.05
+  },
+  {
+   "what": "the smooth sky gains grain",
+   "metric": "noise",
+   "region": [
+    20,
+    10,
+    200,
+    60
+   ],
+   "more": 2
+  },
+  {
+   "what": "the foreground keeps its tone",
+   "metric": "luminance.mean",
+   "region": [
+    0,
+    300,
+    480,
+    60
+   ],
+   "keep": 4
+  }
+ ]
+}

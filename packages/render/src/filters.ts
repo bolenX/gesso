@@ -277,8 +277,9 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
       return js((r) => unsharp(r, soft, filter.amount, ((filter.reduceNoise ?? 10) / 100) * 12));
     }
     case "high-pass": {
-      const soft = soften(kit, image, filter.radius);
-      return js((r) => highPass(r, soft));
+      // The same blur as Gaussian Blur, as in Photoshop, so a high pass over a blurred copy rebuilds the original exactly (frequency separation).
+      const soft = readRaster(kit.ck, kit.blur(image, filter.radius, true));
+      return js((r) => highPass(r, soft, filter.scale ?? 1));
     }
     // ── Stylize
     case "diffuse":
@@ -1106,11 +1107,11 @@ function motionCopy(kit: FilterKit, image: Image, angle: number, distance: numbe
   return kit.runShader(copy(kit, image), 1, (child) => ({ shader: shaderEffect(kit.ck, "motion").makeShaderWithChildren([Math.cos(a) * d, -Math.sin(a) * d], [child]) }));
 }
 
-function highPass(r: Raster, soft: Raster): Raster {
+function highPass(r: Raster, soft: Raster, scale: number): Raster {
   // Detail only, around 50% grey: blend it in Overlay or Soft Light to sharpen.
   const s = planes(soft).rgb;
   return mapColor(r, (c, i) => {
-    for (let j = 0; j < 3; j++) c[j] = c[j]! - s[j]![i]! + 0.5;
+    for (let j = 0; j < 3; j++) c[j] = (c[j]! - s[j]![i]!) * scale + 0.5;
   });
 }
 

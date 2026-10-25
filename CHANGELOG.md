@@ -4,6 +4,23 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
 
 ## Unreleased
 
+- **Skills:**
+  - 15 new skills: duotone, double exposure, poster composition, typography hierarchy, layout grids, brand application, clean plates, typography reflow, social campaign sets, channel packs, safe zones, extreme-ratio relayout, RTL localisation, resolution adaptation, and data-driven variants.
+  - Every skill has a `checks.md`.
+  - 21 skills have recipes (51 in all): proven layer setups that the new `skill_apply` tool fills in and applies as one revision. `skill_read` lists them.
+  - Each recipe has an example, which applies it to a synthetic photo and checks the result with measurements in the test suite.
+- **Preflight:** `canvas_inspect` with `preflight: true` lists:
+  - text and logos in a preset's safe zones or off the artboard
+  - type too small for the format
+  - images enlarged past their pixels
+  - hidden or empty layers
+- **Patches:**
+  - `set` paths take list indexes and `+` to append, e.g. `filters.+` adds a filter and `filters.0.radius` tunes one.
+  - The `*` selector matches every layer.
+- **Retouching:**
+  - Content-aware fill and healing keep the surrounding grain and texture instead of smoothing it. Before, they kept 60–75% of it; now 95–100%.
+  - High Pass uses the same blur as Gaussian Blur, as in Photoshop, so frequency separation rebuilds the original exactly.
+  - High Pass has a new `scale` option for 8-bit frequency separation.
 - **Seeing detail:** `canvas_render` zooms into a region at up to 400%, pixel for pixel, and compares with an earlier revision or with layers hidden. The comparison is side by side or as a difference image, with the share of pixels changed, ΔE and where the changes are.
 - **Measuring:** the new `canvas_inspect` tool works like Photoshop's Histogram and Info panels. It reports tonal range, clipping per channel, contrast, colour cast, chroma, sharpness and noise. Its eyedropper gives hex, RGB, HSB, Lab and the vectorscope angle against the skin-tone line. It also returns clipping and sharpness maps. It can measure a region, some layers on their own, or an earlier revision.
 - **Photoshop reference kit** (`reference/`): 73 cases (adjustments, blend modes, layer styles and filters) to render in Photoshop. A test scores Gesso against those exports in ΔE, writes a report, and fails if a case gets worse.

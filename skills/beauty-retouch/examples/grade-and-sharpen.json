@@ -1,0 +1,61 @@
+{
+ "description": "The cinematic grade cools shadows and warms highlights; output sharpening adds detail",
+ "layers": [
+  "portrait"
+ ],
+ "steps": [
+  {
+   "recipe": "cinematic-grade",
+   "params": {
+    "artboard": "a",
+    "above": "portrait"
+   }
+  },
+  {
+   "recipe": "high-end-sharpen",
+   "params": {
+    "source": "portrait"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "shadows turn cooler",
+   "metric": "color.lab.2",
+   "region": [
+    20,
+    280,
+    80,
+    60
+   ],
+   "less": 0.85
+  },
+  {
+   "what": "the image changes visibly",
+   "sample": [
+    240,
+    200
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 2
+   }
+  },
+  {
+   "what": "detail is crisper",
+   "metric": "sharpness",
+   "region": [
+    170,
+    150,
+    140,
+    30
+   ],
+   "more": 1.03
+  },
+  {
+   "what": "nothing clips to white",
+   "metric": "luminance.clipped.highlights",
+   "max": 0.5
+  }
+ ]
+}

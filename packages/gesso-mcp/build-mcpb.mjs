@@ -50,7 +50,8 @@ const tools = [
   ["canvas_batch", "Run a document as a template over a folder of images or rows of data"],
   ["artboard_create", "Add a size, or adapt an artboard to one"],
   ["font_list", "Find installed fonts"],
-  ["skill_read", "Read a recipe: filters, adjustments, compositing, retouching, production, and workflows by niche"],
+  ["skill_read", "Read a skill: the workflow, its recipes and its checks"],
+  ["skill_apply", "Apply a skill's recipe as one revision: a proven layer setup filled in with your parameters"],
   ["asset_import", "Add an image, font or .cube LUT from a path, URL or data"],
   ["gen_prepare", "Prepare an expand, generate, fill, cut-out or upscale job for a connected image tool"],
 ].map(([name, description]) => ({ name, description }));
