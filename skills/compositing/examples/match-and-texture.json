@@ -1,0 +1,102 @@
+{
+ "description": "Match Color pulls a placed shape towards the plate's palette; a clipped texture shows only on the shape",
+ "layers": [
+  "landscape",
+  "old-photo"
+ ],
+ "steps": [
+  {
+   "ops": [
+    {
+     "op": "insert",
+     "after": "#landscape",
+     "layer": {
+      "id": "card",
+      "name": "Card",
+      "type": "shape",
+      "shape": {
+       "kind": "rect"
+      },
+      "fill": "#D04030",
+      "frame": {
+       "x": 140,
+       "y": 90,
+       "w": 200,
+       "h": 180
+      }
+     }
+    },
+    {
+     "op": "move",
+     "target": "#old-photo",
+     "to": "top"
+    }
+   ],
+   "setup": true
+  },
+  {
+   "recipe": "blend-texture",
+   "params": {
+    "texture": "old-photo",
+    "onto": "card"
+   }
+  },
+  {
+   "ops": [
+    {
+     "op": "set",
+     "target": "#card",
+     "path": "filters",
+     "value": [
+      {
+       "kind": "match-color",
+       "source": "landscape",
+       "intensity": 80,
+       "fade": 10
+      }
+     ]
+    }
+   ],
+   "setup": true
+  }
+ ],
+ "before": [
+  "landscape",
+  "card"
+ ],
+ "checks": [
+  {
+   "what": "outside the card, the plate is untouched",
+   "sample": [
+    60,
+    60
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1
+   }
+  },
+  {
+   "what": "the card picks up texture",
+   "metric": "noise",
+   "region": [
+    180,
+    120,
+    100,
+    100
+   ],
+   "more": 3
+  },
+  {
+   "what": "the card's colour moves towards the plate",
+   "sample": [
+    240,
+    180
+   ],
+   "size": 11,
+   "deltaE": {
+    "min": 8
+   }
+  }
+ ]
+}

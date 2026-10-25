@@ -1,0 +1,57 @@
+{
+ "description": "Scrims darken the bottom and top behind type and leave the middle alone",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "bottom-scrim",
+   "params": {
+    "artboard": "a",
+    "above": "landscape"
+   }
+  },
+  {
+   "recipe": "top-scrim",
+   "params": {
+    "artboard": "a",
+    "above": "scrim-bottom"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the bottom edge is much darker",
+   "metric": "luminance.mean",
+   "region": [
+    0,
+    340,
+    480,
+    20
+   ],
+   "less": 0.5
+  },
+  {
+   "what": "the top edge is darker",
+   "metric": "luminance.mean",
+   "region": [
+    0,
+    0,
+    480,
+    20
+   ],
+   "less": 0.5
+  },
+  {
+   "what": "the middle is untouched",
+   "sample": [
+    240,
+    175
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1
+   }
+  }
+ ]
+}

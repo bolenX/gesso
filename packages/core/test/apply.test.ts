@@ -25,6 +25,19 @@ describe("applyOps", () => {
     expect(doc.artboards[0]!.layers[2]).not.toHaveProperty("blend");
   });
 
+  it("appends to, indexes into and removes from lists", () => {
+    const { doc } = applyOps(promo, [
+      { op: "set", target: "#card-photo", path: "filters.+", value: { kind: "gaussian-blur", radius: 2 } },
+      { op: "set", target: "#card-photo", path: "filters.+", value: { kind: "high-pass", radius: 4 } },
+      { op: "set", target: "#card-photo", path: "filters.0.radius", value: 6 },
+    ]);
+    expect(doc.artboards[0]!.layers[2]).toMatchObject({ filters: [{ kind: "gaussian-blur", radius: 6 }, { kind: "high-pass", radius: 4 }] });
+    const removed = applyOps(doc, [{ op: "set", target: "#card-photo", path: "filters.0", value: null }]).doc;
+    expect(removed.artboards[0]!.layers[2]).toMatchObject({ filters: [{ kind: "high-pass" }] });
+    expect(() => applyOps(doc, [{ op: "set", target: "#card-photo", path: "filters.5", value: { kind: "blur" } }])).toThrow(/2 items/);
+    expect(() => applyOps(doc, [{ op: "set", target: "#headline", path: "style.+", value: 1 }])).toThrow(/isn't one/);
+  });
+
   it("applies the same set to $selection with many", () => {
     const { changed } = applyOps(
       promo,

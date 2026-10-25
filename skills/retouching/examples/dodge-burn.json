@@ -1,0 +1,85 @@
+{
+ "description": "Dodge and burn lighten and darken only where the strokes are",
+ "layers": [
+  "portrait"
+ ],
+ "steps": [
+  {
+   "recipe": "dodge-burn-setup",
+   "params": {
+    "artboard": "a",
+    "above": "portrait"
+   }
+  },
+  {
+   "recipe": "dodge",
+   "params": {
+    "id": "dodge-forehead",
+    "at": [
+     240,
+     105
+    ],
+    "size": 70,
+    "amount": 0.6
+   }
+  },
+  {
+   "recipe": "burn",
+   "params": {
+    "id": "burn-jaw",
+    "at": [
+     240,
+     300
+    ],
+    "size": 60,
+    "amount": 0.6
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the neutral group changes nothing on its own",
+   "sample": [
+    110,
+    300
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1.5
+   }
+  },
+  {
+   "what": "the forehead is lighter",
+   "metric": "luminance.mean",
+   "region": [
+    220,
+    90,
+    40,
+    30
+   ],
+   "more": 1.04
+  },
+  {
+   "what": "the jaw is darker",
+   "metric": "luminance.mean",
+   "region": [
+    225,
+    290,
+    30,
+    20
+   ],
+   "less": 0.96
+  },
+  {
+   "what": "the eyes are untouched",
+   "sample": [
+    285,
+    165
+   ],
+   "size": 3,
+   "deltaE": {
+    "max": 1.5
+   }
+  }
+ ]
+}

@@ -136,7 +136,8 @@ export const Filter = z.discriminatedUnion("kind", [
   /** Smart Sharpen: removes a gaussian, lens (disc) or motion blur, with noise reduction 0..100. */
   f("smart-sharpen", { amount: z.number().min(0).max(5), radius: z.number().positive(), reduceNoise: z.number().min(0).max(100).optional(), remove: z.enum(["gaussian", "lens", "motion"]).optional(), angle: z.number().optional() }),
   /** High Pass (Filter › Other): keeps detail finer than `radius` around mid-grey. Use in overlay/soft-light for sharpening. */
-  f("high-pass", { radius: z.number().positive() }),
+  /** High Pass: detail around 50% grey. `scale` multiplies the detail (0.5 for 8-bit frequency separation, like Apply Image's scale 2, so strong detail doesn't clip). */
+  f("high-pass", { radius: z.number().positive(), scale: z.number().positive().max(4).optional() }),
   // ── Stylize ───────────────────────────────────────────────────────────────────────────
   f("diffuse", { mode: z.enum(["normal", "darken-only", "lighten-only", "anisotropic"]).optional() }),
   f("emboss", { angle: z.number().optional(), height: z.number().min(1).max(10).optional(), amount: z.number().min(1).max(500).optional() }),

@@ -100,7 +100,7 @@ These replace the layer's colours inside its shape. Put them on a shape layer (a
 | `sharpen` | `amount` 0..5 (1 = 100%), `radius`?, `threshold`? 0..255 | Unsharp Mask. Final output sharpening: amount 0.6–1.2, radius 0.5–1.5 |
 | `sharpen-more`, `sharpen-edges` | — | quick sharpening (edges only skips flat areas) |
 | `smart-sharpen` | `amount`, `radius`, `reduceNoise`? 0..100, `remove`? gaussian / lens / motion, `angle`? | recovering soft or motion-blurred detail |
-| `high-pass` | `radius` | detail on mid-grey. On a duplicate in `overlay` or `soft-light` it sharpens; radius 1–3 for detail, 8+ for local contrast |
+| `high-pass` | `radius`, `scale`? (multiplies the detail; 0.5 for frequency separation) | detail on mid-grey. On a duplicate in `overlay` or `soft-light` it sharpens; radius 1–3 for detail, 8+ for local contrast |
 
 ## Stylize
 

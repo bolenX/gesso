@@ -1,0 +1,232 @@
+{
+  "recipes": {
+    "film-fade": {
+      "description": "A faded film look: lifted blacks and softened whites with a curve, a light warm photo filter, and slightly muted colour.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the grade just above this layer"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Strength (opacity), 0..1",
+          "default": 1
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "fade-curve",
+            "name": "Film fade: curve",
+            "type": "adjustment",
+            "opacity": "{{amount}}",
+            "adjustment": {
+              "kind": "curves",
+              "points": [
+                [
+                  0,
+                  30
+                ],
+                [
+                  64,
+                  72
+                ],
+                [
+                  192,
+                  198
+                ],
+                [
+                  255,
+                  238
+                ]
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#fade-curve",
+          "layer": {
+            "id": "fade-warm",
+            "name": "Film fade: warmth",
+            "type": "adjustment",
+            "opacity": "{{amount}}",
+            "adjustment": {
+              "kind": "photo-filter",
+              "color": "#EC8A00",
+              "density": 12,
+              "preserveLuminosity": true
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#fade-warm",
+          "layer": {
+            "id": "fade-mute",
+            "name": "Film fade: muted colour",
+            "type": "adjustment",
+            "opacity": "{{amount}}",
+            "adjustment": {
+              "kind": "vibrance",
+              "vibrance": -15
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    },
+    "bw-contrast": {
+      "description": "Punchy black and white: Black & White with skies darkened (blues low) and skin and foliage lifted, then an S-curve.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put it just above this layer"
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "bw",
+            "name": "Black & white",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "black-white",
+              "reds": 50,
+              "yellows": 70,
+              "greens": 50,
+              "cyans": 40,
+              "blues": 10,
+              "magentas": 60
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#bw",
+          "layer": {
+            "id": "bw-curve",
+            "name": "Black & white: contrast",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "curves",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  64,
+                  52
+                ],
+                [
+                  192,
+                  206
+                ],
+                [
+                  255,
+                  255
+                ]
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    },
+    "split-tone": {
+      "description": "Split toning: cool shadows and warm highlights with Color Balance, keeping brightness.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put it just above this layer"
+        },
+        "shadows": {
+          "type": "json",
+          "description": "Shadows balance [cyan–red, magenta–green, yellow–blue], each −100..100",
+          "default": [
+            -12,
+            0,
+            20
+          ]
+        },
+        "highlights": {
+          "type": "json",
+          "description": "Highlights balance",
+          "default": [
+            14,
+            0,
+            -14
+          ]
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "split-tone",
+            "name": "Split tone",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "color-balance",
+              "shadows": "{{shadows}}",
+              "highlights": "{{highlights}}",
+              "preserveLuminosity": true
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

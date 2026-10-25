@@ -1,0 +1,105 @@
+{
+  "recipes": {
+    "miniature": {
+      "description": "The tilt-shift miniature look: a sharp horizontal band with blur above and below, plus a saturation and contrast lift so the scene reads as a model.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "source": {
+          "type": "layer",
+          "description": "The photo, ideally shot from above"
+        },
+        "center": {
+          "type": "number",
+          "description": "Height of the sharp band's centre, 0..1 from the top",
+          "default": 0.6
+        },
+        "band": {
+          "type": "number",
+          "description": "Sharp band height as a fraction of the height",
+          "default": 0.18
+        },
+        "radius": {
+          "type": "number",
+          "description": "Blur radius in px",
+          "default": 12
+        }
+      },
+      "ops": [
+        {
+          "op": "set",
+          "target": "#{{source}}",
+          "path": "filters.+",
+          "value": {
+            "kind": "tilt-shift",
+            "radius": "{{radius}}",
+            "center": [
+              0.5,
+              "{{center}}"
+            ],
+            "band": "{{band}}"
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#{{source}}",
+          "layer": {
+            "id": "miniature-colour",
+            "name": "Miniature: colour",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "hue-saturation",
+              "hue": 0,
+              "saturation": 25,
+              "lightness": 0
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#miniature-colour",
+          "layer": {
+            "id": "miniature-contrast",
+            "name": "Miniature: contrast",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "curves",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  64,
+                  54
+                ],
+                [
+                  192,
+                  204
+                ],
+                [
+                  255,
+                  255
+                ]
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

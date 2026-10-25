@@ -34,6 +34,7 @@ export const TOOL_TITLES: Record<string, string> = {
   font_list: "Find fonts",
   psd_import: "Open PSD",
   skill_read: "Read skill",
+  skill_apply: "Apply recipe",
   asset_import: "Import asset",
   canvas_history: "History",
   gen_prepare: "Prepare generation",

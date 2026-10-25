@@ -1,0 +1,33 @@
+{
+ "description": "The tritone puts the middle ink in the midtones",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "tritone",
+   "params": {
+    "artboard": "a",
+    "above": "landscape"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the image changes colour",
+   "sample": [
+    240,
+    200
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 15
+   }
+  },
+  {
+   "what": "contrast survives",
+   "metric": "luminance.contrast",
+   "more": 0.7
+  }
+ ]
+}

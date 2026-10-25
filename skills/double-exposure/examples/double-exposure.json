@@ -1,0 +1,43 @@
+{
+ "description": "The landscape shows inside the face; the dark background stays clean",
+ "layers": [
+  "portrait",
+  "landscape"
+ ],
+ "before": [
+  "portrait"
+ ],
+ "steps": [
+  {
+   "recipe": "double-exposure",
+   "params": {
+    "subject": "portrait",
+    "texture": "landscape"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the face takes the landscape",
+   "sample": [
+    240,
+    300
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 10
+   }
+  },
+  {
+   "what": "the background stays clean",
+   "sample": [
+    40,
+    320
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 8
+   }
+  }
+ ]
+}

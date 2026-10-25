@@ -1,0 +1,52 @@
+{
+ "description": "Stain removal takes the stain's colour out and leaves the rest of the print alone",
+ "layers": [
+  "old-photo"
+ ],
+ "steps": [
+  {
+   "recipe": "stain-removal",
+   "params": {
+    "artboard": "a",
+    "source": "old-photo",
+    "color": "#907045",
+    "fuzziness": 35
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the stain's colour goes",
+   "sample": [
+    365,
+    95
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 6
+   }
+  },
+  {
+   "what": "the stain becomes less saturated",
+   "metric": "color.chroma.mean",
+   "region": [
+    355,
+    88,
+    20,
+    14
+   ],
+   "less": 0.6
+  },
+  {
+   "what": "a clean area is untouched",
+   "sample": [
+    100,
+    300
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 2.5
+   }
+  }
+ ]
+}

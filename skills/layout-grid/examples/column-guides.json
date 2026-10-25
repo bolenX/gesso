@@ -1,0 +1,54 @@
+{
+ "description": "Twelve column guides fill the space between the margins",
+ "doc": {
+  "id": "poster",
+  "revision": 0,
+  "assets": {},
+  "artboards": [
+   {
+    "id": "a",
+    "name": "A",
+    "preset": "instagram-portrait",
+    "frame": {
+     "x": 0,
+     "y": 0,
+     "w": 1080,
+     "h": 1350
+    },
+    "background": "#FFFFFF",
+    "layers": []
+   }
+  ]
+ },
+ "steps": [
+  {
+   "recipe": "column-guides",
+   "params": {
+    "artboard": "a"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "there are twelve columns plus the group",
+   "count": {
+    "selector": ".guide",
+    "equals": 13
+   }
+  },
+  {
+   "what": "the first column starts at the margin",
+   "field": {
+    "target": "#guide-col-0",
+    "path": "frame.x",
+    "equals": 75.6
+   }
+  },
+  {
+   "what": "the guides stay inside the artboard",
+   "preflight": {
+    "maxErrors": 0
+   }
+  }
+ ]
+}

@@ -1,0 +1,49 @@
+{
+ "description": "mask-to limits a layer to a region; mask-out protects one",
+ "layers": [
+  "landscape",
+  "old-photo"
+ ],
+ "steps": [
+  {
+   "recipe": "mask-to",
+   "params": {
+    "layer": "old-photo",
+    "region": {
+     "x": 100,
+     "y": 80,
+     "w": 200,
+     "h": 160
+    }
+   }
+  }
+ ],
+ "before": [
+  "landscape",
+  "old-photo"
+ ],
+ "checks": [
+  {
+   "what": "outside the ellipse, the landscape shows",
+   "sample": [
+    20,
+    20
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 20
+   }
+  },
+  {
+   "what": "inside, the old photo stays",
+   "sample": [
+    200,
+    160
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 2
+   }
+  }
+ ]
+}

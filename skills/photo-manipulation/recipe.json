@@ -1,0 +1,312 @@
+{
+  "recipes": {
+    "light-wrap": {
+      "description": "Wraps the background's light around a cut-out's edges: a blurred copy of the background, screened and clipped to the subject, so it sits in the scene's light.",
+      "params": {
+        "subject": {
+          "type": "layer",
+          "description": "The cut-out subject"
+        },
+        "background": {
+          "type": "layer",
+          "description": "The background plate"
+        },
+        "radius": {
+          "type": "number",
+          "description": "Blur radius in px: how far the light reaches in",
+          "default": 30
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 0.35
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{background}}",
+          "id": "{{subject}}-light-wrap",
+          "after": "#{{subject}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-light-wrap",
+          "path": "name",
+          "value": "Light wrap"
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-light-wrap",
+          "path": "filters.+",
+          "value": {
+            "kind": "gaussian-blur",
+            "radius": "{{radius}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-light-wrap",
+          "path": "blend",
+          "value": "screen"
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-light-wrap",
+          "path": "opacity",
+          "value": "{{amount}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-light-wrap",
+          "path": "clip",
+          "value": true
+        }
+      ]
+    },
+    "edge-integration": {
+      "description": "Darkens a cut-out's edges slightly, like the occlusion where real objects meet their surroundings: an inner shadow with no offset, in the scene's shadow colour.",
+      "params": {
+        "subject": {
+          "type": "layer",
+          "description": "The cut-out subject"
+        },
+        "color": {
+          "type": "color",
+          "description": "The scene's shadow colour",
+          "default": "#1A1410"
+        },
+        "size": {
+          "type": "number",
+          "description": "Width in px",
+          "default": 6
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 0.35
+        }
+      },
+      "ops": [
+        {
+          "op": "set",
+          "target": "#{{subject}}",
+          "path": "effects.+",
+          "value": {
+            "kind": "inner-shadow",
+            "color": "{{color}}",
+            "opacity": "{{amount}}",
+            "distance": 0,
+            "size": "{{size}}",
+            "choke": 0
+          }
+        }
+      ]
+    },
+    "atmospheric-haze": {
+      "description": "Adds haze over distant planes: soft clouds in the haze colour, screened over a band of the image, fading at its edges.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the haze just above this layer"
+        },
+        "region": {
+          "type": "json",
+          "description": "Where the haze sits, {\"x\", \"y\", \"w\", \"h\"} in artboard pixels: the far planes"
+        },
+        "color": {
+          "type": "color",
+          "description": "Haze colour (from the sky near the horizon)",
+          "default": "#D4DCE6"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 0.45
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "haze",
+            "name": "Atmospheric haze",
+            "type": "shape",
+            "shape": {
+              "kind": "rect"
+            },
+            "fill": "{{color}}",
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            },
+            "blend": "screen",
+            "opacity": "{{amount}}",
+            "filters": [
+              {
+                "kind": "clouds",
+                "colors": [
+                  "#808080",
+                  "{{color}}"
+                ],
+                "scale": 260,
+                "seed": 7
+              }
+            ],
+            "mask": {
+              "kind": "vector",
+              "shape": {
+                "kind": "rect"
+              },
+              "frame": "{{region}}",
+              "feather": "{{= region.h / 3}}"
+            }
+          }
+        }
+      ]
+    },
+    "grain-match": {
+      "description": "One even film grain over everything, so composited parts share the same texture: monochrome noise on a 50% grey layer in overlay.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the grain just above this layer (usually the top)"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Noise amount, 0..1 (0.03–0.08 is subtle)",
+          "default": 0.04
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "grain",
+            "name": "Grain",
+            "type": "shape",
+            "shape": {
+              "kind": "rect"
+            },
+            "fill": "#808080",
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            },
+            "blend": "overlay",
+            "filters": [
+              {
+                "kind": "noise",
+                "amount": "{{amount}}",
+                "monochrome": true,
+                "distribution": "gaussian"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "fantasy-grade": {
+      "description": "An infrared-style alien palette: red and green swapped with Channel Mixer, then Selective Color pushes greens to cyan and reds to magenta.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the grade just above this layer"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Strength, 0..1",
+          "default": 0.85
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "fantasy-swap",
+            "name": "Fantasy: channel swap",
+            "type": "adjustment",
+            "opacity": "{{amount}}",
+            "adjustment": {
+              "kind": "channel-mixer",
+              "red": [
+                0,
+                100,
+                0,
+                0
+              ],
+              "green": [
+                100,
+                0,
+                0,
+                0
+              ],
+              "blue": [
+                0,
+                0,
+                100,
+                0
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#fantasy-swap",
+          "layer": {
+            "id": "fantasy-colour",
+            "name": "Fantasy: selective colour",
+            "type": "adjustment",
+            "opacity": "{{amount}}",
+            "adjustment": {
+              "kind": "selective-color",
+              "greens": [
+                40,
+                -20,
+                0,
+                0
+              ],
+              "reds": [
+                -20,
+                30,
+                -10,
+                0
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

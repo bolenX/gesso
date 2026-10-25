@@ -100,3 +100,29 @@ describe("canvas_inspect", () => {
     expect(region.color.cast).toMatch(/magenta|warm/);
   });
 });
+
+describe("recipes and preflight", () => {
+  it("lists a skill's recipes, applies one as a revision, and preflights the layout", async () => {
+    const client = await connect();
+    const read = parts(await client.callTool({ name: "skill_read", arguments: { name: "core-techniques" } }))[0]!.text!;
+    expect(read).toMatch(/## Recipes[\s\S]*\*\*vignette\*\*/);
+    expect(read).toMatch(/## Checks/);
+    const applied = await client.callTool({ name: "skill_apply", arguments: { doc: "card", skill: "core-techniques", recipe: "vignette", params: { artboard: "a", above: "dot" } } });
+    expect(applied.isError).toBeFalsy();
+    expect(JSON.parse(parts(applied)[0]!.text!)).toMatchObject({ revision: 1, changed: ["vignette"] });
+    const missing = await client.callTool({ name: "skill_apply", arguments: { doc: "card", skill: "core-techniques", recipe: "vignette", params: {} } });
+    expect(parts(missing)[0]!.text).toMatch(/"artboard" is required/);
+
+    await client.callTool({
+      name: "canvas_patch",
+      arguments: { doc: "card", baseRevision: 1, ops: [{ op: "insert", into: "#a", layer: { id: "tiny", name: "Tiny", type: "text", content: "fine print", style: { font: "Inter", size: 6 }, frame: { x: 90, y: 40, w: 30, h: 20 } } }] },
+    });
+    const report = JSON.parse(parts(await client.callTool({ name: "canvas_inspect", arguments: { doc: "card", preflight: true } }))[0]!.text!);
+    expect(report.preflight).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ layer: "tiny", severity: "error", issue: expect.stringMatching(/extends past the artboard/) }),
+        expect.objectContaining({ layer: "tiny", severity: "warning", issue: expect.stringMatching(/type at 6 px/) }),
+      ]),
+    );
+  });
+});

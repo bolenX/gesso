@@ -82,3 +82,24 @@ describe("retouching", async () => {
     expect(blue).toBeGreaterThanOrEqual(17);
   });
 });
+
+describe("texture in fills", () => {
+  it("keeps grain inside filled spots instead of smoothing it", async () => {
+    const { contentAwareFill } = await import("../src/retouch.js");
+    const [w, h] = [120, 120];
+    let s = 3;
+    const rnd = () => ((s = (Math.imul(s, 1103515245) + 12345) | 0), ((s >>> 8) & 0xffff) / 0x10000);
+    const p = new Float32Array(w * h).map(() => 0.5 + (rnd() + rnd() + rnd() + rnd() - 2) * 0.07);
+    for (const r of [6, 12]) {
+      const hole = new Uint8Array(w * h);
+      for (let y = 60 - r; y < 60 + r; y++) for (let x = 60 - r; x < 60 + r; x++) hole[y * w + x] = 1;
+      const out = contentAwareFill([p, p.slice(), p.slice()], hole, w, h)[0]!;
+      const std = (inside: boolean) => {
+        let [s1, s2, n] = [0, 0, 0];
+        for (let i = 0; i < w * h; i++) if (!!hole[i] === inside) [s1, s2, n] = [s1 + out[i]!, s2 + out[i]! ** 2, n + 1];
+        return Math.sqrt(s2 / n - (s1 / n) ** 2);
+      };
+      expect(std(true) / std(false)).toBeGreaterThan(0.85);
+    }
+  });
+});

@@ -1,0 +1,73 @@
+{
+ "description": "A contact shadow darkens the floor right under the product and nowhere far away",
+ "layers": [
+  "product"
+ ],
+ "steps": [
+  {
+   "ops": [
+    {
+     "op": "insert",
+     "after": "#product",
+     "layer": {
+      "id": "bottle",
+      "name": "Bottle",
+      "type": "shape",
+      "shape": {
+       "kind": "rect"
+      },
+      "fill": "#1F4A2E",
+      "frame": {
+       "x": 200,
+       "y": 60,
+       "w": 80,
+       "h": 260
+      }
+     }
+    }
+   ],
+   "setup": true
+  },
+  {
+   "recipe": "contact-shadow",
+   "params": {
+    "product": "bottle"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the floor right under the product is darker",
+   "metric": "luminance.mean",
+   "region": [
+    205,
+    322,
+    70,
+    6
+   ],
+   "less": 0.8
+  },
+  {
+   "what": "the floor beside it is a little darker",
+   "metric": "luminance.mean",
+   "region": [
+    178,
+    318,
+    20,
+    10
+   ],
+   "less": 0.98
+  },
+  {
+   "what": "the background far away is untouched",
+   "sample": [
+    420,
+    300
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1
+   }
+  }
+ ]
+}

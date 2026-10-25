@@ -1,0 +1,84 @@
+{
+ "description": "Light wrap and edge shadow tie a pasted subject into the plate",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "ops": [
+    {
+     "op": "insert",
+     "after": "#landscape",
+     "layer": {
+      "id": "subject",
+      "name": "Subject",
+      "type": "shape",
+      "shape": {
+       "kind": "ellipse"
+      },
+      "fill": "#3A3530",
+      "frame": {
+       "x": 170,
+       "y": 120,
+       "w": 140,
+       "h": 200
+      }
+     }
+    }
+   ],
+   "setup": true
+  },
+  {
+   "recipe": "light-wrap",
+   "params": {
+    "subject": "subject",
+    "background": "landscape"
+   }
+  },
+  {
+   "recipe": "edge-integration",
+   "params": {
+    "subject": "subject"
+   }
+  }
+ ],
+ "before": [
+  "landscape",
+  "subject"
+ ],
+ "checks": [
+  {
+   "what": "the subject picks up the scene's light",
+   "metric": "luminance.mean",
+   "region": [
+    215,
+    180,
+    50,
+    80
+   ],
+   "more": 1.15
+  },
+  {
+   "what": "the subject takes the sky's blue at the top",
+   "metric": "color.lab.2",
+   "region": [
+    215,
+    135,
+    50,
+    30
+   ],
+   "less": 0.9
+  },
+  {
+   "what": "the plate outside the subject is untouched",
+   "sample": [
+    60,
+    60
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1
+   }
+  }
+ ]
+}

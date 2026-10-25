@@ -39,6 +39,8 @@ import { DOC_FORMAT } from "./format.js";
 import { prepareJob } from "./gen.js";
 import { importAsset } from "./import.js";
 import { loadSkills } from "./skills.js";
+import { describeRecipes, instantiate } from "./recipes.js";
+import { preflight } from "./preflight.js";
 import { findSlices, renderSlice } from "./slices.js";
 import { batch, hideLayers, only, stamp } from "./production.js";
 import { DocStore } from "./store.js";
@@ -64,6 +66,7 @@ export const TOOL_NAMES = [
   "canvas_export",
   "font_list",
   "skill_read",
+  "skill_apply",
   "asset_import",
   "canvas_history",
   "gen_prepare",
@@ -431,7 +434,7 @@ export function createServer({
     "canvas_patch",
     {
       description:
-        "Apply atomic, ID-addressed operations against a baseRevision: set (a field by dot path), insert, move, remove, duplicate (Copy/Paste and Duplicate Layer: a copy with a new id, optionally offset or placed elsewhere), replace-text (Find and Replace Text across text layers, plain or regex, keeping styled runs), asset and artboard.",
+        "Apply atomic, ID-addressed operations against a baseRevision: set (a field by dot path; lists take an index or + to append, e.g. \"filters.+\" adds a filter and \"filters.0.radius\" tunes one), insert, move, remove, duplicate (Copy/Paste and Duplicate Layer: a copy with a new id, optionally offset or placed elsewhere), replace-text (Find and Replace Text across text layers, plain or regex, keeping styled runs), asset and artboard.",
       inputSchema: Patch.shape,
     },
     async (args) =>
@@ -575,8 +578,46 @@ export function createServer({
     },
     async ({ name }) => {
       const skill = skills.find((s) => s.name === name);
-      return skill ? text(skill.body) : error(`No skill "${name}". Skills: ${skills.map((s) => s.name).join(", ")}`);
+      if (!skill) return error(`No skill "${name}". Skills: ${skills.map((s) => s.name).join(", ")}`);
+      const parts = [skill.body];
+      if (skill.recipes) parts.push(`## Recipes\n\nApply one with skill_apply (skill "${skill.name}"); it adds the layers as one revision you can adjust after.\n\n${describeRecipes(skill.recipes)}`);
+      if (skill.checks) parts.push(`## Checks\n\n${skill.checks.replace(/^# .*\n+/, "")}`);
+      return text(parts.join("\n\n"));
     },
+  );
+
+  register(
+    "skill_apply",
+    {
+      description:
+        "Apply a skill's recipe: a proven layer setup (frequency separation, a flambient stack, a duotone, a contact shadow…) filled in with your parameters and applied as one revision. skill_read lists each skill's recipes and their parameters. Then check the result with canvas_render and canvas_inspect, and fine-tune with canvas_patch.",
+      inputSchema: {
+        doc: docId,
+        skill: z.string(),
+        recipe: z.string(),
+        params: z.record(z.unknown()).default({}).describe("Recipe parameters: layer and artboard ids, numbers, colours"),
+        baseRevision: z.number().int().nonnegative().optional().describe("Defaults to the current revision"),
+        dryRun: z.boolean().optional().describe("Return the ops without applying them"),
+      },
+    },
+    async ({ doc, skill: skillName, recipe: recipeName, params, baseRevision, dryRun }) =>
+      guard(async () => {
+        const skill = skills.find((s) => s.name === skillName);
+        if (!skill) return error(`No skill "${skillName}". Skills: ${skills.map((s) => s.name).join(", ")}`);
+        const recipe = skill.recipes?.recipes[recipeName];
+        if (!recipe) {
+          const names = Object.keys(skill.recipes?.recipes ?? {});
+          return error(names.length ? `No recipe "${recipeName}" in ${skill.name}. Recipes: ${names.join(", ")}` : `${skill.name} has no recipes; follow its steps with canvas_patch`);
+        }
+        const history = store.history(doc);
+        const ops = instantiate(recipe, params, history.head);
+        if (dryRun) return json({ ops });
+        const result = history.apply(Patch.parse({ doc, baseRevision: baseRevision ?? history.head.revision, ops }), author, { selection: store.selection(doc) });
+        if (isConflict(result)) return error(`Stale baseRevision; the document is at revision ${history.head.revision}.`);
+        store.save(doc);
+        const tree = outline(history.head);
+        return withCard(json({ ...result, outline: tree }), { kind: "patch", doc, revision: result.revision, changed: result.changed, warnings: result.warnings, outline: tree });
+      }),
   );
 
   register(
@@ -729,13 +770,18 @@ export function createServer({
           .enum(["clipping", "sharpness"])
           .optional()
           .describe("Also return an image: clipping (red = clipped to white in a channel, blue = clipped to black) or sharpness (bright = detailed, dark = soft)"),
+        preflight: z
+          .boolean()
+          .optional()
+          .describe("Also list layout problems: text and logos in a preset's safe-zone margins or off the artboard, type too small to read, images enlarged past their pixels, hidden or empty layers"),
       },
     },
-    async ({ doc, artboard, region, layers, revision, samples, sampleSize, map }) =>
+    async ({ doc, artboard, region, layers, revision, samples, sampleSize, map, preflight: wantPreflight }) =>
       guard(async () => {
         const history = store.history(doc);
         let d = revision === undefined ? history.head : history.at(revision);
         const id = pickArtboard(d, artboard);
+        const issues = wantPreflight ? await preflight(d, id) : undefined;
         checkSize(d, 1, id);
         if (layers?.length) d = only(d, id, new Set(layers));
         const full = await cachedRender(d, id, 1, layers?.length ? `only:${layers.join(",")}` : "");
@@ -748,6 +794,7 @@ export function createServer({
           ...(layers?.length ? { layers } : {}),
           ...measure(view),
           ...(samples?.length ? { samples: samples.map((p) => sampleAt(full, p, sampleSize)) } : {}),
+          ...(issues ? { preflight: issues.length ? issues : "no problems found" } : {}),
         };
         const content: CallToolResult["content"] = [{ type: "text", text: JSON.stringify(result, null, 1) }];
         if (map) {

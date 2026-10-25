@@ -1,0 +1,44 @@
+{
+ "description": "Flambient blending takes out the ambient frame's warm cast and keeps its light",
+ "layers": [
+  "interior-ambient",
+  "interior-flash"
+ ],
+ "steps": [
+  {
+   "recipe": "flambient",
+   "params": {
+    "artboard": "a",
+    "ambient": "interior-ambient",
+    "flash": "interior-flash"
+   }
+  }
+ ],
+ "before": [
+  "interior-ambient"
+ ],
+ "checks": [
+  {
+   "what": "the walls are much less yellow",
+   "metric": "color.lab.2",
+   "region": [
+    40,
+    80,
+    200,
+    120
+   ],
+   "less": 0.7
+  },
+  {
+   "what": "the floor keeps its wood colour",
+   "metric": "color.lab.2",
+   "region": [
+    40,
+    300,
+    200,
+    50
+   ],
+   "more": 0.3
+  }
+ ]
+}

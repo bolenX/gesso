@@ -1,4 +1,4 @@
-import { clamp, hash, samplePlane } from "./cpu.js";
+import { boxPlane, clamp, hash, samplePlane } from "./cpu.js";
 
 // Retouching on straight colour planes (0..1): Clone Stamp, Content-Aware Fill (PatchMatch),
 // healing (seamless blending of the fill into its surroundings) and Content-Aware Scale (seams).
@@ -121,7 +121,9 @@ export function heal(original: Planes, fill: Planes, region: Float32Array, w: nu
 /**
  * Fills the hole (hole[i] = 1) with patches from elsewhere in the image, coarse to fine: at each
  * scale, PatchMatch finds for every patch over the hole the most similar patch outside it, and
- * each hole pixel becomes the average of what those patches put there (Wexler et al.).
+ * each hole pixel becomes the average of what those patches put there (Wexler et al.). The last
+ * pass at full size takes each pixel from its single best patch instead, so grain and pores carry
+ * over rather than averaging into a smooth blur.
  */
 export function contentAwareFill(planes: Planes, hole: Uint8Array, w: number, h: number, seed = 1): Planes {
   const levels: Array<{ planes: Planes; hole: Uint8Array; w: number; h: number }> = [{ planes, hole, w, h }];
@@ -143,9 +145,117 @@ export function contentAwareFill(planes: Planes, hole: Uint8Array, w: number, h:
       estimate = level.planes.map((p, c) => p.map((v, i) => (level.hole[i] ? samplePlane(estimate[c]!, prev.w, prev.h, ((i % level.w) + 0.5) / 2, (Math.floor(i / level.w) + 0.5) / 2) : v)));
     }
     const iterations = l === 0 ? 2 : 4;
-    for (let it = 0; it < iterations; it++) estimate = patchMatchPass(level.planes, estimate, level.hole, level.w, level.h, seed + l * 31 + it);
+    for (let it = 0; it < iterations; it++) estimate = patchMatchPass(level.planes, estimate, level.hole, level.w, level.h, seed + l * 31 + it, l === 0 && it === iterations - 1);
   }
-  return estimate;
+  return restoreTexture(planes, estimate, hole, w, h);
+}
+
+/** Fine detail: each plane minus a small blur of itself. */
+const detail = (p: Float32Array, w: number, h: number) => {
+  const soft = boxPlane(boxPlane(p, w, h, 1), w, h, 1);
+  return p.map((v, i) => v - soft[i]!);
+};
+
+/**
+ * PatchMatch over a smooth first guess favours the flattest patches, so fills come out smoother than
+ * their surroundings: grain, pores and noise thin out. This measures the fine detail in a ring around
+ * the hole, and when the fill has less, adds the missing part from the detail of a nearby area of
+ * similar tone (Spot Healing's proximity match). The fill's own structure, an edge through the hole,
+ * stays; only the variance it lacks is added.
+ */
+function restoreTexture(original: Planes, fill: Planes, hole: Uint8Array, w: number, h: number): Planes {
+  const near = dilate(hole, w, h, 2);
+  const origDetail = original.map((p) => detail(p, w, h));
+  const fillDetail = fill.map((p) => detail(p, w, h));
+  const soft = fill.map((p) => boxPlane(p, w, h, 2));
+  const softOrig = original.map((p) => boxPlane(p, w, h, 2));
+  const lum = (p: Planes, i: number) => (p[0]![i]! + p[1]![i]! + p[2]![i]!) / 3;
+  const out = fill.map((p) => p.slice());
+  // Each separate spot is matched on its own: one borrowed area per spot, measured against its own surroundings.
+  const label = new Int32Array(w * h).fill(-1);
+  let count = 0;
+  for (let seed = 0; seed < w * h; seed++) {
+    if (!hole[seed] || label[seed]! >= 0) continue;
+    const pixels: number[] = [];
+    const stack = [seed];
+    label[seed] = count;
+    while (stack.length) {
+      const i = stack.pop()!;
+      pixels.push(i);
+      const [x, y] = [i % w, Math.floor(i / w)];
+      for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+        const j = ny * w + nx;
+        if (nx >= 0 && ny >= 0 && nx < w && ny < h && hole[j] && label[j]! < 0) {
+          label[j] = count;
+          stack.push(j);
+        }
+      }
+    }
+    restoreSpot(pixels);
+    count++;
+  }
+  return out;
+
+  function restoreSpot(pixels: number[]) {
+    let [x0, y0, x1, y1] = [w, h, -1, -1];
+    for (const i of pixels) {
+      const [x, y] = [i % w, Math.floor(i / w)];
+      [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
+    }
+    // The spot's surroundings: a ring 3–8 px out, away from every hole.
+    let [want, wn] = [0, 0];
+    for (let y = Math.max(0, y0 - 8); y <= Math.min(h - 1, y1 + 8); y++)
+      for (let x = Math.max(0, x0 - 8); x <= Math.min(w - 1, x1 + 8); x++) {
+        const i = y * w + x;
+        if (near[i]) continue;
+        for (const p of origDetail) {
+          want += p[i]! ** 2;
+          wn++;
+        }
+      }
+    let [have, hn] = [0, 0];
+    for (const i of pixels)
+      for (const p of fillDetail) {
+        have += p[i]! ** 2;
+        hn++;
+      }
+    [want, have] = [Math.sqrt(want / Math.max(1, wn)), Math.sqrt(have / Math.max(1, hn))];
+    if (!want || have >= want * 0.9) return;
+    const [bw, bh] = [x1 - x0 + 1, y1 - y0 + 1];
+    let best: [number, number] | undefined;
+    let bestScore = Infinity;
+    for (const m of [1.2, 1.8, 2.6, 3.5]) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4;
+        const [dx, dy] = [Math.round(Math.cos(a) * (bw * m + 2)), Math.round(Math.sin(a) * (bh * m + 2))];
+        if (x0 + dx < 0 || y0 + dy < 0 || x1 + dx >= w || y1 + dy >= h) continue;
+        let [score, n, clash] = [0, 0, false];
+        for (const i of pixels) {
+          const j = i + dy * w + dx;
+          if (near[j]) {
+            clash = true;
+            break;
+          }
+          score += Math.abs(lum(soft, i) - lum(softOrig, j));
+          n++;
+        }
+        if (clash || !n) continue;
+        if (score / n < bestScore) [bestScore, best] = [score / n, [dx, dy]];
+      }
+    }
+    if (!best) return;
+    const shift = best[1] * w + best[0];
+    let [borrowed, bn] = [0, 0];
+    for (const i of pixels)
+      for (const p of origDetail) {
+        borrowed += p[i + shift]! ** 2;
+        bn++;
+      }
+    borrowed = Math.sqrt(borrowed / Math.max(1, bn));
+    if (!borrowed) return;
+    const gain = Math.sqrt(Math.max(0, want * want - have * have)) / borrowed;
+    for (const i of pixels) for (let c = 0; c < out.length; c++) out[c]![i] = out[c]![i]! + origDetail[c]![i + shift]! * gain;
+  }
 }
 
 function halve(planes: Planes, hole: Uint8Array, w: number, h: number) {
@@ -169,8 +279,8 @@ function halve(planes: Planes, hole: Uint8Array, w: number, h: number) {
 
 const P = 3; // patch radius: 7×7 patches
 
-/** One PatchMatch search and vote over the hole. `target` is the current estimate. */
-function patchMatchPass(source: Planes, target: Planes, hole: Uint8Array, w: number, h: number, seed: number): Planes {
+/** One PatchMatch search and vote over the hole. `target` is the current estimate; `best` takes each pixel from its best patch. */
+function patchMatchPass(source: Planes, target: Planes, hole: Uint8Array, w: number, h: number, seed: number, best = false): Planes {
   // Valid source centres: patches entirely outside the hole and inside the image.
   const holeNear = dilate(hole, w, h, P);
   const valid: number[] = [];
@@ -230,6 +340,27 @@ function patchMatchPass(source: Planes, target: Planes, hole: Uint8Array, w: num
         if (cx >= 0 && cx < w && cy >= 0 && cy < h) tryMatch(t, cy * w + cx);
       }
     }
+  }
+  if (best) {
+    // Each hole pixel comes from the lowest-cost patch that covers it: texture is copied, not averaged.
+    const out = target.map((p) => p.slice());
+    const bestCost = new Float32Array(w * h).fill(Infinity);
+    for (const t of todo) {
+      const s = nnf[t]!;
+      if (s < 0) continue;
+      const [tx, ty, sx, sy] = [t % w, Math.floor(t / w), s % w, Math.floor(s / w)];
+      for (let j = -P; j <= P; j++)
+        for (let i = -P; i <= P; i++) {
+          const [xt, yt] = [tx + i, ty + j];
+          if (xt < 0 || yt < 0 || xt >= w || yt >= h) continue;
+          const a = yt * w + xt;
+          if (!hole[a] || cost[t]! >= bestCost[a]!) continue;
+          bestCost[a] = cost[t]!;
+          const b = (sy + j) * w + sx + i;
+          for (let c = 0; c < target.length; c++) out[c]![a] = source[c]![b]!;
+        }
+    }
+    return out;
   }
   // Vote: each hole pixel averages what the overlapping patches' matches put there.
   const sums = target.map(() => new Float64Array(w * h));

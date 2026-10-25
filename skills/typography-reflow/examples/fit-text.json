@@ -1,0 +1,142 @@
+{
+ "description": "The headline becomes area text that shrinks to fit",
+ "doc": {
+  "id": "poster",
+  "revision": 0,
+  "assets": {},
+  "artboards": [
+   {
+    "id": "a",
+    "name": "A",
+    "preset": "instagram-portrait",
+    "frame": {
+     "x": 0,
+     "y": 0,
+     "w": 1080,
+     "h": 1350
+    },
+    "background": "#FFFFFF",
+    "layers": [
+     {
+      "id": "bg",
+      "name": "Background",
+      "type": "shape",
+      "shape": {
+       "kind": "rect"
+      },
+      "fill": "#EEEEEE",
+      "frame": {
+       "x": 0,
+       "y": 0,
+       "w": 1080,
+       "h": 1350
+      },
+      "meta": {
+       "role": "background"
+      }
+     },
+     {
+      "id": "headline",
+      "name": "Headline",
+      "type": "text",
+      "content": "Autumn Edit",
+      "style": {
+       "font": "Inter",
+       "size": 96,
+       "fill": "#333333"
+      },
+      "frame": {
+       "x": 90,
+       "y": 160,
+       "w": 900,
+       "h": 240
+      },
+      "meta": {
+       "role": "headline"
+      }
+     },
+     {
+      "id": "body",
+      "name": "Body",
+      "type": "text",
+      "content": "New colours, same craft.",
+      "style": {
+       "font": "Inter",
+       "size": 40,
+       "fill": "#555555"
+      },
+      "frame": {
+       "x": 90,
+       "y": 420,
+       "w": 900,
+       "h": 120
+      },
+      "meta": {
+       "role": "body"
+      }
+     },
+     {
+      "id": "cta",
+      "name": "Button",
+      "type": "shape",
+      "shape": {
+       "kind": "rect",
+       "radius": 40
+      },
+      "fill": "#999999",
+      "frame": {
+       "x": 90,
+       "y": 1100,
+       "w": 360,
+       "h": 96
+      },
+      "meta": {
+       "role": "cta"
+      }
+     },
+     {
+      "id": "accent",
+      "name": "Accent bar",
+      "type": "shape",
+      "shape": {
+       "kind": "rect"
+      },
+      "fill": "#BBBBBB",
+      "frame": {
+       "x": 90,
+       "y": 120,
+       "w": 120,
+       "h": 12
+      },
+      "meta": {
+       "role": "decoration"
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "recipe": "fit-text",
+   "params": {
+    "layer": "headline",
+    "minSize": 64
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the headline shrinks to fit with a floor",
+   "field": {
+    "target": "#headline",
+    "path": "box",
+    "equals": {
+     "kind": "area",
+     "shrinkToFit": true,
+     "minSize": 64
+    }
+   }
+  }
+ ]
+}

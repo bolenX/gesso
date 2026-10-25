@@ -205,18 +205,37 @@ function assertUnlocked(layer: Layer): void {
   if (layer.meta?.locked) throw new PatchError(`layer "${layer.id}" is locked`);
 }
 
+/**
+ * Sets a field by dot path. Arrays take an index ("filters.0.radius") or "+" to append ("filters.+"),
+ * so one filter or effect can be added or tuned without rewriting the list. null removes the field or item.
+ */
 function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
   const keys = path.split(".");
-  let node: Record<string, unknown> = target;
-  for (const key of keys.slice(0, -1)) {
-    const child = node[key];
-    if (child === undefined) node[key] = {};
-    else if (typeof child !== "object" || child === null || Array.isArray(child)) {
-      throw new PatchError(`cannot set "${path}": "${key}" is not an object`);
+  const isIndex = (key: string) => key === "+" || /^\d+$/.test(key);
+  let node: Record<string, unknown> | unknown[] = target;
+  for (const [i, key] of keys.slice(0, -1).entries()) {
+    if (Array.isArray(node)) {
+      if (!/^\d+$/.test(key) || Number(key) >= node.length) throw new PatchError(`cannot set "${path}": "${key}" is not an item of the list (it has ${node.length})`);
     }
-    node = node[key] as Record<string, unknown>;
+    const parent = node as Record<string, unknown>;
+    const child = parent[key];
+    if (child === undefined) parent[key] = isIndex(keys[i + 1]!) ? [] : {};
+    else if (typeof child !== "object" || child === null) throw new PatchError(`cannot set "${path}": "${key}" is not an object or list`);
+    node = parent[key] as Record<string, unknown> | unknown[];
   }
   const last = keys[keys.length - 1]!;
+  if (Array.isArray(node)) {
+    if (last === "+") {
+      if (value !== null) node.push(value);
+      return;
+    }
+    const index = /^\d+$/.test(last) ? Number(last) : NaN;
+    if (!(index < node.length)) throw new PatchError(`cannot set "${path}": the list has ${node.length} items; use "+" to append`);
+    if (value === null) node.splice(index, 1);
+    else node[index] = value;
+    return;
+  }
+  if (last === "+") throw new PatchError(`cannot set "${path}": "+" appends to a list, and "${keys.at(-2) ?? path}" isn't one`);
   if (value === null) delete node[last];
   else node[last] = value;
 }

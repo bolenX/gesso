@@ -20,7 +20,9 @@ export function select(doc: Doc, selector: string | Selector, selection: string[
             ? layer.meta?.role === term.value
             : term.kind === "tag"
               ? (layer.meta?.tags ?? []).includes(term.value)
-              : selection.includes(layer.id);
+              : term.kind === "all"
+                ? true
+                : selection.includes(layer.id);
       if (hit) matches.push({ artboard: board.id, layer });
     }
   }

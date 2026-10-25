@@ -1,0 +1,330 @@
+{
+  "recipes": {
+    "skin-smoothing": {
+      "description": "Smooths skin within a region on a copy: surface blur (keeps edges), then a touch of fine grain so it doesn't turn plastic, masked with a soft ellipse.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The photo, or a stamp of the retouch so far"
+        },
+        "region": {
+          "type": "json",
+          "description": "Skin to smooth: {\"x\", \"y\", \"w\", \"h\"} in the layer's pixels; the mask is a feathered ellipse inside it"
+        },
+        "id": {
+          "type": "string",
+          "description": "Id for the new layer",
+          "default": "skin-smoothing"
+        },
+        "radius": {
+          "type": "number",
+          "description": "Surface blur radius in px (6–10 at 1–2 MP)",
+          "default": 8
+        },
+        "threshold": {
+          "type": "number",
+          "description": "Surface blur threshold, 0..255: higher smooths across more contrast (12–25)",
+          "default": 20
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 0.6
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "{{id}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "name",
+          "value": "Skin smoothing"
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "filters.+",
+          "value": {
+            "kind": "surface-blur",
+            "radius": "{{radius}}",
+            "threshold": "{{threshold}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "filters.+",
+          "value": {
+            "kind": "noise",
+            "amount": 0.02,
+            "monochrome": true,
+            "distribution": "gaussian"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "opacity",
+          "value": "{{amount}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "mask",
+          "value": {
+            "kind": "vector",
+            "shape": {
+              "kind": "ellipse"
+            },
+            "frame": "{{region}}",
+            "feather": "{{= min(region.w, region.h) / 5}}"
+          }
+        }
+      ]
+    },
+    "eye-enhance": {
+      "description": "Brightens and sharpens the eyes: a contrast curve and a sharpened copy, both masked to the eye region.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The photo, or a stamp of the retouch so far"
+        },
+        "region": {
+          "type": "json",
+          "description": "Both eyes: {\"x\", \"y\", \"w\", \"h\"} in the layer's pixels; the mask is a feathered ellipse inside it"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Strength, 0..1",
+          "default": 0.7
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "eye-sharpen"
+        },
+        {
+          "op": "set",
+          "target": "#eye-sharpen",
+          "path": "name",
+          "value": "Eyes: sharpen"
+        },
+        {
+          "op": "set",
+          "target": "#eye-sharpen",
+          "path": "filters.+",
+          "value": {
+            "kind": "sharpen",
+            "amount": 1.2,
+            "radius": 1,
+            "threshold": 2
+          }
+        },
+        {
+          "op": "set",
+          "target": "#eye-sharpen",
+          "path": "mask",
+          "value": {
+            "kind": "vector",
+            "shape": {
+              "kind": "ellipse"
+            },
+            "frame": "{{region}}",
+            "feather": "{{= min(region.w, region.h) / 4}}"
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#eye-sharpen",
+          "layer": {
+            "id": "eye-contrast",
+            "name": "Eyes: contrast",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "curves",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  64,
+                  56
+                ],
+                [
+                  176,
+                  196
+                ],
+                [
+                  255,
+                  255
+                ]
+              ]
+            },
+            "opacity": "{{amount}}",
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{source.frame.w}}",
+              "h": "{{source.frame.h}}"
+            },
+            "mask": {
+              "kind": "vector",
+              "shape": {
+                "kind": "ellipse"
+              },
+              "frame": "{{region}}",
+              "feather": "{{= min(region.w, region.h) / 4}}"
+            }
+          }
+        }
+      ]
+    },
+    "cinematic-grade": {
+      "description": "A teal-and-orange film grade above a layer: cool shadows, warm highlights and slightly muted colour, as two adjustment layers.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the grade just above this layer (usually the top of the retouch)"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Strength (opacity of both layers), 0..1",
+          "default": 0.8
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "grade-balance",
+            "name": "Grade: split tone",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "color-balance",
+              "shadows": [
+                -14,
+                0,
+                22
+              ],
+              "highlights": [
+                14,
+                2,
+                -16
+              ],
+              "preserveLuminosity": true
+            },
+            "opacity": "{{amount}}",
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#grade-balance",
+          "layer": {
+            "id": "grade-curve",
+            "name": "Grade: film curve",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "curves",
+              "points": [
+                [
+                  0,
+                  12
+                ],
+                [
+                  60,
+                  52
+                ],
+                [
+                  190,
+                  200
+                ],
+                [
+                  255,
+                  246
+                ]
+              ]
+            },
+            "opacity": "{{amount}}",
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    },
+    "high-end-sharpen": {
+      "description": "Output sharpening with high pass in soft light on a copy: crisp detail without halos. Last step before export.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The finished image (a stamp of everything)"
+        },
+        "radius": {
+          "type": "number",
+          "description": "High pass radius in px (1–2 for detail)",
+          "default": 1.5
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 0.6
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "{{source}}-detail"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-detail",
+          "path": "name",
+          "value": "Detail (high pass)"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-detail",
+          "path": "filters.+",
+          "value": {
+            "kind": "high-pass",
+            "radius": "{{radius}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-detail",
+          "path": "blend",
+          "value": "soft-light"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-detail",
+          "path": "opacity",
+          "value": "{{amount}}"
+        }
+      ]
+    }
+  }
+}
