@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { homedir } from "node:os";
 import { basename, extname, join, relative, sep } from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { FAVICON_SVG } from "./brand.js";
+import { FAVICON_SVG, ICON_PNG, ICON_SVG } from "./brand.js";
 import { createServer, DocStore, newServerState, type ServerState } from "./index.js";
 import { OAuth, type Sealer } from "./oauth.js";
 import { escape, html, page } from "./pages.js";
@@ -328,7 +328,12 @@ export async function startHttp(options: HttpOptions): Promise<{ server: Server;
     res.setHeader("access-control-expose-headers", "mcp-session-id, www-authenticate");
     if (req.method === "OPTIONS") return void res.writeHead(204).end();
     if (url.pathname === "/health") return void res.writeHead(200, { "content-type": "text/plain" }).end("ok\n");
-    if (url.pathname === "/favicon.svg") return void res.writeHead(200, { "content-type": "image/svg+xml" }).end(FAVICON_SVG);
+    if (url.pathname === "/favicon.svg") return void res.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }).end(FAVICON_SVG);
+    // The app icon, for hosts that look a server's icon up by address rather than from the MCP handshake.
+    if (url.pathname === "/icon.svg") return void res.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }).end(ICON_SVG);
+    if (url.pathname === "/favicon.ico" || url.pathname === "/apple-touch-icon.png" || url.pathname === "/icon.png") {
+      return void res.writeHead(200, { "content-type": "image/png", "cache-control": "public, max-age=86400" }).end(ICON_PNG);
+    }
     const proof = options.verification?.[url.pathname];
     if (proof !== undefined && (req.method === "GET" || req.method === "HEAD")) return void res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" }).end(proof);
     if (!hosted) {
