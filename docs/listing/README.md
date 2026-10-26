@@ -7,7 +7,7 @@ The order to take hosted Gesso from code to the Claude and ChatGPT directories, 
 - ✅ OAuth sign-in on one URL, signed links, limits, worker processes, and tool hints (`packages/mcp-server`).
 - ✅ Deploy configuration and runbook: [deploy/README.md](../../deploy/README.md).
 - ✅ `npx -y gesso-mcp --tunnel`: anyone can use claude.ai and ChatGPT with Gesso today, free, on their own computer.
-- [ ] **Run `mcp.gesso.run` for free:** any always-on machine (or Oracle's Always Free VM) with a Cloudflare Tunnel, following the runbook. It takes about 20 minutes. The directories need this fixed address; people using `--tunnel` don't.
+- [ ] **Run `mcp.gesso.run` for free:** on any always-on Mac or Linux computer, `bash deploy/setup-tunnel.sh` does it all, apart from one Cloudflare login click. Oracle's Always Free VM works too. The directories need this fixed address; people using `--tunnel` don't.
 - [ ] Optional: set up GitHub and Google sign-in, so people get the same workspace every time.
 - [ ] Optional, paid only: on Fly.io, save `FLY_API_TOKEN` as a repository secret, so every release deploys itself.
 
