@@ -2,7 +2,7 @@
 
 > **Draft for review, not legal advice.** It describes what the code in this repository does with data. Before publishing it at `gesso.run/privacy`:
 > - fill in the bracketed parts
-> - check the hosting details against how you actually run the server
+> - check the hosting details against how you actually run the server. They describe `mcp.gesso.run` as set up by `deploy/setup-tunnel.sh`: a computer you run, behind a Cloudflare Tunnel, keeping logs for 30 days. If you move it to a hosting provider such as Fly.io, name that provider instead.
 > - have it reviewed by a lawyer for the places your users live
 
 **Effective date:** [date]
@@ -49,7 +49,7 @@ When you connect an app to hosted Gesso, you approve it on Gesso's sign-in page.
 
 ### Who else is involved
 
-- **Our hosting provider** stores and runs the service for us: [Fly.io, Inc., in the United States]. Its network may also log addresses for security, under its own policy.
+- **Cloudflare** carries all traffic between your app and the service, and protects it from attacks: [Cloudflare, Inc., in the United States]. Its network sees addresses and may log them for security, under its own policy. The service itself runs on a computer we operate, in [country].
 - **Websites your agent imports from.** When your agent imports an image from a web address, our server downloads it, so that site sees a request from our server.
 - **The app you connect** (for example Claude or ChatGPT) receives what Gesso's tools return, such as previews, measurements and download links. Its own privacy policy covers what it does with them.
 

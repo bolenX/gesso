@@ -10,8 +10,8 @@
 # The one step that needs you: the first time, a browser window opens for you to log in to Cloudflare and
 # choose gesso.run. The script then creates the tunnel and the DNS record itself.
 #
-# Settings: GESSO_DOMAIN (mcp.gesso.run), GESSO_TUNNEL_NAME (gesso), GESSO_PORT (3333), and GESSO_CHECK_URL for
-# the final check (https://<domain>/health).
+# Settings: GESSO_DOMAIN (mcp.gesso.run), GESSO_TUNNEL_NAME (gesso), GESSO_PORT (3333), GESSO_LOG_DAYS (30, how
+# long logs are kept), and GESSO_CHECK_URL for the final check (https://<domain>/health).
 set -euo pipefail
 
 DOMAIN="${GESSO_DOMAIN:-mcp.gesso.run}"
@@ -21,6 +21,7 @@ HERE="$HOME/.gesso/server"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 OS="$(uname -s)"
 LOGS="$HERE/logs"
+LOG_DAYS="${GESSO_LOG_DAYS:-30}"
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 fail() { printf '\n\033[31m%s\033[0m\n' "$*" >&2; exit 1; }
@@ -28,13 +29,14 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 uninstall() {
   if [ "$OS" = Darwin ]; then
-    for name in run.gesso.server run.gesso.tunnel; do
+    for name in run.gesso.server run.gesso.tunnel run.gesso.logs; do
       launchctl bootout "gui/$(id -u)/$name" 2>/dev/null || true
       rm -f "$HOME/Library/LaunchAgents/$name.plist"
     done
   elif have systemctl && systemctl --user show-environment >/dev/null 2>&1; then
-    systemctl --user disable --now gesso-server.service gesso-tunnel.service 2>/dev/null || true
-    rm -f "$HOME/.config/systemd/user/gesso-server.service" "$HOME/.config/systemd/user/gesso-tunnel.service"
+    systemctl --user disable --now gesso-server.service gesso-tunnel.service gesso-logs.timer 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/gesso-server.service" "$HOME/.config/systemd/user/gesso-tunnel.service" \
+      "$HOME/.config/systemd/user/gesso-logs.service" "$HOME/.config/systemd/user/gesso-logs.timer"
     systemctl --user daemon-reload || true
   fi
   for name in server tunnel; do
@@ -128,6 +130,25 @@ EOF
 fi
 touch "$HERE/blocklist.txt"
 
+# Logs are kept for $LOG_DAYS days, as the privacy policy says. Once a day each log moves to a numbered copy and the
+# oldest copy is deleted. Copying and then emptying the log keeps the running services writing to the same file.
+ROTATE="$HERE/rotate-logs.sh"
+cat > "$ROTATE" <<EOF
+#!/bin/sh
+cd '$LOGS' || exit 0
+for f in server tunnel; do
+  [ -f "\$f.log" ] || continue
+  i=$((LOG_DAYS - 1))
+  rm -f "\$f.log.\$i"
+  while [ "\$i" -gt 1 ]; do
+    [ -f "\$f.log.\$((i - 1))" ] && mv "\$f.log.\$((i - 1))" "\$f.log.\$i"
+    i=\$((i - 1))
+  done
+  cp "\$f.log" "\$f.log.1" && : > "\$f.log"
+done
+EOF
+chmod 755 "$ROTATE"
+
 # ── 5. The Cloudflare tunnel and its DNS record ─────────────────────────────────────────────────
 if [ ! -f "$HOME/.cloudflared/cert.pem" ]; then
   say "Log in to Cloudflare in the browser window that opens, and choose gesso.run"
@@ -172,18 +193,21 @@ TUNNEL_CMD="exec '$CLOUDFLARED' tunnel --no-autoupdate --config '$TUNNEL_CONFIG'
 if [ "$OS" = Darwin ]; then
   say "Installing the services (launchd)"
   mkdir -p "$HOME/Library/LaunchAgents"
-  plist() { # name, command, log
+  plist() { # name, command, then either a log name or "daily" for the log trimming
+    if [ "$3" = daily ]; then
+      # At 4:10 each day, or when the Mac wakes if it was asleep then.
+      keys='<key>StartCalendarInterval</key><dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>10</integer></dict>'
+    else
+      keys="<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>$LOGS/$3.log</string><key>StandardErrorPath</key><string>$LOGS/$3.log</string>"
+    fi
     cat > "$HOME/Library/LaunchAgents/$1.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$1</string>
   <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>$2</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ThrottleInterval</key><integer>10</integer>
-  <key>StandardOutPath</key><string>$LOGS/$3.log</string>
-  <key>StandardErrorPath</key><string>$LOGS/$3.log</string>
+  $keys
 </dict></plist>
 EOF
     launchctl bootout "gui/$(id -u)/$1" 2>/dev/null || true
@@ -191,10 +215,11 @@ EOF
   }
   plist run.gesso.server "$SERVER_CMD" server
   plist run.gesso.tunnel "$TUNNEL_CMD" tunnel
+  plist run.gesso.logs "exec '$ROTATE'" daily
 elif have systemctl && systemctl --user show-environment >/dev/null 2>&1; then
   say "Installing the services (systemd)"
   mkdir -p "$HOME/.config/systemd/user"
-  unit() { # name, description, command
+  unit() { # name, description, command, log
     cat > "$HOME/.config/systemd/user/$1.service" <<EOF
 [Unit]
 Description=$2
@@ -204,15 +229,37 @@ After=network-online.target
 ExecStart=/bin/sh -c "$3"
 Restart=always
 RestartSec=5
+StandardOutput=append:$LOGS/$4.log
+StandardError=append:$LOGS/$4.log
 
 [Install]
 WantedBy=default.target
 EOF
   }
-  unit gesso-server "Gesso hosted server for $DOMAIN" "$SERVER_CMD"
-  unit gesso-tunnel "Cloudflare tunnel for $DOMAIN" "$TUNNEL_CMD"
+  unit gesso-server "Gesso hosted server for $DOMAIN" "$SERVER_CMD" server
+  unit gesso-tunnel "Cloudflare tunnel for $DOMAIN" "$TUNNEL_CMD" tunnel
+  cat > "$HOME/.config/systemd/user/gesso-logs.service" <<EOF
+[Unit]
+Description=Keep Gesso's logs to $LOG_DAYS days
+
+[Service]
+Type=oneshot
+ExecStart=$ROTATE
+EOF
+  cat > "$HOME/.config/systemd/user/gesso-logs.timer" <<EOF
+[Unit]
+Description=Keep Gesso's logs to $LOG_DAYS days, daily
+
+[Timer]
+OnCalendar=*-*-* 04:10
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
   systemctl --user daemon-reload
   systemctl --user enable gesso-server.service gesso-tunnel.service
+  systemctl --user enable --now gesso-logs.timer
   systemctl --user restart gesso-server.service gesso-tunnel.service
   # Keep running after logging out, and start at boot without logging in.
   loginctl enable-linger "$USER" 2>/dev/null || echo "Run \`sudo loginctl enable-linger $USER\` so the services start at boot without logging in."
@@ -231,6 +278,7 @@ else
   nohup /bin/sh -c "$TUNNEL_CMD" >>"$LOGS/tunnel.log" 2>&1 &
   echo $! >"$HERE/tunnel.pid"
   echo "They won't restart on their own after a reboot: run this script again then."
+  echo "Logs aren't trimmed on their own either. To keep them to $LOG_DAYS days, run $ROTATE daily, for example with cron."
 fi
 
 # ── 7. Check it from the internet ───────────────────────────────────────────────────────────────
