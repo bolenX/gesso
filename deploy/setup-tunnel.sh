@@ -4,6 +4,7 @@
 # repository, on a computer that stays on:
 #
 #   bash deploy/setup-tunnel.sh              # set up, or update after `git pull`
+#   bash deploy/setup-tunnel.sh --status     # what's running and what answers, safe to share
 #   bash deploy/setup-tunnel.sh --uninstall  # stop and remove the services (keeps the data)
 #
 # The one step that needs you: the first time, a browser window opens for you to log in to Cloudflare and
@@ -41,7 +42,39 @@ uninstall() {
   done
   echo "Stopped and removed. Workspaces, the secret and the tunnel are kept in $HERE and ~/.cloudflared."
 }
+status() {
+  local port
+  port="$(grep -E '^PORT=' "$HERE/server.env" 2>/dev/null | cut -d= -f2)"
+  port="${port:-$PORT}"
+  echo "== Gesso server status for $DOMAIN (safe to share: no secrets)"
+  echo "system:       $OS $(uname -m), node $(node -v 2>/dev/null || echo missing), $(cloudflared --version 2>/dev/null | head -1 || echo 'cloudflared missing')"
+  echo "settings:     $([ -f "$HERE/server.env" ] && echo "$HERE/server.env exists" || echo "not set up yet")"
+  echo "cloudflare:   $([ -f "$HOME/.cloudflared/cert.pem" ] && echo "logged in" || echo "not logged in")"
+  echo "== tunnels"
+  cloudflared tunnel list 2>&1 | tail -n +1 | head -10 || true
+  echo "== tunnel config"
+  cat "$HERE/cloudflared.yml" 2>/dev/null || echo "none yet"
+  echo "== services"
+  if [ "$OS" = Darwin ]; then
+    launchctl list 2>/dev/null | grep -E 'run\.gesso' || echo "no launchd services"
+  elif have systemctl && systemctl --user show-environment >/dev/null 2>&1; then
+    echo "server: $(systemctl --user is-active gesso-server.service 2>&1), tunnel: $(systemctl --user is-active gesso-tunnel.service 2>&1)"
+  else
+    for name in server tunnel; do
+      if [ -f "$HERE/$name.pid" ] && kill -0 "$(cat "$HERE/$name.pid")" 2>/dev/null; then echo "$name: running"; else echo "$name: not running"; fi
+    done
+  fi
+  echo "== checks"
+  echo "on this computer:  $(curl -s -m 5 "http://127.0.0.1:$port/health" || echo 'no answer') (http://127.0.0.1:$port/health)"
+  echo "from the internet: $(curl -s -m 10 "https://$DOMAIN/health" || echo 'no answer') (https://$DOMAIN/health)"
+  for log in server tunnel; do
+    echo "== last lines of $log.log"
+    tail -n 15 "$LOGS/$log.log" 2>/dev/null || echo "no log yet"
+  done
+}
+
 [ "${1:-}" = "--uninstall" ] && { uninstall; exit 0; }
+[ "${1:-}" = "--status" ] && { status; exit 0; }
 
 # ── 1. Node 22 or later ─────────────────────────────────────────────────────────────────────────
 have node || fail "Install Node 22 or later from https://nodejs.org, then run this again."
@@ -111,7 +144,16 @@ CREDENTIALS="$HOME/.cloudflared/$TUNNEL_ID.json"
 [ -f "$CREDENTIALS" ] || fail "The tunnel's credentials ($CREDENTIALS) aren't on this computer. It was made elsewhere: delete it with \`cloudflared tunnel delete $TUNNEL\` and run this again, or set GESSO_TUNNEL_NAME to a new name."
 
 say "Pointing $DOMAIN at the tunnel"
-"$CLOUDFLARED" tunnel route dns --overwrite-dns "$TUNNEL" "$DOMAIN"
+ROUTE="$("$CLOUDFLARED" tunnel route dns --overwrite-dns "$TUNNEL" "$DOMAIN" 2>&1)" || { echo "$ROUTE"; fail "Cloudflare didn't add the DNS record for $DOMAIN."; }
+echo "$ROUTE"
+# cloudflared's login is for one domain. If another one was chosen, it quietly adds "$DOMAIN.<that domain>".
+if printf '%s' "$ROUTE" | grep -Eq "${DOMAIN//./\\.}\\.[A-Za-z0-9-]"; then
+  fail "Cloudflare added the record under another domain: at the login, a different domain than ${DOMAIN#*.} was chosen.
+Fix: in the Cloudflare dashboard, delete the stray record shown above. Then run:
+  rm ~/.cloudflared/cert.pem
+  bash deploy/setup-tunnel.sh
+and choose ${DOMAIN#*.} when the browser asks."
+fi
 
 TUNNEL_CONFIG="$HERE/cloudflared.yml"
 cat > "$TUNNEL_CONFIG" <<EOF
