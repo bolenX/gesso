@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Asset } from "@gesso/core";
+import { FONT_REF, systemFontPath } from "./fonts.js";
 
 /** Fetches an asset's bytes. Swappable so servers can add caches, sandboxes or object stores. */
 export type AssetLoader = (asset: Asset) => Promise<Uint8Array>;
@@ -13,7 +14,7 @@ export type LoaderOptions = {
   download?: (url: string) => Promise<Uint8Array>;
 };
 
-/** Loads file:// URIs, http(s) URLs and plain paths (relative to baseDir). */
+/** Loads file:// URIs, http(s) URLs, "font:" references to the system fonts, and plain paths (relative to baseDir). */
 export function defaultAssetLoader(baseDir = process.cwd(), options: LoaderOptions = {}): AssetLoader {
   return async ({ uri }) => {
     if (/^https?:\/\//.test(uri)) {
@@ -23,7 +24,11 @@ export function defaultAssetLoader(baseDir = process.cwd(), options: LoaderOptio
       return new Uint8Array(await res.arrayBuffer());
     }
     let path: string;
-    if (uri.startsWith("file://")) {
+    if (uri.startsWith(FONT_REF)) {
+      const found = systemFontPath(uri);
+      if (!found) throw new Error(`The font "${uri.slice(FONT_REF.length)}" isn't installed here. font_list shows the fonts there are.`);
+      path = found;
+    } else if (uri.startsWith("file://")) {
       const url = new URL(uri);
       // "file://assets/x.png" is treated as relative to baseDir, "file:///abs/x.png" as absolute.
       path = url.host ? resolve(baseDir, url.host + url.pathname) : fileURLToPath(url);

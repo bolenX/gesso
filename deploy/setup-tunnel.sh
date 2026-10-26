@@ -52,6 +52,7 @@ status() {
   echo "system:       $OS $(uname -m), node $(node -v 2>/dev/null || echo missing), $(cloudflared --version 2>/dev/null | head -1 || echo 'cloudflared missing')"
   echo "settings:     $([ -f "$HERE/server.env" ] && echo "$HERE/server.env exists" || echo "not set up yet")"
   echo "cloudflare:   $([ -f "$HOME/.cloudflared/cert.pem" ] && echo "logged in" || echo "not logged in")"
+  echo "fonts:        $(find "$HERE/fonts" -type f 2>/dev/null | wc -l | tr -d ' ') files in $HERE/fonts"
   echo "== tunnels"
   cloudflared tunnel list 2>&1 | tail -n +1 | head -10 || true
   echo "== tunnel config"
@@ -130,6 +131,34 @@ EOF
 fi
 touch "$HERE/blocklist.txt"
 
+# ── Fonts for everyone who connects: open-licence ones in a folder of their own ─────────────────
+# Never this computer's own fonts: they show who owns it, and exports embed them, which their licences may not allow.
+FONTS="$HERE/fonts"
+mkdir -p "$FONTS"
+OPEN_FONTS="font-inter font-noto-sans font-dejavu font-liberation font-lato font-poppins font-ibm-plex-sans font-ibm-plex-serif font-dm-serif-display font-bebas-neue font-space-grotesk font-jetbrains-mono"
+if [ "$OS" = Darwin ]; then
+  if have brew; then
+    say "Installing open-licence fonts for the server into $FONTS"
+    for cask in $OPEN_FONTS; do
+      if brew list --cask "$cask" >/dev/null 2>&1; then
+        # Already installed: by an earlier run (into $FONTS), or for this computer's own use (left alone).
+        name="$(printf '%s' "${cask#font-}" | tr -d -)"
+        [ -n "$(find "$FONTS" -iname "*$name*" -print -quit)" ] || echo "$cask is installed for this computer's own use, so the server doesn't get it."
+        continue
+      fi
+      brew install --cask --fontdir="$FONTS" "$cask" || echo "Couldn't install $cask; the server goes on without it."
+    done
+  else
+    echo "Install Homebrew (https://brew.sh) and run this again to give the server fonts. Until then, people can only use fonts they upload."
+  fi
+  FONT_DIRS="$FONTS"
+else
+  # Linux distributions' own fonts are open-licence; fonts added for yourself in ~/.fonts are left out.
+  FONT_DIRS="$FONTS:/usr/share/fonts"
+fi
+# server.env can choose other folders with its own GESSO_FONT_DIRS line.
+grep -q '^GESSO_FONT_DIRS=' "$ENV_FILE" && FONT_ENV="" || FONT_ENV="GESSO_FONT_DIRS='$FONT_DIRS'; "
+
 # Logs are kept for $LOG_DAYS days, as the privacy policy says. Once a day each log moves to a numbered copy and the
 # oldest copy is deleted. Copying and then emptying the log keeps the running services writing to the same file.
 ROTATE="$HERE/rotate-logs.sh"
@@ -187,7 +216,7 @@ ingress:
 EOF
 
 # ── 6. Services that start with the computer ────────────────────────────────────────────────────
-SERVER_CMD="set -a; . '$ENV_FILE'; set +a; exec '$NODE' '$ENTRY' --hosted"
+SERVER_CMD="set -a; . '$ENV_FILE'; ${FONT_ENV}set +a; exec '$NODE' '$ENTRY' --hosted"
 TUNNEL_CMD="exec '$CLOUDFLARED' tunnel --no-autoupdate --config '$TUNNEL_CONFIG' run '$TUNNEL'"
 
 if [ "$OS" = Darwin ]; then

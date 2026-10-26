@@ -154,11 +154,12 @@ function fileCard(f, all) {
       } finally { button.disabled = false; }
     };
   } else {
-    // Hosts without downloads: the file is already on disk, so offer its path.
-    button.className = "ghost"; button.textContent = "Copy path";
+    // Hosts without downloads: a hosted server's link, or the path of the file already on disk.
+    const where = f.url ?? f.path;
+    button.className = "ghost"; button.textContent = f.url ? "Copy link" : "Copy path";
     button.onclick = async () => {
-      try { await navigator.clipboard.writeText(f.path); button.textContent = "Copied"; }
-      catch { name.textContent = f.path; name.style.whiteSpace = "normal"; button.textContent = "Path shown"; }
+      try { await navigator.clipboard.writeText(where); button.textContent = "Copied"; }
+      catch { name.textContent = where; name.style.whiteSpace = "normal"; button.textContent = f.url ? "Link shown" : "Path shown"; }
     };
   }
   meta.append(button);

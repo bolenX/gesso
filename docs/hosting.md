@@ -50,6 +50,10 @@ Put it behind HTTPS: connectors refuse plain HTTP, and so does OAuth. Then add `
 
 **Fonts.** The image includes DejaVu, Liberation and Noto fonts. Users can upload more on their workspace page.
 
+Everyone who connects can use the server's fonts, and exported PDFs, SVGs and PSDs can embed them. So offer only fonts whose licences allow that, such as open-licence ones. Never offer the fonts you've installed for yourself: they show who owns the computer, and their licences may not allow it. On a computer that's also your own, point `GESSO_FONT_DIRS` at a folder of open-licence fonts. `deploy/setup-tunnel.sh` does this for you.
+
+Font lists name these fonts as `font:<file>`, without the folder they're in.
+
 **Workers.** Rendering takes the CPU while it runs, so tool calls run in worker processes, one per CPU core up to 4 (`GESSO_WORKERS`). Each workspace always uses the same worker, which keeps its documents and running exports in one place. A long render then only holds up the workspaces that share its worker. Sign-in, pages and downloads stay in the main process and keep answering.
 
 If a worker crashes, for example from running out of memory on a huge render, it's restarted. Only the requests it was working on fail, with a message suggesting a smaller scale or artboard.
@@ -92,6 +96,7 @@ Any host that runs a Docker image with a persistent disk works the same way, suc
 | `GESSO_MAX_REQUESTS` | `64` | Requests the whole server works on at once before answering "busy" |
 | `GESSO_CLOUDFLARED`, `GESSO_TUNNEL_PROTOCOL` | `cloudflared`, Cloudflare's default | For `--tunnel`: where `cloudflared` is, and `http2` to tunnel over TCP when UDP is blocked |
 | `GESSO_DISABLE_TOOLS` | none | Tools to leave out, comma-separated, such as `gen_prepare` |
+| `GESSO_FONT_DIRS` | the system's font folders | Font folders to offer instead, separated by `:` (`;` on Windows). Use folders of open-licence fonts |
 | `GESSO_VERIFY` | none | Plain-text files to serve, for domain verification: `/path=content` pairs, separated by commas |
 | `GESSO_LOG` | on | One JSON line per MCP request: time, method, tool name, status, duration and a short one-way hash of the workspace. Never content or keys. Set to `0` to turn it off |
 
@@ -124,7 +129,8 @@ The sign-in is tested end to end with the MCP SDK's own OAuth client: discovery,
 - **Edge:** for a public service, also put the server behind a proxy or CDN that rate-limits requests.
 
 **What a workspace can't do:**
-- Tools can't reach other workspaces, the server's files outside the system fonts, or private network addresses. Downloads follow redirects only to public addresses, and are limited to 64 MB.
+- Tools can't reach other workspaces, the server's files outside its font folders, or private network addresses. Downloads follow redirects only to public addresses, and are limited to 64 MB.
+- Results name files relative to the workspace, so they don't show the server's own folders or user name.
 - Document histories (`.gesso/`) aren't served over `/files`.
 
 ## Local HTTP

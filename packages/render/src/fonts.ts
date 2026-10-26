@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { open, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, join, relative, sep } from "node:path";
+import { delimiter, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // Reads the names out of font files without loading them whole, so a scan of the
 // system fonts stays fast, and pulls single faces out of .ttc collections, which
@@ -152,8 +153,13 @@ export function extractFace(bytes: Uint8Array, index = 0): Uint8Array {
   return out;
 }
 
-/** Where fonts are installed on this computer, most specific first. */
+/**
+ * Where fonts are installed on this computer, most specific first. GESSO_FONT_DIRS (folders separated like PATH)
+ * replaces them, for example so a shared server offers only fonts whose licences allow it, not its owner's own.
+ */
 export function systemFontDirs(): string[] {
+  const custom = process.env.GESSO_FONT_DIRS;
+  if (custom) return custom.split(delimiter).filter(Boolean);
   const home = homedir();
   if (process.platform === "darwin") return [join(home, "Library/Fonts"), "/Library/Fonts", "/System/Library/Fonts"];
   if (process.platform === "win32") {
@@ -204,7 +210,31 @@ export async function scanFonts(dirs: string[], depth = 4): Promise<InstalledFon
 }
 
 /** A path for the asset: relative inside the Gesso folder, absolute elsewhere. */
-export function fontUri(path: string, baseDir: string): string {
+export function fontUri(path: string, baseDir: string, hideSystem = false): string {
   const rel = relative(baseDir, path);
-  return rel && !rel.startsWith("..") && !rel.startsWith(sep) && !/^[a-z]:/i.test(rel) ? rel.split(sep).join("/") : path;
+  if (rel && !rel.startsWith("..") && !rel.startsWith(sep) && !/^[a-z]:/i.test(rel)) return rel.split(sep).join("/");
+  return (hideSystem && systemFontRef(path)) || path;
+}
+
+/** "font:" names a file in the system font folders without saying where they are, as a shared server does. */
+export const FONT_REF = "font:";
+
+/** The reference for a file in the system font folders, like "font:Inter-Bold.otf". */
+export function systemFontRef(path: string): string | undefined {
+  for (const dir of systemFontDirs()) {
+    const rel = relative(dir, path);
+    if (rel && !rel.startsWith("..") && !isAbsolute(rel)) return FONT_REF + rel.split(sep).join("/");
+  }
+  return undefined;
+}
+
+/** Where the file a "font:" reference names is, if it's installed. */
+export function systemFontPath(ref: string): string | undefined {
+  const name = ref.slice(FONT_REF.length);
+  for (const dir of systemFontDirs()) {
+    const path = resolve(dir, name);
+    const rel = relative(dir, path);
+    if (rel && !rel.startsWith("..") && !isAbsolute(rel) && existsSync(path)) return path;
+  }
+  return undefined;
 }
