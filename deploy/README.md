@@ -18,7 +18,25 @@ Gesso needs a few seconds of real CPU per render. Free serverless plans don't al
 
   Keep backups of `gesso.env` and the ban list.
 
-**Setup, about 20 minutes:**
+**The quickest way: one script, about 10 minutes.** On the always-on Mac or Linux computer, with Node 22 or later, run:
+```sh
+git clone https://github.com/bolenX/gesso && cd gesso
+bash deploy/setup-tunnel.sh
+```
+It does everything except one click:
+- installs `cloudflared` if it's missing
+- builds Gesso from the clone
+- makes the signing secret, kept in `~/.gesso/server/server.env`
+- creates the tunnel and the `mcp.gesso.run` DNS record, after the one click: a browser window opens for you to log in to Cloudflare and choose gesso.run
+- installs both as services that start with the computer (launchd on macOS, systemd on Linux)
+- checks `https://mcp.gesso.run/health` from the internet
+
+Then:
+- **Update:** `git pull`, and run it again. It keeps the secret and the tunnel.
+- **Remove:** `bash deploy/setup-tunnel.sh --uninstall` stops and removes the services. Data and the secret stay in `~/.gesso/server`.
+- **Agent:** a Claude Code session running on that computer can run the script for you. You only click through the Cloudflare login.
+
+**With Docker instead, about 20 minutes:**
 
 1. **Create the tunnel.** In the Cloudflare dashboard, go to **Zero Trust › Networks › Tunnels › Create a tunnel**. Choose **Cloudflared**, name it `gesso`, and copy the token from the install command it shows. Don't run that command: the Compose file runs cloudflared for you.
 2. **Give it the address.** On the tunnel's **Public hostname** tab, add hostname `mcp`, domain `gesso.run`, service type `HTTP`, and URL `gesso:8080`.
