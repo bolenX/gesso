@@ -29,6 +29,7 @@ It does everything except one click:
 - makes the signing secret, kept in `~/.gesso/server/server.env`
 - creates the tunnel and the `mcp.gesso.run` DNS record, after the one click: a browser window opens for you to log in to Cloudflare and choose gesso.run
 - installs both as services that start with the computer (launchd on macOS, systemd on Linux)
+- gives the server its own folder of open-licence fonts, such as Inter, Noto Sans, IBM Plex and DejaVu, through Homebrew on a Mac. People who connect never see or use the fonts you've installed for yourself.
 - keeps the logs for 30 days, as the privacy policy says, with a daily job in `~/.gesso/server/logs` (`GESSO_LOG_DAYS` changes it)
 - checks `https://mcp.gesso.run/health` from the internet
 

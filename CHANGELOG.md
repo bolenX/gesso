@@ -2,6 +2,17 @@
 
 Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each version's notes become its GitHub release.
 
+## Unreleased
+
+- **Download links in claude.ai:** export results now carry each file's download link in their structured part too. Some hosts, claude.ai among them, show the model only that part, so the links never arrived.
+- **Hosted servers keep their own folders private:** every result, warning and error names files relative to the workspace, and the home folder as `~`. That covers `manifest.json` and `job.json` on disk. Results used to show the server's user name and the workspace's folder, which is its key.
+- **Fonts on shared servers:**
+  - `GESSO_FONT_DIRS` sets the font folders a server offers.
+  - Font lists name those fonts as `font:<file>`, without the folder they're in.
+  - `deploy/setup-tunnel.sh` gives `mcp.gesso.run` its own folder of open-licence fonts (Inter, Noto Sans, IBM Plex, DejaVu, Liberation and more, through Homebrew on a Mac), instead of the fonts the computer's owner installed for themselves.
+- **App icon:** the connector and extension icon is a plain square that fills the image, with no see-through corners and no animation, so hosts that show icons on a white plate don't show white edges.
+- **Logs on `mcp.gesso.run`:** `deploy/setup-tunnel.sh` keeps them for 30 days, as the privacy policy says (`GESSO_LOG_DAYS`).
+
 ## 0.12.0 (2026-10-25)
 
 0.12.0 makes Gesso usable from claude.ai and ChatGPT for free: on your own computer with `npx -y gesso-mcp --tunnel`, or on a shared server with sign-in.

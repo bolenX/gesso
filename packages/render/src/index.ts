@@ -23,7 +23,7 @@ export { defaultAssetLoader, type AssetLoader, type LoaderOptions } from "./asse
 export { resolveFrame, type Box } from "./layout.js";
 export { applyAdjustment, curveLut, parseCube, type Lut3D } from "./adjust.js";
 export { rectToQuad, project, type Point } from "./perspective.js";
-export { extractFace, isCollection, readFontFaces, scanFonts, systemFontDirs, fontUri, type FontFace, type InstalledFont } from "./fonts.js";
+export { extractFace, FONT_REF, isCollection, readFontFaces, scanFonts, systemFontDirs, systemFontPath, systemFontRef, fontUri, type FontFace, type InstalledFont } from "./fonts.js";
 export { meshVertices, type MeshVertices } from "./mesh.js";
 export { gradientTable } from "./adjust.js";
 export { directionField, samplePath } from "./shaders.js";

@@ -83,7 +83,8 @@ export type Job = {
 const MAX_SIDE = 4096;
 const NEGATIVE = "text, letters, logos, watermark, borders, frames, duplicated subject";
 
-export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string, loader: AssetLoader): Promise<Job> {
+/** show rewrites the paths job.json lists, so a shared server's job files don't give its folders away. */
+export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string, loader: AssetLoader, show?: (path: string) => string): Promise<Job> {
   const artboard = doc.artboards.find((a) => a.id === request.artboard);
   if (!artboard) throw new Error(`No artboard "${request.artboard}". Artboards: ${doc.artboards.map((a) => a.id).join(", ")}`);
   const found = findLayer(artboard, request.layer);
@@ -97,6 +98,8 @@ export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string,
     files[name.replace(/\.png$/, "")] = join(dir, name);
     await writeFile(join(dir, name), data);
   };
+  const writeJob = (job: Job) =>
+    writeFile(join(dir, "job.json"), JSON.stringify(show ? { ...job, files: Object.fromEntries(Object.entries(job.files).map(([k, v]) => [k, show(v)])) } : job, null, 2));
   const provenance = (prompt?: string) => ({ op: request.kind, provider: "<the tool you used>", ...(prompt ? { prompt } : {}), sourceRevision: doc.revision });
   const base = { id, doc: doc.id, revision: doc.revision, artboard: artboard.id, layer: layer.id, files, assetId: id };
 
@@ -116,7 +119,7 @@ export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string,
       ops: layer.type === "image" ? [{ op: "insert", after: `${artboard.id} #${layer.id}`, layer: newLayer }, { op: "set", target: `${artboard.id} #${layer.id}`, path: "visible", value: false }] : [{ op: "insert", after: `${artboard.id} #${layer.id}`, layer: newLayer }],
       steps: steps("Generate an image from the prompt at the target size (or the nearest aspect ratio the tool offers)", id),
     };
-    await writeFile(join(dir, "job.json"), JSON.stringify(job, null, 2));
+    await writeJob(job);
     files.job = join(dir, "job.json");
     return job;
   }
@@ -188,7 +191,7 @@ export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string,
         id,
       ),
     };
-    await writeFile(join(dir, "job.json"), JSON.stringify(job, null, 2));
+    await writeJob(job);
     files.job = join(dir, "job.json");
     return job;
   }
@@ -228,7 +231,7 @@ export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string,
         "With no segmentation tool connected, computed masks often do the job: a blue channel mask for skies, or color-range on a sampled skin tone (see the compositing skill).",
       ],
     };
-    await writeFile(join(dir, "job.json"), JSON.stringify(job, null, 2));
+    await writeJob(job);
     files.job = join(dir, "job.json");
     return job;
   }
@@ -310,7 +313,7 @@ export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string,
         id,
       ),
     };
-    await writeFile(join(dir, "job.json"), JSON.stringify(job, null, 2));
+    await writeJob(job);
     files.job = join(dir, "job.json");
     return job;
   }
@@ -328,7 +331,7 @@ export async function prepareJob(doc: Doc, request: JobRequest, baseDir: string,
     ],
     steps: steps(request.kind === "upscale" ? `Upscale source.png ${factor}× (to ${iw * factor}×${ih * factor})` : "Remove the background from source.png, keeping a transparent PNG at the same size", id),
   };
-  await writeFile(join(dir, "job.json"), JSON.stringify(job, null, 2));
+  await writeJob(job);
   files.job = join(dir, "job.json");
   return job;
 }

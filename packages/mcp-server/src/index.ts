@@ -31,7 +31,8 @@ import { importPsd, writePsd } from "@gesso/psd";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 import { existsSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ICONS, TOOL_HINTS, TOOL_TITLES } from "./brand.js";
@@ -90,6 +91,28 @@ const json = (value: unknown): CallToolResult => text(JSON.stringify(value, null
 const error = (message: string): CallToolResult => ({ isError: true, content: [{ type: "text", text: message }] });
 
 /** Turns expected failures (bad selectors, invalid patches) into tool errors the agent can act on. */
+/**
+ * Rewrites a shared server's own folders out of text: paths in the workspace become relative to it (they're what
+ * tools take anyway), and the home folder becomes ~. Without it, results would show the server's user name and the
+ * workspace's folder, which is its key.
+ */
+export function scrubber(baseDir: string): (s: string) => string {
+  const dir = resolve(baseDir);
+  const home = homedir();
+  return (s) => {
+    const out = s.split(`${dir}${sep}`).join("").split(dir).join(".");
+    return home.length > 1 ? out.split(home).join("~") : out;
+  };
+}
+
+/** Applies a rewrite to every string in a tool result, leaving image and file data alone. */
+export function scrubValue<T>(value: T, fix: (s: string) => string): T {
+  if (typeof value === "string") return fix(value) as T;
+  if (Array.isArray(value)) return value.map((v) => scrubValue(v, fix)) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, k === "data" || k === "blob" ? v : scrubValue(v, fix)])) as T;
+  return value;
+}
+
 async function guard(run: () => CallToolResult | Promise<CallToolResult>): Promise<CallToolResult> {
   try {
     return await run();
@@ -112,8 +135,8 @@ type CardData = {
   files?: CardFile[];
 };
 
-/** One deliverable on the export card. Thumbnails are small PNGs; the file itself is fetched on download. */
-type CardFile = { name: string; path: string; kind: string; mimeType: string; bytes: number };
+/** One deliverable on the export card. Thumbnails are small PNGs; the file itself is fetched on download, or from url on a hosted server. */
+type CardFile = { name: string; path: string; kind: string; mimeType: string; bytes: number; url?: string };
 
 const MIME: Record<string, string> = {
   ".psd": "image/vnd.adobe.photoshop",
@@ -180,6 +203,7 @@ export function createServer({
   disabledTools,
 }: ServerOptions = {}): McpServer {
   const { exports, exported } = state;
+  const scrub = confined ? scrubber(baseDir) : undefined;
   /** Refuses renders bigger than maxPixels, so one request can't exhaust a shared server's memory. */
   const checkSize = (d: Doc, scale: number, artboard?: string) => {
     if (!maxPixels) return;
@@ -224,6 +248,8 @@ export function createServer({
 
   const CARD_TOOLS = new Set(["canvas_create", "psd_import", "canvas_patch", "canvas_render", "canvas_export"]);
   const register: typeof server.registerTool = (name, config, cb) => {
+    // Hosted: every result, warnings and errors included, goes out without the server's own paths.
+    const run = scrub ? async (...args: unknown[]) => scrubValue(await (cb as (...a: unknown[]) => unknown)(...args), scrub) : cb;
     const tool = server.registerTool(
       name,
       {
@@ -232,7 +258,7 @@ export function createServer({
         ...config,
         ...(CARD_TOOLS.has(name) ? { _meta: { ui: { resourceUri: WIDGET_URI }, "ui/resourceUri": WIDGET_URI } } : {}),
       },
-      cb,
+      run as typeof cb,
     );
     if (disabledTools?.has(name)) tool.disable();
     return tool;
@@ -288,7 +314,7 @@ export function createServer({
           weight: f.weight,
           ...(f.italic ? { italic: true } : {}),
           asset: {
-            uri: fontUri(f.path, baseDir),
+            uri: fontUri(f.path, baseDir, confined),
             kind: "font",
             family: f.fullName,
             ...(f.postscriptName ? { postscriptName: f.postscriptName } : {}),
@@ -396,7 +422,7 @@ export function createServer({
           uriBase: `imported/${docId}`,
           findFont: async (ps) => {
             const f = fonts.find((x) => x.postscriptName === ps);
-            return f ? { uri: fontUri(f.path, baseDir), family: f.fullName, ...(f.face ? { face: f.face } : {}) } : undefined;
+            return f ? { uri: fontUri(f.path, baseDir, confined), family: f.fullName, ...(f.face ? { face: f.face } : {}) } : undefined;
           },
         });
         const parsed = Doc.safeParse(doc);
@@ -582,7 +608,7 @@ export function createServer({
     },
     async ({ doc, job, ...request }) =>
       guard(async () => {
-        const prepared = await prepareJob(store.get(doc), { kind: job, ...request }, baseDir, loader);
+        const prepared = await prepareJob(store.get(doc), { kind: job, ...request }, baseDir, loader, scrub);
         if (!fileUrl) return json(prepared);
         // Hosted: the image tool reads the job's files from their links, not from this server's disk.
         const urls = Object.fromEntries(Object.entries(prepared.files).flatMap(([name, path]) => {
@@ -1078,18 +1104,21 @@ export function createServer({
     }
     const manifestPath = resolve(dir, "manifest.json");
     const manifest = { generator: GENERATOR, doc: d.id, revision: d.revision, exportedAt: new Date().toISOString(), format, scale, files };
-    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await writeFile(manifestPath, JSON.stringify(scrub ? scrubValue(manifest, scrub) : manifest, null, 2));
 
     const cardFiles: CardFile[] = [];
     for (const f of [...files, { path: manifestPath }]) {
       exported.add(f.path);
       const ext = extname(f.path).toLowerCase();
+      const url = fileUrl?.(f.path);
       cardFiles.push({
         name: basename(f.path),
         path: f.path,
         kind: ext.slice(1).toUpperCase().replace("JPG", "JPEG"),
         mimeType: MIME[ext] ?? "application/octet-stream",
         bytes: (await stat(f.path)).size,
+        // Some hosts give the model only this structured part, so the links must be here too.
+        ...(url ? { url } : {}),
       });
     }
     const manifestUrl = fileUrl?.(manifestPath);
@@ -1111,8 +1140,10 @@ export function createServer({
       inputSchema: { path: z.string(), maxSize: z.number().int().positive().max(2048).optional().describe("Return images scaled to fit this many pixels, as PNG") },
       _meta: { ui: { visibility: ["app"] } },
     },
-    async ({ path, maxSize }) =>
+    async ({ path: asked, maxSize }) =>
       guard(async () => {
+        // Hosted cards list files relative to the workspace.
+        const path = resolvePath(baseDir, asked, confined);
         if (!exported.has(path)) return error("Only files exported in this session can be downloaded");
         const ext = extname(path).toLowerCase();
         const scale = maxSize !== undefined && [".png", ".jpg", ".webp"].includes(ext);
@@ -1122,7 +1153,7 @@ export function createServer({
           : await readFile(path);
         const blob = bytes.toString("base64");
         return {
-          content: [{ type: "resource", resource: { uri: pathToFileURL(path).href, mimeType, blob } }],
+          content: [{ type: "resource", resource: { uri: fileUrl?.(path) ?? pathToFileURL(path).href, mimeType, blob } }],
           structuredContent: { name: basename(path), mimeType, blob },
         };
       }),
