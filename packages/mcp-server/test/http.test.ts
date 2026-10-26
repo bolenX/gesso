@@ -140,6 +140,26 @@ describe("hosted HTTP server", () => {
     }
   });
 
+  it("serves the app icon as a full square, with no see-through corners", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "gesso-icon-"));
+    const started = await startHttp({ port: 0, host: "127.0.0.1", baseDir: dir, hosted: true });
+    try {
+      for (const path of ["/icon.png", "/favicon.ico", "/apple-touch-icon.png"]) {
+        const res = await fetch(`${started.url}${path}`);
+        expect(res.headers.get("content-type")).toBe("image/png");
+        const { data, info } = await sharp(Buffer.from(await res.arrayBuffer())).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        expect(info.width).toBe(256);
+        expect(data[3]).toBe(255);
+        expect(data[(info.width * info.height - 1) * 4 + 3]).toBe(255);
+      }
+      const svg = await fetch(`${started.url}/icon.svg`);
+      expect(svg.headers.get("content-type")).toBe("image/svg+xml");
+      expect(await svg.text()).not.toMatch(/rx=|<animate/);
+    } finally {
+      await started.close();
+    }
+  });
+
   it("counts new workspaces by the address a tunnel reports", async () => {
     const dir = await mkdtemp(join(tmpdir(), "gesso-proxy-"));
     const started = await startHttp({ port: 0, host: "127.0.0.1", baseDir: dir, hosted: true, clientIpHeader: "CF-Connecting-IP" });

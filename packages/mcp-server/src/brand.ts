@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 // and human titles for each tool, so hosts can show "Gesso · Render preview"
 // instead of a bare function name.
 
-const asset = (name: string) => readFileSync(fileURLToPath(new URL(`../assets/${name}`, import.meta.url)), "utf8");
+const assetBytes = (name: string) => readFileSync(fileURLToPath(new URL(`../assets/${name}`, import.meta.url)));
+const asset = (name: string) => assetBytes(name).toString("utf8");
 
 /**
  * The G tile, animated: a sheen sweeps the tile, then the G wipes out and back like a primer stroke.
@@ -16,9 +17,18 @@ export const FAVICON_SVG = asset("favicon-loop.svg");
 /** The GESSO wordmark, animated: letters lift out and rise back in. Fills with currentColor to follow the theme. */
 export const WORDMARK_SVG = asset("logo-loop.svg");
 
-export const LOGO_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(FAVICON_SVG).toString("base64")}`;
+/**
+ * The app icon hosts show next to Gesso (connector lists, extension settings): the G on a plain square that fills
+ * the whole image. Hosts round or mask icons themselves, and often on a white plate, so a pre-rounded tile would
+ * show white in its corners; it's also still, as icons in a list should be.
+ */
+export const ICON_SVG = asset("icon.svg");
+export const ICON_PNG = assetBytes("icon-256.png");
 
-export const ICONS = [{ src: LOGO_DATA_URI, mimeType: "image/svg+xml", sizes: ["any"] }];
+export const ICONS = [
+  { src: `data:image/svg+xml;base64,${Buffer.from(ICON_SVG).toString("base64")}`, mimeType: "image/svg+xml", sizes: ["any"] },
+  { src: `data:image/png;base64,${ICON_PNG.toString("base64")}`, mimeType: "image/png", sizes: ["256x256"] },
+];
 
 export const TOOL_TITLES: Record<string, string> = {
   canvas_list: "List documents",

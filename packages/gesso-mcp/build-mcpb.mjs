@@ -31,8 +31,8 @@ const natives = ["darwin-arm64", "darwin-x64", "linux-x64"].flatMap((p) => [`@im
 natives.push(`@img/sharp-win32-x64@${sharpVersion}`);
 run("npm", ["install", "--no-save", "--force", "--no-audit", "--no-fund", "--loglevel=error", ...natives], stage);
 
-// The extension's icon: the G tile as a 512 px PNG.
-await sharp(join(here, "assets/favicon.svg"), { density: 1200 }).resize(512, 512).png().toFile(join(stage, "icon.png"));
+// The extension's icon: the G on a full square (hosts round it themselves), as a 512 px PNG.
+await sharp(join(here, "assets/icon.svg"), { density: 1200 }).resize(512, 512).png().toFile(join(stage, "icon.png"));
 
 const tools = [
   ["canvas_list", "List saved documents"],

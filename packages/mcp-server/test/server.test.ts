@@ -30,7 +30,9 @@ describe("gesso MCP server", () => {
   it("presents itself as Gesso with a logo, tool titles and a result card", async () => {
     const client = await connect();
     expect(client.getServerVersion()).toMatchObject({ name: "gesso", title: "Gesso", websiteUrl: expect.stringContaining("gesso") });
-    expect(client.getServerVersion()?.icons?.[0]?.src).toMatch(/^data:image\/svg\+xml;base64,/);
+    const icons = client.getServerVersion()?.icons ?? [];
+    expect(icons.map((i) => i.mimeType)).toEqual(["image/svg+xml", "image/png"]);
+    expect(icons[1]!.src).toMatch(/^data:image\/png;base64,/);
     const { tools } = await client.listTools();
     const render = tools.find((t) => t.name === "canvas_render")!;
     expect(render.title).toBe("Render preview");
