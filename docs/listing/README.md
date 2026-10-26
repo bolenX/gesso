@@ -7,7 +7,7 @@ The order to take hosted Gesso from code to the Claude and ChatGPT directories, 
 - ✅ OAuth sign-in on one URL, signed links, limits, worker processes, and tool hints (`packages/mcp-server`).
 - ✅ Deploy configuration and runbook: [deploy/README.md](../../deploy/README.md).
 - ✅ `npx -y gesso-mcp --tunnel`: anyone can use claude.ai and ChatGPT with Gesso today, free, on their own computer.
-- [ ] **Run `mcp.gesso.run` for free:** on any always-on Mac or Linux computer, `bash deploy/setup-tunnel.sh` does it all, apart from one Cloudflare login click. Oracle's Always Free VM works too. The directories need this fixed address; people using `--tunnel` don't.
+- ✅ **`mcp.gesso.run` is live,** on an always-on Mac through a Cloudflare Tunnel, set up with `bash deploy/setup-tunnel.sh`. It passed a live end-to-end check from the internet: sign-in, tool calls, render, export, download and revocation.
 - [ ] Optional: set up GitHub and Google sign-in, so people get the same workspace every time.
 - [ ] Optional, paid only: on Fly.io, save `FLY_API_TOKEN` as a repository secret, so every release deploys itself.
 
@@ -18,8 +18,7 @@ The site needs three pages that don't exist yet. Right now `/privacy`, `/terms` 
 - [ ] **`/privacy`:** publish [docs/legal/privacy.md](../legal/privacy.md) after filling in the bracketed parts and having it reviewed.
 - [ ] **`/terms`:** publish [docs/legal/terms.md](../legal/terms.md), the same way.
 - [ ] **`/support`:** a short page. Report problems at `https://github.com/bolenX/gesso/issues`, security issues privately to [security email], and anything else to [contact email].
-- [ ] **Install section, now.** Swap the claude.ai and ChatGPT cards' "Coming soon" for the `--tunnel` steps. The exact copy is in [install.md](../install.md), in the landing-page tabs table.
-- [ ] **Later,** once `mcp.gesso.run` is live, add it as the simpler option on those cards. Paste `https://mcp.gesso.run/mcp` as a custom connector (claude.ai) or a developer-mode app with OAuth (ChatGPT), then approve on Gesso's page. No account or install needed.
+- [ ] **Install section.** Swap the claude.ai and ChatGPT cards' "Coming soon" for `https://mcp.gesso.run/mcp`. The exact copy is in [install.md](../install.md), in the landing-page tabs table.
 
 ## 3. Try it as a custom connector
 
