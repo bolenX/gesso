@@ -1,6 +1,8 @@
-# Landing page brief: Gesso 0.11.0
+# Landing page brief: Gesso 0.12.0
 
 This brief is for the session that maintains the Gesso landing page. Use it as the source of truth when you update the site's copy.
+
+**0.12.0 update:** claude.ai and ChatGPT now work, for free, through `https://mcp.gesso.run/mcp`. Change the two "Coming soon" install cards to it (exact copy in [install.md](install.md), in the landing-page tabs table). Add a "What's new" row for 0.12.0. Use `gesso-0.12.0.mcpb` wherever a filename shows a version. Everything else below still applies.
 
 Gesso 0.11.0 follows 0.10.0 on 25 October 2026. 0.10.0 added most of Photoshop's Filter, Image › Adjustments and Edit menus, every blend mode and layer style, retouching, and print output. 0.11.0 builds on that with:
 
@@ -30,10 +32,11 @@ Before you start, read the current site and compare it with this brief. Keep the
 
 | Fact | Value |
 | --- | --- |
-| Version | 0.11.0, the `latest` tag of `gesso-mcp` on npm |
+| Version | 0.12.0, the `latest` tag of `gesso-mcp` on npm |
 | Claude Code | `claude mcp add gesso -- npx -y gesso-mcp` |
 | Other agents | Every config runs `npx -y gesso-mcp` and needs Node 22 or later |
-| Claude Desktop extension | `gesso-0.11.0.mcpb`, about 62 MB. Nothing else to install. |
+| Claude Desktop extension | `gesso-0.12.0.mcpb`, about 62 MB. Nothing else to install. |
+| claude.ai and ChatGPT | `https://mcp.gesso.run/mcp` as a custom connector (claude.ai) or a developer-mode app with OAuth (ChatGPT). Free, no account, nothing to install. Or `npx -y gesso-mcp --tunnel` to run it on your own computer. |
 | Platforms | macOS (Apple silicon and Intel), Windows, Linux |
 | Agent tools | 21 |
 | Bundled skills | 30, with 51 recipes |
@@ -236,7 +239,7 @@ For a section titled something like "Open it in Photoshop". Suggested copy:
 
 **Elsewhere:**
 
-- claude.ai and ChatGPT are still "coming soon": there's no official hosted Gesso. People can host their own ([hosting.md](hosting.md)), which you can mention as "self-host today". Don't say they're supported out of the box.
+- claude.ai and ChatGPT connect to `https://mcp.gesso.run/mcp`, with nothing to install, or to the user's own computer with `npx -y gesso-mcp --tunnel`. Both are free. Say "connect with a custom connector", not "official integration": Gesso isn't in the Claude or ChatGPT directories yet.
 - Rendering runs on the CPU, so don't claim real-time speed.
 - Gesso isn't affiliated with Adobe. Use "Photoshop" to describe compatibility and feature names, not as part of Gesso's brand, and consider a footer line: "Photoshop is a trademark of Adobe Inc. Gesso is not affiliated with or endorsed by Adobe."
 
@@ -272,7 +275,8 @@ If the site has a changelog or "What's new" strip:
 
 | Version | What's in it |
 | --- | --- |
-| **0.11.0** | Zoom, compare and measure, preflight, 30 skills with 51 tested recipes, Select and Mask, Calculations, Auto-Align and Auto-Blend, AI selections (subject, sky, face parts) on your own tools, one expand for every size, live smart filters and warps in the PSD, self-hosting |
+| **0.12.0** | claude.ai and ChatGPT, free: connect to `https://mcp.gesso.run/mcp`, or run Gesso on your own computer with `npx -y gesso-mcp --tunnel` (with a pairing code, so only you can connect). Behind it: OAuth sign-in, worker processes and abuse limits |
+| 0.11.0 | Zoom, compare and measure, preflight, 30 skills with 51 tested recipes, Select and Mask, Calculations, Auto-Align and Auto-Blend, AI selections (subject, sky, face parts) on your own tools, one expand for every size, live smart filters and warps in the PSD, self-hosting |
 | 0.10.0 | Photoshop's Filter menu as smart filters, every adjustment layer, all blend modes and layer styles, Blend If and computed masks, boolean shapes and free transform, content-aware fill, healing and cloning, TIFF and CMYK export, slices, batch runs, and 11 workflow skills |
 | 0.9.0 | SVG export, print PDF with bleed and crop marks, text on a path, more filters (radial blur, noise, sharpen, twirl, wave, shear, pixelate) |
 | 0.8.0 | Glass refraction, path blur, motion blur |

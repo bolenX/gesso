@@ -2,7 +2,9 @@
 
 Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each version's notes become its GitHub release.
 
-## Unreleased
+## 0.12.0 (2026-10-25)
+
+0.12.0 makes Gesso usable from claude.ai and ChatGPT for free: on your own computer with `npx -y gesso-mcp --tunnel`, or on a shared server with sign-in.
 
 - **One-script setup for `mcp.gesso.run`:** on any always-on Mac or Linux computer, `bash deploy/setup-tunnel.sh` installs `cloudflared`, builds Gesso, makes the signing secret, creates the Cloudflare tunnel and its DNS record (after one browser login), installs both as services that start with the computer, and checks the address from the internet. Running it again updates; `--uninstall` removes the services.
 
