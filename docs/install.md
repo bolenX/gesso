@@ -12,8 +12,8 @@ Pick the agent you use:
 | VS Code (Copilot agent mode) | One terminal command | Ready |
 | Gemini CLI | Add to `settings.json` | Ready |
 | Hermes Agent | Add to `config.yaml` | Ready |
-| claude.ai (web and mobile) | `npx -y gesso-mcp --tunnel` on your computer, then a custom connector | Ready, free |
-| ChatGPT | `npx -y gesso-mcp --tunnel` on your computer, then a developer-mode app | Ready, free |
+| claude.ai (web and mobile) | Custom connector to `https://mcp.gesso.run/mcp`, or `--tunnel` on your computer | Ready, free |
+| ChatGPT | Developer-mode app with `https://mcp.gesso.run/mcp`, or `--tunnel` on your computer | Ready, free |
 
 Every route except the Claude Desktop extension runs Gesso with `npx`, so it needs **Node 22 or later** (`node -v` to check; get it from [nodejs.org](https://nodejs.org)).
 
@@ -118,7 +118,19 @@ Start `hermes chat`. If Hermes is already running, run `/reload-mcp`. Gesso's to
 
 ## claude.ai and ChatGPT
 
-claude.ai and ChatGPT only connect to MCP servers on the internet, over HTTPS. Gesso can be that server from your own computer, through a free Cloudflare tunnel. Nothing is hosted anywhere, and your files stay in your Gesso folder.
+claude.ai and ChatGPT only connect to MCP servers on the internet, over HTTPS. There are two free ways.
+
+### The shared server: nothing to install
+
+Connect to `https://mcp.gesso.run/mcp`:
+- **claude.ai:** go to **Settings › Connectors › Add custom connector** and paste the address.
+- **ChatGPT:** turn on **Settings › Apps › Advanced settings › Developer mode**, then **Create app** with the address and OAuth.
+
+On Gesso's page, choose **Continue without an account**. You get a private workspace, which is deleted after 7 days without use. To bring in your own images, the agent gives you an upload link, or imports them from a web address.
+
+### From your own computer
+
+Gesso can also be that server from your own computer, through a free Cloudflare tunnel. Your files stay in your Gesso folder, and nothing goes through a shared server.
 
 1. **Install Cloudflare's `cloudflared`, once.** You don't need a Cloudflare account.
    - macOS: `brew install cloudflared`
@@ -183,8 +195,8 @@ Copy for the **Install** or **Get started** section, matching the guide above. F
 | VS Code | `color/vscode.svg` | | The `code --add-mcp …` command, with a copy button. Line: Then use Copilot Chat in Agent mode. |
 | Gemini CLI | `color/gemini-cli.svg` | | The `settings.json` block, with a copy button. Line: Add to `~/.gemini/settings.json`. |
 | Hermes | `mono/hermes.svg` | | The `config.yaml` block, with a copy button. Line: Add to `~/.hermes/config.yaml`, then `/reload-mcp`. |
-| claude.ai | `color/claude.svg` | Free | Steps: 1. Install `cloudflared` (`brew install cloudflared`). 2. Run `npx -y gesso-mcp --tunnel`, with a copy button. 3. In claude.ai, go to Settings › Connectors › Add custom connector, paste the address it prints, and enter the pairing code. Small print: Runs on your computer, so your files stay with you. Keep the command running while you work. |
-| ChatGPT | `mono/chatgpt.svg` | Free | The same steps, with step 3 as: In ChatGPT, go to Settings › Apps › Advanced settings › Developer mode › Create app, with the address and OAuth, and enter the pairing code. Small print: Developer mode is on some ChatGPT plans. |
+| claude.ai | `color/claude.svg` | Free | Steps: 1. In claude.ai, go to Settings › Connectors › Add custom connector. 2. Paste `https://mcp.gesso.run/mcp`, with a copy button. 3. Choose **Continue without an account** on Gesso's page. Small print: Nothing to install. Or run Gesso on your own computer with `npx -y gesso-mcp --tunnel` (link to the full install guide). |
+| ChatGPT | `mono/chatgpt.svg` | Free | Steps: 1. In ChatGPT, go to Settings › Apps › Advanced settings › Developer mode › Create app. 2. Paste `https://mcp.gesso.run/mcp` and choose OAuth. 3. Choose **Continue without an account** on Gesso's page. Small print: Developer mode is on some ChatGPT plans. |
 
 **Under the tabs, for every route except the Desktop extension:** Requires Node 22 or later.
 
@@ -197,7 +209,8 @@ With eight tabs, let the tab row scroll sideways on phones rather than wrapping.
 - npm package: `gesso-mcp`. Every config runs `npx -y gesso-mcp`.
 - Extension file: `gesso-<version>.mcpb`, about 62 MB, built with `node packages/gesso-mcp/build-mcpb.mjs`. Includes macOS (Apple silicon and Intel), Windows and Linux support.
 - Default Gesso folder: `~/Documents/Gesso`, set with `GESSO_WORKDIR`.
-- claude.ai and ChatGPT work through `npx -y gesso-mcp --tunnel` on the user's own computer: free, with no account, and no server anyone pays for. The sign-in is tested end to end with the MCP SDK's own OAuth client, but not yet against claude.ai and ChatGPT themselves. Until it has been, say "connect with a custom connector", not "officially supported". There's no shared `mcp.gesso.run` server yet.
+- claude.ai and ChatGPT connect to the shared server at `https://mcp.gesso.run/mcp`, or to Gesso on the user's own computer with `npx -y gesso-mcp --tunnel`. Both are free.
+- `mcp.gesso.run` passed a live end-to-end check from the internet with the MCP SDK's OAuth client: registration, consent, tokens, tool calls, rendering, export, download and revocation. Until it has also been tried in claude.ai and ChatGPT themselves, say "connect with a custom connector", not "official integration". It isn't in either directory yet.
 - Logos are the official marks from Lobe Icons, Iconify and Devicon (see `brand/agents/README.md`). Don't redraw or recolour them.
 
 ### Hosting the extension download
