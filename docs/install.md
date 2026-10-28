@@ -75,6 +75,62 @@ Add Gesso to `~/.cursor/mcp.json` (all projects), or `.cursor/mcp.json` in one p
 
 Then check **Cursor Settings › MCP**: **gesso** should be listed and enabled.
 
+### If gesso shows an error in Cursor
+
+In Cursor's Agents window, gesso can fail to start. Its output (**Show Output** next to gesso) has an error like this:
+
+```
+npm ERR! enoent ENOENT: no such file or directory, lstat '/Applications/Cursor.app/Contents/Resources/app/resources/lib'
+```
+
+This is a known Cursor bug, not a Gesso one. Outside the Editor window, Cursor runs `npx` so that npm looks for its files inside Cursor's app instead of your Node install. The fix is to give Cursor the full paths to your own Node.
+
+1. **Find your paths.** Open the Terminal app (not Cursor) and run:
+
+   ```sh
+   which npx
+   npm config get prefix
+   node -v
+   ```
+
+   - The first line is the full path of `npx`, such as `/opt/homebrew/bin/npx`.
+   - The second is npm's folder, such as `/opt/homebrew`.
+   - The third must be v22 or later.
+
+2. **Edit the gesso entry** in `~/.cursor/mcp.json`. Replace the two example paths with the ones from step 1: the `npx` path goes in `command`, the npm folder in `NPM_CONFIG_PREFIX`.
+
+   ```json
+   {
+     "mcpServers": {
+       "gesso": {
+         "type": "stdio",
+         "command": "/opt/homebrew/bin/npx",
+         "args": ["-y", "gesso-mcp"],
+         "env": {
+           "NPM_CONFIG_PREFIX": "/opt/homebrew",
+           "GESSO_WORKDIR": "~/Documents/Gesso"
+         }
+       }
+     }
+   }
+   ```
+
+3. **Restart gesso.** In Cursor's MCP list, turn gesso off and on again, or quit Cursor (⌘Q) and reopen it. It should show 21 tools.
+
+The paths depend on how you installed Node. Always use what the commands print; these are the usual ones:
+
+| Node installed with | `command` | `NPM_CONFIG_PREFIX` |
+| --- | --- | --- |
+| Homebrew on Apple silicon | `/opt/homebrew/bin/npx` | `/opt/homebrew` |
+| Homebrew on Intel, or the nodejs.org installer | `/usr/local/bin/npx` | `/usr/local` |
+| nvm | `/Users/<you>/.nvm/versions/node/<version>/bin/npx` | `/Users/<you>/.nvm/versions/node/<version>` |
+
+With nvm, both paths include the Node version, so update them when you change versions.
+
+**Still not working?**
+- If the output now says `env: node: No such file or directory`, or that Node is too old, Cursor is finding a different Node. Add a `PATH` to `env` that starts with the folder `npx` is in. For Homebrew on Apple silicon that's `"PATH": "/opt/homebrew/bin:/usr/bin:/bin"`.
+- Or open the project in Cursor's Editor window instead of the Agents window. The bug doesn't happen there.
+
 ## VS Code (Copilot agent mode)
 
 ```sh
@@ -166,6 +222,7 @@ Text uses fonts installed on your computer or put in your Gesso folder. The agen
 
 - **Gesso doesn't show up.** Restart the agent after changing its config. Check that the JSON or YAML is valid: a missing comma breaks the whole file.
 - **"node: command not found" or a version error.** Install Node 22 or later from [nodejs.org](https://nodejs.org), then restart the agent.
+- **Cursor: `npm ERR! enoent` with a path inside `Cursor.app`.** A Cursor bug in its Agents window. See [If gesso shows an error in Cursor](#if-gesso-shows-an-error-in-cursor).
 - **Exports aren't where you expected.** They go to `GESSO_WORKDIR` when it's set (the Claude Desktop extension always sets it), otherwise to the folder the agent started in.
 
 ## Update
@@ -191,7 +248,7 @@ Copy for the **Install** or **Get started** section, matching the guide above. F
 | --- | --- | --- | --- |
 | Claude Desktop | `color/claude.svg` | Recommended | Steps: 1. Download the extension. 2. Double-click it. 3. Choose a folder for your files (default `~/Documents/Gesso`). Button: **Download for Claude Desktop**. Small print: macOS and Windows. Nothing else to install. |
 | Claude Code | `color/claude-code.svg` | | Command with a copy button: `claude mcp add gesso -- npx -y gesso-mcp` |
-| Cursor | `color/cursor.svg` (mono on dark) | | The `mcp.json` block from the Cursor section, with a copy button. Line: Add to `~/.cursor/mcp.json`. |
+| Cursor | `color/cursor.svg` (mono on dark) | | The `mcp.json` block from the Cursor section, with a copy button. Line: Add to `~/.cursor/mcp.json`. Small print: An error in Cursor's Agents window? See the fix (link to [If gesso shows an error in Cursor](#if-gesso-shows-an-error-in-cursor) in the full install guide). |
 | VS Code | `color/vscode.svg` | | The `code --add-mcp …` command, with a copy button. Line: Then use Copilot Chat in Agent mode. |
 | Gemini CLI | `color/gemini-cli.svg` | | The `settings.json` block, with a copy button. Line: Add to `~/.gemini/settings.json`. |
 | Hermes | `mono/hermes.svg` | | The `config.yaml` block, with a copy button. Line: Add to `~/.hermes/config.yaml`, then `/reload-mcp`. |
