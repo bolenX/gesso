@@ -150,6 +150,11 @@ export type Shape = z.infer<typeof Shape>;
 export const Refine = z.object({
   /** How far from the edge to look for detail, in px (Photoshop's edge radius): 2–6 for hard edges, 10–30 for hair. */
   radius: z.number().positive().max(250).optional(),
+  /**
+   * Smart Radius: keep the full radius only where the edge has fine detail (hair, fur), and a narrow band along
+   * clean edges, so one setting suits a subject with both.
+   */
+  smartRadius: z.boolean().optional(),
   /** Smooths jagged edges before refining, 0..100. */
   smooth: z.number().min(0).max(100).optional(),
   /** Hardens the soft edge, 0..100. */
@@ -246,12 +251,44 @@ export const Mask = z.discriminatedUnion("kind", [
     invert: z.boolean().optional(),
     refine: Refine.optional(),
   }),
+  z.object({
+    /**
+     * Studio backdrop key: the subject cut out of a plain backdrop (white, grey, green or any colour). The
+     * backdrop's colour is read from the image's border, lighting falloff included, or given as `color`; pixels
+     * within `tolerance` of it (colour difference, ΔE, default 10) are backdrop, and opacity rises to full at
+     * three times that. Reads the layer's own pixels, or `source`'s. Add refine with a radius for hair.
+     */
+    kind: z.literal("backdrop"),
+    source: z.string().optional(),
+    color: Color.optional(),
+    tolerance: z.number().min(1).max(100).optional(),
+    feather: z.number().nonnegative().optional(),
+    invert: z.boolean().optional(),
+    refine: Refine.optional(),
+  }),
+  z.object({
+    /**
+     * Clean-plate key: whatever differs from the same scene shot without the subject. `plate` is that shot as an
+     * image layer (usually hidden, lined up with canvas_align); pixels within `tolerance` of it (ΔE, default 8)
+     * are background. Reads the layer's own pixels, or `source`'s. Add refine with a radius for hair.
+     */
+    kind: z.literal("difference"),
+    plate: Id,
+    source: z.string().optional(),
+    tolerance: z.number().min(1).max(100).optional(),
+    feather: z.number().nonnegative().optional(),
+    invert: z.boolean().optional(),
+    refine: Refine.optional(),
+  }),
 ]);
 export type Mask = z.infer<typeof Mask>;
 
-/** Masks computed from pixels (luminosity, colour range, channel). */
-export const isComputedMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "calculations" }> =>
-  mask?.kind === "luminosity" || mask?.kind === "color-range" || mask?.kind === "channel" || mask?.kind === "calculations";
+/** Masks computed from pixels (luminosity, colour range, channel, calculations, backdrop and clean-plate keys). */
+export const isComputedMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "calculations" | "backdrop" | "difference" }> =>
+  mask?.kind === "luminosity" || mask?.kind === "color-range" || mask?.kind === "channel" || mask?.kind === "calculations" || mask?.kind === "backdrop" || mask?.kind === "difference";
+
+/** Keys that read a layer's own pixels unless given a source. */
+export const isKeyMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "backdrop" | "difference" }> => mask?.kind === "backdrop" || mask?.kind === "difference";
 
 const Range = z.tuple([z.number().min(0).max(255), z.number().min(0).max(255), z.number().min(0).max(255), z.number().min(0).max(255)]);
 /**

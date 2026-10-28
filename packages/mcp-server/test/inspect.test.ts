@@ -99,6 +99,22 @@ describe("canvas_inspect", () => {
     expect(region.channels.red.clippedHigh).toBe(100);
     expect(region.color.cast).toMatch(/magenta|warm/);
   });
+
+  it("checks a layer as a cut-out, with a matte map", async () => {
+    const client = await connect();
+    const result = await client.callTool({ name: "canvas_inspect", arguments: { doc: "card", layers: ["sq"], matte: true, map: "matte" } });
+    const report = JSON.parse(parts(result)[0]!.text!);
+    // A crisp square: a 1 px edge at most, no halo, specks or holes.
+    expect(report.matte).toMatchObject({ solid: 8, haloTone: "none", specks: 0, holes: 0 });
+    expect(report.matte.edgeWidth).toBeLessThanOrEqual(1);
+    // Two by two: the mask, then over black, white and red.
+    const map = await image(result);
+    expect([map.width, map.height]).toEqual([206, 106]);
+    expect(map.at(30, 30)).toEqual([255, 255, 255]);
+    expect(map.at(106 + 5, 56 + 5)).toEqual([255, 0, 0]);
+    const missing = await client.callTool({ name: "canvas_inspect", arguments: { doc: "card", matte: true } });
+    expect(parts(missing)[0]!.text).toMatch(/needs layers/);
+  });
 });
 
 describe("recipes and preflight", () => {

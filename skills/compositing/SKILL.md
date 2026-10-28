@@ -63,19 +63,36 @@ All of them take `feather` and `invert`. In a PSD they're written as pixel masks
 
 ## Refining edges (Select and Mask)
 
-Any raster, vector or computed mask takes `refine`. It works in a band around the mask's soft edge: each pixel's coverage is estimated from the subject's and the background's nearby colours, so a rough mask snaps to hair, fur and leaves.
+Any raster, vector or computed mask takes `refine`. It treats a band around the mask's edge as uncertain and solves each pixel's opacity there from the layer's own pixels (closed-form matting), so a rough mask snaps to hair, fur and leaves strand by strand. Where the colour clearly disagrees with the rough mask just past the band, as with a strand that runs on beyond it, that's solved too.
 
 | field | range | use |
 |---|---|---|
-| `radius` | px | how far from the edge to look: 2–6 for hard edges, 10–30 for hair |
-| `smooth` | 0..100 | evens out a jagged edge first |
+| `radius` | px | how far from the edge to solve: 2–6 for hard edges, 10–30 for hair |
+| `smartRadius` | true | keeps the full radius only where the edge has fine detail, and a narrow band along clean edges: one setting for a subject with both, like hair over a jacket |
+| `smooth` | 0..100 | evens out a jagged edge |
 | `contrast` | 0..100 | hardens the result; keep at 0 for hair |
 | `shift` | −100..100 | moves the edge in (negative, chokes halos) or out |
-| `decontaminate` | 0..100 | Decontaminate Colors: replaces the old background's colour in the edge with the subject's own |
+| `decontaminate` | 0..100 | Decontaminate Colors: each edge pixel's colour without the old background mixed in, estimated pixel by pixel, so strands keep their own colour |
 
 ```json
-"mask": { "kind": "vector", "shape": { "kind": "ellipse" }, "feather": 6, "refine": { "radius": 15, "decontaminate": 70 } }
+"mask": { "kind": "vector", "shape": { "kind": "ellipse" }, "feather": 6, "refine": { "radius": 15, "smartRadius": true, "decontaminate": 70 } }
 ```
+
+The closer the rough mask, the better the result: a good segmentation (`gen_prepare` `segment`) plus `refine` beats a loose ellipse plus `refine`.
+
+### Studio backdrops and clean plates
+
+Two keys make the rough mask for you, then `refine` takes it to the hair:
+
+- **`backdrop`**: a subject on a plain backdrop (white, grey, green, any colour). The backdrop's colour is read from the image's border, lighting falloff and vignette included, or set with `color`. Pixels within `tolerance` (ΔE, default 10) of it are backdrop. It reads the layer's own pixels, so put it on the photo itself.
+- **`difference`**: the same scene shot without the subject, a clean plate. Put that shot on an image layer (hidden), line it up with `canvas_align`, and name it in `plate`. Whatever differs from it by more than `tolerance` (ΔE, default 8) is subject.
+
+```json
+"mask": { "kind": "backdrop", "refine": { "radius": 12, "smartRadius": true, "decontaminate": 80 } }
+"mask": { "kind": "difference", "plate": "empty-set", "refine": { "radius": 10 } }
+```
+
+On their own the keys are hard-edged: always add `refine` for hair. Raise `tolerance` if backdrop shows through in shadows, and lower it if pale parts of the subject drop out.
 
 A vector mask with `stroke` (a width in px) is the path's outline instead of its area, with round ends: a brush stroke along the path, for dodge & burn lines and painted-in edges. Shape layers' `stroke` also takes `cap` (`butt`, `round`, `square`) and `join` (`miter`, `round`, `bevel`).
 

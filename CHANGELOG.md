@@ -4,6 +4,15 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
 
 ## Unreleased
 
+- **A real masking engine for hair, fur and fine edges.** Select and Mask (`refine`) now solves each edge pixel's opacity from the layer's own pixels with closed-form matting, guided by a local colour estimate, so a rough mask snaps to hair strand by strand. On a synthetic hair test with known answers, a decent rough mask's edge error dropped about fourfold compared with 0.12, and on a busy background it improved too.
+  - **`smartRadius`** keeps the full radius only where the edge has fine detail, and a narrow band along clean edges.
+  - **Decontaminate Colors** now estimates each edge pixel's own colour (multi-level foreground estimation), so strands keep their colour instead of an average, and the old background's fringe goes.
+  - Wide edges are solved at a smaller size and brought back to full detail with a guided filter, so big cut-outs stay quick.
+- **Two new keys that make the rough mask for you:**
+  - `backdrop`: a subject on a plain studio backdrop, lighting falloff included.
+  - `difference`: against a clean plate, the same scene shot without the subject.
+  Both export to PSD as layer masks.
+- **Cut-out checks:** `canvas_inspect` with `matte: true` measures a cut-out's soft-edge width, its halo of old background (and whether it shows on dark or light backgrounds), specks and holes. `map: "matte"` shows it over black, white and red.
 - **Download links in claude.ai:** export results now carry each file's download link in their structured part too. Some hosts, claude.ai among them, show the model only that part, so the links never arrived.
 - **Hosted servers keep their own folders private:** every result, warning and error names files relative to the workspace, and the home folder as `~`. That covers `manifest.json` and `job.json` on disk. Results used to show the server's user name and the workspace's folder, which is its key.
 - **Fonts on shared servers:**
