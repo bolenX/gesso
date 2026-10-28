@@ -3,8 +3,8 @@ import { Doc as DocSchema } from "@gesso/core";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { matteMap, matteReport, renderArtboard } from "../src/index.js";
-import { refineMask } from "../src/masks.js";
-import { BG, colourLine, distanceTransform, estimateForeground, FG, makeTrimap, matte, planesOf, solveMatte, UNKNOWN } from "../src/matting.js";
+import { chokeMask, refineMask } from "../src/masks.js";
+import { BG, colourLine, distanceTransform, estimateForeground, FG, fillHoles, makeTrimap, matte, planesOf, solveMatte, UNKNOWN } from "../src/matting.js";
 
 // Hair with known opacity: strands and a solid head over a textured sky, composited exactly, so every estimate
 // can be measured against the truth.
@@ -271,5 +271,79 @@ describe("cut-out checks", () => {
     const [plain, clean] = await Promise.all([cut({ radius: 6 }), cut({ radius: 6, decontaminate: 100 })]);
     expect(plain.haloTone).toBe("lighter");
     expect(clean.halo).toBeLessThan(plain.halo / 2);
+  });
+});
+
+describe("choke, spread and holes", () => {
+  // Brute force: the extreme over every pixel within the window, edges repeating.
+  const naive = (m: Uint8Array, w: number, h: number, amount: number, square: boolean) => {
+    const r = Math.abs(amount);
+    const R = Math.floor(r);
+    const out = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let v = amount > 0 ? 255 : 0;
+        for (let dy = -R; dy <= R; dy++) {
+          for (let dx = -R; dx <= R; dx++) {
+            if (!square && dx * dx + dy * dy > r * r) continue;
+            const q = m[Math.min(h - 1, Math.max(0, y + dy)) * w + Math.min(w - 1, Math.max(0, x + dx))]!;
+            v = amount > 0 ? Math.min(v, q) : Math.max(v, q);
+          }
+        }
+        out[y * w + x] = v;
+      }
+    }
+    return out;
+  };
+
+  it("chokes and spreads a mask exactly like Minimum and Maximum, round or square", () => {
+    const [w, h] = [37, 29];
+    const m = Uint8Array.from({ length: w * h }, (_, i) => ((i * 7919) % 97 < 60 ? 255 : (i * 31) % 256));
+    for (const amount of [1, 2.5, 4, -1, -3.2]) {
+      for (const square of [false, true]) expect(Array.from(chokeMask(m, w, h, amount, square))).toEqual(Array.from(naive(m, w, h, amount, square)));
+    }
+  });
+
+  it("removes a halo by choking the cut-out's mask", async () => {
+    // A dark disc whose rough mask runs 3 px too wide, taking in a ring of the white backdrop.
+    const png = await sharp(Buffer.from(`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="#FFFFFF"/><circle cx="100" cy="75" r="40" fill="#203040"/></svg>`)).png().toBuffer();
+    const render = (choke?: number) =>
+      renderArtboard(
+        DocSchema.parse({ id: "h", revision: 0, assets: { photo: { uri: "photo", kind: "image" } }, artboards: [{ id: "a", name: "A", frame: { x: 0, y: 0, w: W, h: H }, background: "#000000", layers: [{ id: "p", name: "p", type: "image", asset: "photo", fit: "fill", frame: { x: 0, y: 0, w: W, h: H }, mask: { kind: "vector", shape: { kind: "ellipse" }, frame: { x: 57, y: 32, w: 86, h: 86 }, ...(choke ? { choke } : {}) } }] }] }),
+        "a",
+        { loader: async () => png },
+      );
+    const [halo, clean] = await Promise.all([render(), render(3)]);
+    const rim = (p: Uint8Array) => p[(75 * W + 141) * 4]!;
+    // At 1 px inside the rough edge: white backdrop before, the black background once choked.
+    expect(rim(halo.pixels)).toBeGreaterThan(200);
+    expect(rim(clean.pixels)).toBeLessThan(20);
+    // The disc itself is untouched.
+    expect(clean.pixels[(75 * W + 100) * 4]).toBe(0x20);
+  });
+
+  it("fills see-through pockets, so a key on glass gives its silhouette", async () => {
+    const [w, h] = [9, 7];
+    const ring = Float64Array.from({ length: w * h }, (_, i) => {
+      const [x, y] = [i % w, Math.floor(i / w)];
+      return x >= 2 && x <= 6 && y >= 1 && y <= 5 && (x === 2 || x === 6 || y === 1 || y === 5) ? 1 : 0;
+    });
+    const filled = fillHoles(ring, w, h);
+    expect(filled[3 * w + 4]).toBe(1);
+    expect(filled[0]).toBe(0);
+    // Through the renderer: a clear bottle on a grey backdrop, its body showing the backdrop through it.
+    const png = await sharp(Buffer.from(`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="#C8C8C8"/><rect x="80" y="20" width="40" height="110" rx="12" fill="#C8C8C8" stroke="#3A4A40" stroke-width="5"/></svg>`)).png().toBuffer();
+    const key = (fill: boolean) =>
+      renderArtboard(
+        DocSchema.parse({ id: "f", revision: 0, assets: { photo: { uri: "photo", kind: "image" } }, artboards: [{ id: "a", name: "A", frame: { x: 0, y: 0, w: W, h: H }, background: "#FF00FF", layers: [{ id: "p", name: "p", type: "image", asset: "photo", fit: "fill", frame: { x: 0, y: 0, w: W, h: H }, mask: { kind: "backdrop", ...(fill ? { fillHoles: true } : {}) } }] }] }),
+        "a",
+        { loader: async () => png },
+      );
+    const [open, filledKey] = await Promise.all([key(false), key(true)]);
+    const centre = (p: Uint8Array) => Array.from(p.slice((75 * W + 100) * 4, (75 * W + 100) * 4 + 3));
+    expect(centre(open.pixels)).toEqual([255, 0, 255]);
+    expect(centre(filledKey.pixels)).toEqual([200, 200, 200]);
+    // Outside the bottle, the backdrop is still keyed out.
+    expect(Array.from(filledKey.pixels.slice((75 * W + 30) * 4, (75 * W + 30) * 4 + 3))).toEqual([255, 0, 255]);
   });
 });

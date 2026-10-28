@@ -804,3 +804,38 @@ export function matte(I: Planes, tri: Uint8Array, start: Float64Array, w: number
   for (let i = 0; i < n; i++) guided[i] = tri[i] === UNKNOWN ? Math.min(1, Math.max(0, guided[i]!)) : tri[i] === FG ? 1 : 0;
   return guided;
 }
+
+/**
+ * Fills see-through pockets: pixels below half opacity that can't reach the image's edge without crossing the
+ * subject become solid. A glass bottle on a backdrop keys out where the backdrop shows through it; filled, the
+ * key is its silhouette.
+ */
+export function fillHoles(alpha: Float64Array, w: number, h: number): Float64Array {
+  const n = w * h;
+  const outside = new Uint8Array(n);
+  const stack: number[] = [];
+  const reach = (i: number) => {
+    if (outside[i] || alpha[i]! >= 0.5) return;
+    outside[i] = 1;
+    stack.push(i);
+  };
+  for (let x = 0; x < w; x++) {
+    reach(x);
+    reach((h - 1) * w + x);
+  }
+  for (let y = 0; y < h; y++) {
+    reach(y * w);
+    reach(y * w + w - 1);
+  }
+  while (stack.length) {
+    const i = stack.pop()!;
+    const [x, y] = [i % w, Math.floor(i / w)];
+    if (x > 0) reach(i - 1);
+    if (x < w - 1) reach(i + 1);
+    if (y > 0) reach(i - w);
+    if (y < h - 1) reach(i + w);
+  }
+  const out = Float64Array.from(alpha);
+  for (let i = 0; i < n; i++) if (alpha[i]! < 0.5 && !outside[i]) out[i] = 1;
+  return out;
+}

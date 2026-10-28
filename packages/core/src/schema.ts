@@ -166,6 +166,16 @@ export const Refine = z.object({
 });
 export type Refine = z.infer<typeof Refine>;
 
+/**
+ * Filter › Other › Minimum and Maximum on a mask, applied last: `choke` in px pulls the edge in (positive, to
+ * lose a halo of old background) or pushes it out (negative, to recover an edge cut too tight, or for a sticker
+ * outline). Round corners suit people and organic shapes, square ones man-made, straight-edged objects.
+ */
+const Choke = {
+  choke: z.number().min(-250).max(250).optional(),
+  chokeShape: z.enum(["round", "square"]).optional(),
+};
+
 /** One channel of a layer (or of everything below) for Calculations; gray is luminosity. */
 const CalcChannel = z.object({ source: z.string().optional(), channel: z.enum(["red", "green", "blue", "gray"]), invert: z.boolean().optional() });
 
@@ -182,6 +192,7 @@ export const Mask = z.discriminatedUnion("kind", [
     invert: z.boolean().optional(),
     feather: z.number().nonnegative().optional(),
     refine: Refine.optional(),
+    ...Choke,
   }),
   z.object({
     kind: z.literal("vector"),
@@ -194,6 +205,7 @@ export const Mask = z.discriminatedUnion("kind", [
     /** With a width, the mask is the shape's outline stroked this wide (round caps): a brush stroke along a path. */
     stroke: z.number().positive().optional(),
     refine: Refine.optional(),
+    ...Choke,
   }),
   z.object({ kind: z.literal("luminance-of"), layer: Id }),
   /**
@@ -212,6 +224,7 @@ export const Mask = z.discriminatedUnion("kind", [
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
     refine: Refine.optional(),
+    ...Choke,
   }),
   z.object({
     /** Color Range: where colours are within `fuzziness` (colour distance) of `color`. */
@@ -222,6 +235,7 @@ export const Mask = z.discriminatedUnion("kind", [
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
     refine: Refine.optional(),
+    ...Choke,
   }),
   z.object({
     /** A colour channel as a mask, with levels (`black`, `white`) to push it to black and white: the channel-mask technique for hair, trees and skies. */
@@ -233,6 +247,22 @@ export const Mask = z.discriminatedUnion("kind", [
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
     refine: Refine.optional(),
+    ...Choke,
+  }),
+  z.object({
+    /**
+     * Saturation mask: how colourful each pixel is (HSB saturation), with levels (`black`, `white`) to push it.
+     * For effects that should touch only coloured parts, or only neutral ones (inverted): a glass's tint but not
+     * the clear glass, skin but not grey hair.
+     */
+    kind: z.literal("saturation"),
+    source: z.string().optional(),
+    black: z.number().min(0).max(255).optional(),
+    white: z.number().min(0).max(255).optional(),
+    feather: z.number().nonnegative().optional(),
+    invert: z.boolean().optional(),
+    refine: Refine.optional(),
+    ...Choke,
   }),
   z.object({
     /**
@@ -250,6 +280,7 @@ export const Mask = z.discriminatedUnion("kind", [
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
     refine: Refine.optional(),
+    ...Choke,
   }),
   z.object({
     /**
@@ -262,9 +293,15 @@ export const Mask = z.discriminatedUnion("kind", [
     source: z.string().optional(),
     color: Color.optional(),
     tolerance: z.number().min(1).max(100).optional(),
+    /**
+     * Fill see-through pockets inside the subject: for glass and other clear objects, which the backdrop shows
+     * through, and for pale parts keyed out along with a backdrop that matches them.
+     */
+    fillHoles: z.boolean().optional(),
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
     refine: Refine.optional(),
+    ...Choke,
   }),
   z.object({
     /**
@@ -276,16 +313,22 @@ export const Mask = z.discriminatedUnion("kind", [
     plate: Id,
     source: z.string().optional(),
     tolerance: z.number().min(1).max(100).optional(),
+    /**
+     * Fill see-through pockets inside the subject: for glass and other clear objects, which the backdrop shows
+     * through, and for pale parts keyed out along with a backdrop that matches them.
+     */
+    fillHoles: z.boolean().optional(),
     feather: z.number().nonnegative().optional(),
     invert: z.boolean().optional(),
     refine: Refine.optional(),
+    ...Choke,
   }),
 ]);
 export type Mask = z.infer<typeof Mask>;
 
-/** Masks computed from pixels (luminosity, colour range, channel, calculations, backdrop and clean-plate keys). */
-export const isComputedMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "calculations" | "backdrop" | "difference" }> =>
-  mask?.kind === "luminosity" || mask?.kind === "color-range" || mask?.kind === "channel" || mask?.kind === "calculations" || mask?.kind === "backdrop" || mask?.kind === "difference";
+/** Masks computed from pixels (luminosity, colour range, channel, saturation, calculations, backdrop and clean-plate keys). */
+export const isComputedMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "saturation" | "calculations" | "backdrop" | "difference" }> =>
+  mask?.kind === "luminosity" || mask?.kind === "color-range" || mask?.kind === "channel" || mask?.kind === "saturation" || mask?.kind === "calculations" || mask?.kind === "backdrop" || mask?.kind === "difference";
 
 /** Keys that read a layer's own pixels unless given a source. */
 export const isKeyMask = (mask: Mask | undefined): mask is Extract<Mask, { kind: "backdrop" | "difference" }> => mask?.kind === "backdrop" || mask?.kind === "difference";

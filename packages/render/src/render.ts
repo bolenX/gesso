@@ -20,8 +20,8 @@ import { adjustmentAssets, filterAssets, isComputedMask, paintColor } from "@ges
 import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
 import { DISSOLVE, setBlend } from "./blend.js";
-import { blendIfWeights, computeCalculations, computeMask, refineMask } from "./masks.js";
-import { backdropKey, differenceKey, planesOf } from "./matting.js";
+import { blendIfWeights, chokeMask, computeCalculations, computeMask, refineMask } from "./masks.js";
+import { backdropKey, differenceKey, fillHoles, planesOf } from "./matting.js";
 import { seamMap } from "./retouch.js";
 import { boxPlane, gaussBlur, readRaster, writeRaster } from "./cpu.js";
 import { applyFilter, filterReach, type FilterKit } from "./filters.js";
@@ -489,6 +489,7 @@ class Compositor {
             refinedContent.delete();
             mask = refinedMask;
           }
+          mask = this.choked(mask, layer.mask);
           part.mask = this.readImageAlpha(mask);
         }
         const patterns = (layer.effects ?? []).filter((e): e is Extract<Effect, { kind: "pattern-overlay" }> => e.kind === "pattern-overlay");
@@ -698,6 +699,10 @@ class Compositor {
         this.composite(base.children, resolveFrame(base.frame, parent), target);
         continue;
       }
+      if (base.type === "group" && clipped.length === 0 && this.isMaskedPassThrough(base)) {
+        this.compositeMaskedPassThrough(base, parent, target);
+        continue;
+      }
 
       if (clipped.length === 0 && !base.blendIf && this.drawDirect(base, parent, target)) continue;
 
@@ -780,6 +785,68 @@ class Compositor {
     canvas.clipRect(this.ck.LTRBRect(...this.reach), this.ck.ClipOp.Intersect, false);
     draw();
     canvas.restore();
+  }
+
+  /** A pass-through group that only adds a mask or opacity: its layers still blend with what's below it. */
+  private isMaskedPassThrough(group: Extract<Layer, { type: "group" }>): boolean {
+    return (
+      (group.isolation ?? "pass-through") === "pass-through" &&
+      (group.blend ?? "normal") === "normal" &&
+      (!!group.mask || (group.opacity ?? 1) < 1) &&
+      !group.blendIf &&
+      !group.filters?.length &&
+      !group.effects?.length &&
+      !layerTransform(group, { x: 0, y: 0, w: 0, h: 0 })
+    );
+  }
+
+  /**
+   * Photoshop's pass-through group with a mask or opacity: the layers inside blend with everything below, as
+   * if ungrouped (so a Multiply or Screen copy inside reaches the background), and then the mask and opacity
+   * fade between that result and what was there before.
+   */
+  private compositeMaskedPassThrough(group: Extract<Layer, { type: "group" }>, parent: Box, target: Surface): void {
+    const { ck } = this;
+    const box = resolveFrame(group.frame, parent);
+    const before = target.makeImageSnapshot();
+    const beneath = this.surface();
+    beneath.getCanvas().drawImage(before, 0, 0);
+    this.composite(group.children, box, target);
+    let after = target.makeImageSnapshot();
+    let mask = group.mask ? this.maskImage(group.mask, box, parent, group.id, beneath) : undefined;
+    beneath.dispose();
+    const refine = group.mask && "refine" in group.mask ? group.mask.refine : undefined;
+    if (mask && refine) [mask, after] = this.refined(mask, after, refine);
+    if (mask && group.mask) mask = this.choked(mask, group.mask);
+    const opacity = group.opacity ?? 1;
+    // result = after·k + before·(1 − k), with k the mask times the opacity: two masked copies, added.
+    const part = (image: Image, mode: "DstIn" | "DstOut") => {
+      const s = this.surface();
+      const canvas = s.getCanvas();
+      canvas.drawImage(image, 0, 0);
+      const p = new ck.Paint();
+      p.setBlendMode(ck.BlendMode[mode]);
+      p.setAlphaf(opacity);
+      if (mask) canvas.drawImage(mask, 0, 0, p);
+      else {
+        p.setColor(ck.Color(0, 0, 0, opacity));
+        canvas.drawPaint(p);
+      }
+      p.delete();
+      const out = s.makeImageSnapshot();
+      s.dispose();
+      return out;
+    };
+    const shown = part(after, "DstIn");
+    const kept = part(before, "DstOut");
+    const canvas = target.getCanvas();
+    canvas.clear(ck.TRANSPARENT);
+    canvas.drawImage(shown, 0, 0);
+    const plus = new ck.Paint();
+    plus.setBlendMode(ck.BlendMode.Plus);
+    canvas.drawImage(kept, 0, 0, plus);
+    plus.delete();
+    for (const image of [before, after, shown, kept, ...(mask ? [mask] : [])]) image.delete();
   }
 
   private isPlainPassThrough(group: Extract<Layer, { type: "group" }>): boolean {
@@ -1224,6 +1291,7 @@ class Compositor {
       let mask = this.maskImage(layer.mask, box, parent, layer.id, below);
       const refine = "refine" in layer.mask ? layer.mask.refine : undefined;
       if (refine) [mask, image] = this.refined(mask, image, refine);
+      mask = this.choked(mask, layer.mask);
       const out = this.surface();
       out.getCanvas().drawImage(image, 0, 0);
       this.drawImage(out, mask, undefined, 1, "DstIn");
@@ -1646,6 +1714,17 @@ class Compositor {
     return [refinedMask, ck.MakeImage(this.info(ck.AlphaType.Unpremul), result.content, this.width * 4)!];
   }
 
+  /** Minimum or Maximum on a finished mask (its `choke`), at the render's scale. Consumes the mask if it changes it. */
+  private choked(mask: Image, spec: Mask): Image {
+    if (!("choke" in spec) || !spec.choke) return mask;
+    const { ck } = this;
+    // Reading the mask's alpha frees it.
+    const coverage = chokeMask(this.readImageAlpha(mask), this.width, this.height, spec.choke * this.scale, spec.chokeShape === "square");
+    const rgba = new Uint8Array(coverage.length * 4).fill(255);
+    for (let i = 0; i < coverage.length; i++) rgba[i * 4 + 3] = coverage[i]!;
+    return ck.MakeImage(this.info(ck.AlphaType.Unpremul), rgba, this.width * 4)!;
+  }
+
   /** Renders another layer for a mask without losing the bounds of the layer being masked. */
   private nested<T>(run: () => T): T {
     const bounds = this.lastBounds;
@@ -1727,7 +1806,7 @@ class Compositor {
 
   /** Adjustment layers recolour everything below them in scope, weighted by opacity, mask and clip base. */
   /** A computed mask's coverage per output pixel, from a layer or from what's below. */
-  private computedMask(mask: Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "calculations" | "backdrop" | "difference" }>, parent: Box, layerId: string | undefined, below: Surface | undefined): Uint8Array {
+  private computedMask(mask: Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "saturation" | "calculations" | "backdrop" | "difference" }>, parent: Box, layerId: string | undefined, below: Surface | undefined): Uint8Array {
     if (mask.kind === "backdrop" || mask.kind === "difference") {
       // Keys read the layer's own pixels by default (the photo being cut out), or a source layer's.
       const read = (id: string | undefined, what: string) => {
@@ -1747,8 +1826,9 @@ class Compositor {
         mask.kind === "backdrop"
           ? backdropKey(I, opaque, this.width, this.height, { ...(mask.color ? { color: [1, 3, 5].map((k) => parseInt(mask.color!.slice(k, k + 2), 16) / 255) as [number, number, number] } : {}), ...(mask.tolerance ? { tolerance: mask.tolerance } : {}) })
           : differenceKey(I, planesOf(read(mask.plate, "Clean plate"), n), opaque, n, mask.tolerance);
+      const keyed = mask.fillHoles ? fillHoles(alpha, this.width, this.height) : alpha;
       const coverage = new Uint8Array(n);
-      for (let i = 0; i < n; i++) coverage[i] = Math.round((mask.invert ? (opaque[i] ? 1 - alpha[i]! : 0) : alpha[i]!) * 255);
+      for (let i = 0; i < n; i++) coverage[i] = Math.round((mask.invert ? (opaque[i] ? 1 - keyed[i]! : 0) : keyed[i]!) * 255);
       return coverage;
     }
     if (mask.kind === "calculations") {

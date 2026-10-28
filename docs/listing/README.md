@@ -29,7 +29,7 @@ The site needs three pages that don't exist yet. Right now `/privacy`, `/terms` 
 
 - [ ] **Claude Connectors Directory:** [claude-connector.md](claude-connector.md) has every field.
 - [ ] **ChatGPT app directory:** [chatgpt-app.md](chatgpt-app.md) has every field, test case and the video plan.
-- [ ] **Claude plugin** (local Gesso, separately): bundles the 30 skills with the `npx -y gesso-mcp` server. Still to build.
+- [ ] **Claude plugin** (local Gesso, separately): bundles the skills with the `npx -y gesso-mcp` server. Still to build.
 
 ## Things only you can decide or do
 

@@ -186,6 +186,103 @@ async function landscape(): Promise<Buffer> {
   return c.png();
 }
 
+// ── Cut-outs ─────────────────────────────────────────────────────────────────────────────
+
+/** Where the wine bottle is: its outline, shoulders narrowing from the body to the neck. */
+const inBottle = (x: number, y: number) => {
+  const dx = Math.abs(x + 0.5 - 240);
+  if (y >= 120 && y <= 335) return dx <= 35 - Math.max(0, y - 325) * 1.2;
+  if (y >= 80 && y < 120) return dx <= 13 + 22 * ((y - 80) / 40);
+  return y >= 40 && y < 80 && dx <= 13;
+};
+const inCap = (x: number, y: number) => y >= 28 && y < 62 && Math.abs(x + 0.5 - 240) <= 15;
+const inLabel = (x: number, y: number) => y >= 230 && y < 290 && inBottle(x, y);
+
+/**
+ * A bottle of white wine on a light-grey studio backdrop: clear glass the backdrop shows through, darker at its
+ * rims, a bright specular stripe, yellow liquid in the body, an opaque foil cap and a paper label.
+ */
+function glass(): Promise<Buffer> {
+  const c = new Canvas();
+  const backdrop = (x: number, y: number): RGB => add(mix([206, 206, 203], [186, 186, 183], y / H), grain(x, y, 31) * 1.5);
+  c.paint((x, y) => backdrop(x, y));
+  c.paint((x, y, cur) => {
+    if (!inBottle(x, y)) return undefined;
+    const rim = !inBottle(x - 3, y) || !inBottle(x + 3, y) || !inBottle(x, y + 3) || (y < 120 && !inBottle(x, y - 3));
+    if (rim) return [cur[0] * 0.42, cur[1] * 0.45, cur[2] * 0.4];
+    if (x >= 214 && x <= 218 && y >= 130 && y <= 320) return [250, 250, 244];
+    if (x >= 265 && x <= 266 && y >= 140 && y <= 300) return [232, 232, 226];
+    // Below the fill line the backdrop shows through yellow wine; above it, through clear glass.
+    return y >= 140 ? [cur[0] * 1.0, cur[1] * 0.9, cur[2] * 0.5] : [cur[0] * 0.94, cur[1] * 0.95, cur[2] * 0.95];
+  });
+  c.paint((x, y) => (inLabel(x, y) && !(x < 208 || x > 272) ? add(y >= 252 && y < 258 && x > 220 && x < 260 ? [70, 60, 50] : [232, 223, 200], grain(x, y, 32) * 2) : undefined));
+  c.paint((x, y) => (inCap(x, y) ? add(mix([120, 92, 38], [84, 62, 24], Math.abs(x + 0.5 - 240) / 15), grain(x, y, 33) * 3) : undefined));
+  return c.png();
+}
+
+/** Dark wood planks, for placing a cut-out onto. */
+function wood(): Promise<Buffer> {
+  const c = new Canvas();
+  c.paint((x, y) => {
+    const plank = Math.floor(y / 60);
+    const seam = y % 60 < 2;
+    const fibre = valueNoise(x * 0.15, y * 3, 9, 40 + plank) * 14 + valueNoise(x, y, 40, 41 + plank) * 10;
+    return seam ? [34, 20, 12] : add([98 + plank * 3, 62 + plank * 2, 36], fibre + grain(x, y, 42) * 2);
+  });
+  return c.png();
+}
+
+/** Strands of hair: anti-aliased curves from the head outwards. */
+const STRANDS: Array<{ from: [number, number]; to: [number, number]; bend: number; width: number }> = Array.from({ length: 56 }, (_, i) => {
+  const t = Math.PI * (0.12 + (0.76 * i) / 55);
+  const [sx, sy] = [240 - Math.cos(t) * 92, 232 - Math.sin(t) * 112];
+  const len = 18 + Math.floor(hash(i, 3, 51) * 34);
+  return { from: [sx, sy], to: [sx - Math.cos(t) * len + (hash(i, 4, 51) - 0.5) * 14, sy - Math.sin(t) * len], bend: (hash(i, 5, 51) - 0.5) * 10, width: 0.7 + hash(i, 6, 51) * 0.9 };
+});
+
+/** A dark-haired subject with stray strands, on a grey studio backdrop that falls off towards the corners. */
+function studioHair(): Promise<Buffer> {
+  const c = new Canvas();
+  const hair: RGB = [64, 44, 34];
+  c.paint((x, y) => add(mix([214, 214, 210], [160, 160, 156], Math.min(1, Math.hypot(x - 240, y - 170) / 300)), grain(x, y, 52) * 1.5));
+  c.ellipse(240, 232, 92, 112, (x, y) => add(hair, grain(x, y, 53) * 3));
+  c.rect(130, 300, 220, 60, (x, y) => add([150, 40, 36], grain(x, y, 54) * 3));
+  // Each strand as a quadratic curve, sampled finely; coverage falls off with distance from it.
+  const points = STRANDS.map(({ from, to, bend, width }) => {
+    const [mx, my] = [(from[0] + to[0]) / 2 + bend, (from[1] + to[1]) / 2];
+    return { width, pts: Array.from({ length: 24 }, (_, k) => {
+      const t = k / 23;
+      return [(1 - t) ** 2 * from[0] + 2 * (1 - t) * t * mx + t * t * to[0], (1 - t) ** 2 * from[1] + 2 * (1 - t) * t * my + t * t * to[1]] as [number, number];
+    }) };
+  });
+  c.paint((x, y, cur) => {
+    let cover = 0;
+    for (const { width, pts } of points) {
+      const [ax, ay] = pts[0]!;
+      const [bx, by] = pts[23]!;
+      if (x < Math.min(ax, bx) - 8 || x > Math.max(ax, bx) + 8 || y < Math.min(ay, by) - 8 || y > Math.max(ay, by) + 8) continue;
+      let d = Infinity;
+      for (const [px, py] of pts) d = Math.min(d, Math.hypot(x + 0.5 - px, y + 0.5 - py));
+      cover = Math.max(cover, Math.min(1, Math.max(0, width / 2 + 0.5 - d)));
+    }
+    return cover > 0 ? mix(cur, hair, cover) : undefined;
+  });
+  return c.png();
+}
+
+/** A burst of white powder on black: its brightness is how dense it is. */
+function powder(): Promise<Buffer> {
+  const c = new Canvas();
+  c.paint((x, y) => {
+    const r = Math.hypot(x - 250, (y - 190) * 1.3) / 130;
+    const cloud = 0.7 + 0.3 * valueNoise(x, y, 26, 61) + 0.15 * valueNoise(x, y, 9, 62);
+    const density = Math.min(1, 1.25 * Math.max(0, 1 - r) ** 1.2 * cloud);
+    const v = 248 * density;
+    return add([v, v, v * 0.98], grain(x, y, 63) * 1.2);
+  });
+  return c.png();
+}
+
 export const FIXTURES: Record<string, () => Promise<Buffer>> = {
   portrait,
   product,
@@ -195,4 +292,8 @@ export const FIXTURES: Record<string, () => Promise<Buffer>> = {
   exterior,
   "old-photo": oldPhoto,
   landscape,
+  glass,
+  wood,
+  "studio-hair": studioHair,
+  powder,
 };

@@ -11,7 +11,7 @@ Pick the method by edge type:
 
 - **Hard edges:** a vector mask with an SVG path traced along the product (`{ "kind": "vector", "shape": { "kind": "path", "d": "…" } }`), with a small feather (0.5–1).
 - **Soft or complex edges:** `gen_prepare` `remove-background`, then import the cut-out above the original.
-- **Fine hair or fur, or glass:** a `channel` mask (see 18).
+- **Fine hair or fur:** `refine` with `smartRadius` (cutouts skill). **Glass:** the cutouts skill's `glass` recipe (see 18).
 - **Any rough mask on a soft edge:** add `refine` (Select and Mask): `{ "radius": 8, "decontaminate": 60 }` snaps the edge to the product's own pixels and removes the old background's colour from it.
 
 Check the edges at 200% (`canvas_render` scale 2 with a `region` via a stamp) for halos. Choke them with `minimum` 1 on a copy, or shrink the path.
@@ -64,11 +64,12 @@ For a cast shadow, use the product's shape: a `duplicate` with a black `color-ov
 
 ## 18. Glass cut-out
 
-Glass is transparent, so a hard mask looks fake. Build it in layers:
+Glass is transparent, so a hard mask looks fake: the backdrop it was shot on stays inside it. Rebuild it with the cutouts skill's `glass` recipe instead:
+- a group with the silhouette as its mask
+- inside it, a Shadows copy in multiply, a Highlights copy in screen and a Color copy in color, with a Solid layer for the cap and label
+- then add `glass-bend` for refraction and `glass-contact` for its shadow and caustic
 
-1. Shoot it (or keep it) on a plain background. Make two copies: one in `multiply`, with a `channel` mask on the darkest channel (edges and dark refractions), and one in `screen` with a `luminosity` lights mask (highlights).
-2. Put these over the new background colour: the background shows through the clear parts.
-3. Tint the glass with a `color-overlay` effect at 0.1–0.2 in the background's colour.
+The cutouts skill has the steps, settings and checks.
 
 ## 19. Ghost mannequin
 
