@@ -1,8 +1,16 @@
-# Landing page brief: Gesso 0.12.0
+# Landing page brief: Gesso 0.13.0
 
 This brief is for the session that maintains the Gesso landing page. Use it as the source of truth when you update the site's copy.
 
-**0.12.0 update:** claude.ai and ChatGPT now work, for free, through `https://mcp.gesso.run/mcp`. Change the two "Coming soon" install cards to it (exact copy in [install.md](install.md), in the landing-page tabs table). Add a "What's new" row for 0.12.0. Use `gesso-0.12.0.mcpb` wherever a filename shows a version. Everything else below still applies.
+**0.13.0 update:** Gesso now has its own masking engine for hard cut-outs, and a cutouts skill. Update:
+- **Features:** the Compositing points (group 3) and the cut-out check under Checking work (group 9).
+- **Workflows:** add the cut-outs skill (group 7).
+- **Numbers:** 31 skills and 56 recipes.
+- **What's new:** add a 0.13.0 row.
+- **Claims to avoid:** two new ones, under "What Gesso covers".
+- **Filenames:** use `gesso-0.13.0.mcpb` wherever a filename shows a version.
+
+**0.12.0 update (still applies):** claude.ai and ChatGPT work, for free, through `https://mcp.gesso.run/mcp`. The two install cards use it (exact copy in [install.md](install.md), in the landing-page tabs table). Everything else below still applies.
 
 Gesso 0.11.0 follows 0.10.0 on 25 October 2026. 0.10.0 added most of Photoshop's Filter, Image › Adjustments and Edit menus, every blend mode and layer style, retouching, and print output. 0.11.0 builds on that with:
 
@@ -22,24 +30,24 @@ Before you start, read the current site and compare it with this brief. Keep the
 
 1. **Hero.** Keep the core promise: agents build layered images as data, and the files open in Photoshop as editable PSDs. Use the subhead to show the breadth (options below).
 2. **Features.** Replace or extend the features section with the nine groups under [Feature groups](#feature-groups). "Checking work" (group 9) is new in 0.11, and groups 3, 5, 7 and 8 have new points.
-3. **Workflows.** The workflows section covers the five photo niches plus design and adaptation skills (30 skills in all).
+3. **Workflows.** The workflows section covers the five photo niches, cut-outs, and design and adaptation skills (31 skills in all).
 4. **"Opens in Photoshop."** Update the live and baked lists (see [What opens live in Photoshop](#what-opens-live-in-photoshop)). Some filters, distortions and warps are now live.
-5. **Numbers.** Use the updated counts under [Numbers you can quote](#numbers-you-can-quote): 21 tools, 30 skills and 51 recipes.
-6. **Install section.** The extension is still about 62 MB. Use `gesso-0.11.0.mcpb` wherever the filename shows a version.
+5. **Numbers.** Use the updated counts under [Numbers you can quote](#numbers-you-can-quote): 21 tools, 31 skills and 56 recipes.
+6. **Install section.** The extension is still about 62 MB. Use `gesso-0.13.0.mcpb` wherever the filename shows a version.
 7. **Claims.** Remove or fix anything listed under [Claims to avoid](#claims-to-avoid). Several 0.10 caveats no longer apply: auto-align and auto-blend, Calculations, and live smart filters.
 
 ## Release facts
 
 | Fact | Value |
 | --- | --- |
-| Version | 0.12.0, the `latest` tag of `gesso-mcp` on npm |
+| Version | 0.13.0, the `latest` tag of `gesso-mcp` on npm |
 | Claude Code | `claude mcp add gesso -- npx -y gesso-mcp` |
 | Other agents | Every config runs `npx -y gesso-mcp` and needs Node 22 or later |
-| Claude Desktop extension | `gesso-0.12.0.mcpb`, about 62 MB. Nothing else to install. |
+| Claude Desktop extension | `gesso-0.13.0.mcpb`, about 62 MB. Nothing else to install. |
 | claude.ai and ChatGPT | `https://mcp.gesso.run/mcp` as a custom connector (claude.ai) or a developer-mode app with OAuth (ChatGPT). Free, no account, nothing to install. Or `npx -y gesso-mcp --tunnel` to run it on your own computer. |
 | Platforms | macOS (Apple silicon and Intel), Windows, Linux |
 | Agent tools | 21 |
-| Bundled skills | 30, with 51 recipes |
+| Bundled skills | 31, with 56 recipes |
 | Licence | Apache-2.0, open source |
 | Repository | `github.com/bolenX/gesso`, **public**. Link to it from the hero or footer. |
 | Cost | Gesso is free. It never calls or pays for an image model: generative jobs go to the user's own connected tools. |
@@ -105,7 +113,8 @@ Image › Adjustments commands are also included: Shadows/Highlights, Desaturate
 - **Blend modes:** all 27, including Dissolve, Linear Burn and Dodge, Vivid, Linear and Pin Light, Hard Mix, Darker and Lighter Colour, Subtract and Divide.
 - **Blend If:** This Layer and Underlying Layer, with split sliders.
 - **Masks:** luminosity masks, colour range, channel masks and Calculations, alongside pixel and vector masks, clipping masks and groups. Masks recompute as the layers under them change.
-- **Select and Mask:** Refine Edge snaps a rough mask to hair, fur and leaves, and Decontaminate Colors removes the old background's colour from the edge.
+- **Select and Mask:** Refine Edge solves each edge pixel's opacity from the photo itself (matting), so hair and fur come through strand by strand. Smart Radius keeps hard edges crisp next to soft ones. Decontaminate Colors gives each strand its own colour back, without the old background's.
+- **Cut-outs without AI:** a studio-backdrop key that handles lighting falloff, a clean-plate key, choke and spread (Photoshop's Minimum and Maximum on a mask), and saturation masks.
 - **Selections from AI:** Select Subject, Select Sky, and face parts (skin, eyes, lips, hair) as masks, made by the user's own segmentation tool. A mask made on a photo follows that photo wherever it's used.
 - **Layer styles:** all ten of Photoshop's: drop shadow, inner shadow, outer glow, inner glow, bevel & emboss, satin, colour overlay, gradient overlay, pattern overlay and stroke. Gesso adds a background blur for frosted glass.
 
@@ -144,7 +153,7 @@ Image › Adjustments commands are also included: Shadows/Highlights, Desaturate
 
 **Skills that carry the craft.**
 
-The engine makes an edit possible; the bundled skills make it good. Gesso ships 30 skills that teach the agent how professionals use these tools. Each has checks for the agent to run on its result. Most have **recipes**: proven layer setups (a frequency separation, a flambient stack, a duotone, a contact shadow) that the agent applies in one step and then fine-tunes. All 51 recipes are tested against sample photos, with measurements, on every change to Gesso.
+The engine makes an edit possible; the bundled skills make it good. Gesso ships 31 skills that teach the agent how professionals use these tools. Each has checks for the agent to run on its result. Most have **recipes**: proven layer setups (a frequency separation, a flambient stack, a duotone, a contact shadow, see-through glass) that the agent applies in one step and then fine-tunes. All 56 recipes are tested against sample photos, with measurements, on every change to Gesso.
 
 Five of the skills cover 50 professional workflows, ten per niche:
 
@@ -156,8 +165,9 @@ Five of the skills cover 50 professional workflows, ten per niche:
 | Photo manipulation and digital art | Key visual composites, relighting, edge integration, atmospheric depth, texture mapping, particles and FX, silhouettes, palette harmonising, perspective matching, fantasy grading |
 | Restoration and archival | Damage assessment, cracks and tears, missing parts, moiré, grain, colourising, faded contrast, stains, glass and emulsion damage, archival TIFF masters |
 
-The other 25 skills:
+The other 26 skills:
 
+- **Cut-outs:** hair and fur, studio shots, smoke and powder, and glass rebuilt from blend modes so it stays see-through on any background, with its refraction, shadow and caustic.
 - **Graphic design:** poster composition, typography hierarchy, layout grids, brand application, duotone and double exposure.
 - **Adapting and campaigns:** adapt sizes, extreme-ratio relayout, typography reflow, social campaign sets, channel packs, safe zones, right-to-left localisation, resolution adaptation, data-driven variants and clean plates.
 - **Core techniques:** maps 50 core Photoshop techniques onto Gesso, from masking and dodge & burn to frequency separation, light wrap and soft proofing.
@@ -184,6 +194,7 @@ Gesso itself never calls or pays for a model.
 - **Before and after:** compare with an earlier version, side by side or as a difference image, with how much changed and where.
 - **Measure:** histogram, clipping, colour cast, saturation, sharpness, noise, and an eyedropper with skin-tone checks, like Photoshop's Histogram and Info panels.
 - **Preflight:** flags text in a platform's safe zones, type too small to read, enlarged images, and hidden or empty layers.
+- **Cut-out check (new in 0.13):** measures a cut-out's halo of old background, its edge width, leftover specks and holes, and shows it over black, white and red.
 
 ## How it works (unchanged)
 
@@ -227,6 +238,8 @@ For a section titled something like "Open it in Photoshop". Suggested copy:
 - Don't say Gesso has "every Photoshop feature". Say "most of Photoshop's Filter, Adjustments and Edit menus" or use the counts below.
 - Don't say every filter stays live in Photoshop. 25 export as live smart filters; the rest are live in Gesso and baked in the PSD.
 - Don't promise a lossless PSD round trip yet. When Gesso writes an imported PSD back out, it drops data it couldn't read, and it warns when it does.
+- Don't call Gesso's cut-outs "AI background removal". The matting and keys are Gesso's own maths and run anywhere. AI selections still come from the user's own tools.
+- Don't promise perfect hair on any background. Hair against a busy background of a similar colour is still hard, and the skill says so. Painting new fur strands with a brush isn't possible yet.
 
 **Features Gesso doesn't have:**
 
@@ -254,8 +267,8 @@ For a section titled something like "Open it in Photoshop". Suggested copy:
 | 7 | Export formats: PNG, JPEG, WebP, TIFF, PSD, SVG, PDF |
 | 25 | Filters that open in Photoshop as live smart filters |
 | 21 | Agent tools |
-| 30 | Skills |
-| 51 | Recipes, each tested against sample photos |
+| 31 | Skills |
+| 56 | Recipes, each tested against sample photos |
 | 50 + 50 | 50 professional workflows and 50 core techniques |
 | 400% | Deepest region zoom |
 
@@ -275,7 +288,8 @@ If the site has a changelog or "What's new" strip:
 
 | Version | What's in it |
 | --- | --- |
-| **0.12.0** | claude.ai and ChatGPT, free: connect to `https://mcp.gesso.run/mcp`, or run Gesso on your own computer with `npx -y gesso-mcp --tunnel` (with a pairing code, so only you can connect). Behind it: OAuth sign-in, worker processes and abuse limits |
+| **0.13.0** | A masking engine for hard cut-outs: hair solved strand by strand, Smart Radius, studio-backdrop and clean-plate keys, choke and spread, and a cut-out check. A cutouts skill, including see-through glass rebuilt from blend modes. Fixes for hosted servers: download links in claude.ai, no server paths in results, open-licence fonts only |
+| 0.12.0 | claude.ai and ChatGPT, free: connect to `https://mcp.gesso.run/mcp`, or run Gesso on your own computer with `npx -y gesso-mcp --tunnel` (with a pairing code, so only you can connect). Behind it: OAuth sign-in, worker processes and abuse limits |
 | 0.11.0 | Zoom, compare and measure, preflight, 30 skills with 51 tested recipes, Select and Mask, Calculations, Auto-Align and Auto-Blend, AI selections (subject, sky, face parts) on your own tools, one expand for every size, live smart filters and warps in the PSD, self-hosting |
 | 0.10.0 | Photoshop's Filter menu as smart filters, every adjustment layer, all blend modes and layer styles, Blend If and computed masks, boolean shapes and free transform, content-aware fill, healing and cloning, TIFF and CMYK export, slices, batch runs, and 11 workflow skills |
 | 0.9.0 | SVG export, print PDF with bleed and crop marks, text on a path, more filters (radial blur, noise, sharpen, twirl, wave, shear, pixelate) |

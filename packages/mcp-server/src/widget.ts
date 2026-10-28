@@ -166,7 +166,7 @@ function fileCard(f, all) {
   card.append(thumb, meta);
   return card;
 }
-const app = new globalThis.GessoApp({ name: "Gesso", version: "0.12.0" });
+const app = new globalThis.GessoApp({ name: "Gesso", version: "0.13.0" });
 app.ontoolresult = (result) => { if (result?.structuredContent?.gesso) show(result.structuredContent.gesso, result.content ?? []); };
 await app.connect();
 </script></body></html>`;

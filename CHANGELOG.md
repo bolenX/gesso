@@ -2,7 +2,9 @@
 
 Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each version's notes become its GitHub release.
 
-## Unreleased
+## 0.13.0 (2026-10-28)
+
+0.13.0 gives Gesso its own masking engine for hard cut-outs (hair, fur, glass, smoke), a cutouts skill built from professional Photoshop technique, and fixes for hosted servers found by running every tool through claude.ai.
 
 - **A real masking engine for hair, fur and fine edges.** Select and Mask (`refine`) now solves each edge pixel's opacity from the layer's own pixels with closed-form matting, guided by a local colour estimate, so a rough mask snaps to hair strand by strand. On a synthetic hair test with known answers, a decent rough mask's edge error dropped about fourfold compared with 0.12, and on a busy background it improved too.
   - **`smartRadius`** keeps the full radius only where the edge has fine detail, and a narrow band along clean edges.
