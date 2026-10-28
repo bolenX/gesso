@@ -92,7 +92,19 @@ Two keys make the rough mask for you, then `refine` takes it to the hair:
 "mask": { "kind": "difference", "plate": "empty-set", "refine": { "radius": 10 } }
 ```
 
-On their own the keys are hard-edged: always add `refine` for hair. Raise `tolerance` if backdrop shows through in shadows, and lower it if pale parts of the subject drop out.
+On their own the keys are hard-edged: always add `refine` for hair. Raise `tolerance` if backdrop shows through in shadows, and lower it if pale parts of the subject drop out. `fillHoles` fills see-through pockets inside the subject, which is how a glass object's key becomes its silhouette.
+
+### Choke and spread
+
+Any mask takes `choke`, applied after everything else:
+- **Positive (px):** pulls the edge in, like Photoshop's Minimum on a mask: 1–3 removes a rim of old background.
+- **Negative:** pushes it out, like Maximum: it recovers an edge cut too tight, or makes a sticker outline.
+
+`chokeShape` is `round` (the default, for people and organic shapes) or `square` (for straight-edged objects). The cutouts skill covers when to use which method, and the check loop.
+
+### Saturation masks
+
+`{ "kind": "saturation", "black": 10, "white": 50 }` selects by how colourful pixels are. Use it to apply something only to coloured parts (a glass's tint, not the clear glass) or, inverted, only to neutral ones.
 
 A vector mask with `stroke` (a width in px) is the path's outline instead of its area, with round ends: a brush stroke along the path, for dodge & burn lines and painted-in edges. Shape layers' `stroke` also takes `cap` (`butt`, `round`, `square`) and `join` (`miter`, `round`, `bevel`).
 

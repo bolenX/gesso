@@ -4,7 +4,7 @@ import { boxMean, colourLine, estimateForeground, makeTrimap, matte } from "./ma
 
 // Masks computed from pixels, and Blend If. Both read straight 8-bit RGBA.
 
-type Computed = Extract<Mask, { kind: "luminosity" | "color-range" | "channel" }>;
+type Computed = Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "saturation" }>;
 
 const smooth = (a: number, b: number, v: number) => {
   if (b <= a) return v >= b ? 1 : 0;
@@ -22,7 +22,7 @@ export function computeMask(pixels: Uint8Array, mask: Computed): Uint8Array {
   const reach = mask.kind === "color-range" ? Math.max(1, mask.fuzziness * 0.5) : 1;
   const level = mask.kind === "luminosity" ? (mask.level ?? 1) : 1;
   const channel = mask.kind === "channel" ? { red: 0, green: 1, blue: 2 }[mask.channel] : 0;
-  const [black, white] = mask.kind === "channel" ? [mask.black ?? 0, mask.white ?? 255] : [0, 255];
+  const [black, white] = mask.kind === "channel" || mask.kind === "saturation" ? [mask.black ?? 0, mask.white ?? 255] : [0, 255];
   for (let i = 0; i < n; i++) {
     const o = i * 4;
     let m: number;
@@ -40,6 +40,10 @@ export function computeMask(pixels: Uint8Array, mask: Computed): Uint8Array {
       rgbToLab(pixels[o]! / 255, pixels[o + 1]! / 255, pixels[o + 2]! / 255, lab);
       const d = Math.sqrt((lab[0]! - target[0]!) ** 2 + (lab[1]! - target[1]!) ** 2 + (lab[2]! - target[2]!) ** 2);
       m = Math.max(0, 1 - d / reach);
+    } else if (mask.kind === "saturation") {
+      const hi = Math.max(pixels[o]!, pixels[o + 1]!, pixels[o + 2]!);
+      const sat = hi ? ((hi - Math.min(pixels[o]!, pixels[o + 1]!, pixels[o + 2]!)) / hi) * 255 : 0;
+      m = Math.min(1, Math.max(0, (sat - black) / Math.max(1, white - black)));
     } else {
       m = Math.min(1, Math.max(0, (pixels[o + channel]! - black) / Math.max(1, white - black)));
     }
@@ -203,4 +207,58 @@ export function refineMask(content: Uint8Array, coverage: Uint8Array, w: number,
     }
   }
   return { coverage: out, content: clean };
+}
+
+// ── Choke and spread ─────────────────────────────────────────────────────────────────────
+
+/** Running minimum (or maximum) over a window of half-width k along each row, edges repeating (van Herk). */
+function rowExtreme(src: Uint8Array, w: number, h: number, k: number, min: boolean): Uint8Array {
+  const out = new Uint8Array(w * h);
+  if (k === 0) {
+    out.set(src);
+    return out;
+  }
+  const size = 2 * k + 1;
+  const len = w + 2 * k;
+  const row = new Uint8Array(len);
+  const fwd = new Uint8Array(len);
+  const back = new Uint8Array(len);
+  const pick = min ? (a: number, b: number) => (a < b ? a : b) : (a: number, b: number) => (a > b ? a : b);
+  for (let y = 0; y < h; y++) {
+    const o = y * w;
+    for (let x = 0; x < len; x++) row[x] = src[o + Math.min(w - 1, Math.max(0, x - k))]!;
+    for (let x = 0; x < len; x++) fwd[x] = x % size === 0 ? row[x]! : pick(fwd[x - 1]!, row[x]!);
+    for (let x = len - 1; x >= 0; x--) back[x] = x === len - 1 || (x + 1) % size === 0 ? row[x]! : pick(back[x + 1]!, row[x]!);
+    // The window [x, x + 2k] in the padded row is pixel x's neighbourhood.
+    for (let x = 0; x < w; x++) out[o + x] = pick(back[x]!, fwd[x + 2 * k]!);
+  }
+  return out;
+}
+
+/**
+ * Filter › Other › Minimum (positive `amount`, px: chokes the mask's edge in) or Maximum (negative: spreads it
+ * out) on a mask, over a round window, or a square one. Cost grows with the radius only through the rows a
+ * round window spans.
+ */
+export function chokeMask(coverage: Uint8Array, w: number, h: number, amount: number, square = false): Uint8Array {
+  const r = Math.abs(amount);
+  if (r < 0.5) return coverage;
+  const min = amount > 0;
+  const R = Math.floor(r);
+  const rows = new Map<number, Uint8Array>();
+  const across = (k: number) => rows.get(k) ?? rows.set(k, rowExtreme(coverage, w, h, k, min)).get(k)!;
+  const out = new Uint8Array(w * h).fill(min ? 255 : 0);
+  for (let dy = -R; dy <= R; dy++) {
+    const half = square ? R : Math.floor(Math.sqrt(r * r - dy * dy));
+    const rowsK = across(half);
+    for (let y = 0; y < h; y++) {
+      const src = Math.min(h - 1, Math.max(0, y + dy)) * w;
+      const dst = y * w;
+      for (let x = 0; x < w; x++) {
+        const v = rowsK[src + x]!;
+        if (min ? v < out[dst + x]! : v > out[dst + x]!) out[dst + x] = v;
+      }
+    }
+  }
+  return out;
 }

@@ -73,6 +73,43 @@ describe("Blend If", () => {
   });
 });
 
+describe("pass-through groups with a mask", () => {
+  it("lets the layers inside blend with what's below, then masks the result (Photoshop's pass-through)", async () => {
+    // Grey below; inside a group masked to the left half, a red Multiply copy and an opacity-50% group.
+    const doc: Doc = {
+      id: "g",
+      revision: 0,
+      assets: {},
+      artboards: [
+        {
+          id: "a",
+          name: "A",
+          frame: { x: 0, y: 0, w: 20, h: 10 },
+          background: "#808080",
+          layers: [
+            {
+              id: "grp",
+              name: "grp",
+              type: "group",
+              frame: { x: 0, y: 0, w: 20, h: 10 },
+              mask: { kind: "vector", shape: { kind: "rect" }, frame: { x: 0, y: 0, w: 10, h: 10 } },
+              children: [rect("red", "#FF0000", { x: 0, y: 0, w: 20, h: 10 }, { blend: "multiply" })],
+            } as Layer,
+          ],
+        },
+      ],
+    };
+    const out = (await renderArtboard(doc, "a")).pixels;
+    // Inside: red multiplied with the grey below (not red on its own, as an isolated group would give).
+    expect(px(out, 3, 5)).toEqual([128, 0, 0]);
+    // Outside the mask: the grey untouched.
+    expect(px(out, 15, 5)).toEqual([128, 128, 128]);
+    // Opacity alone fades between the two.
+    const faded = (await renderArtboard({ ...doc, artboards: [{ ...doc.artboards[0]!, layers: [{ ...(doc.artboards[0]!.layers[0] as object), mask: undefined, opacity: 0.5 } as Layer] }] }, "a")).pixels;
+    px(faded, 15, 5).forEach((v, c) => expect(Math.abs(v - [128, 64, 64][c]!)).toBeLessThanOrEqual(1));
+  });
+});
+
 describe("compound shapes", () => {
   const ring = (op: "add" | "subtract" | "intersect" | "exclude"): Doc => ({
     id: "c",

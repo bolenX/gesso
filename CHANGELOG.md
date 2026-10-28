@@ -12,6 +12,16 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
   - `backdrop`: a subject on a plain studio backdrop, lighting falloff included.
   - `difference`: against a clean plate, the same scene shot without the subject.
   Both export to PSD as layer masks.
+- **A cutouts skill** for hair, fur, glass, smoke and studio shots, written from Photoshop masking tutorials, with five recipes:
+  - `studio-cutout`: a backdrop key with hair solved and the edge colour cleaned, in one step.
+  - `glass`: a glass object rebuilt as a group of Shadows (multiply), Highlights (screen) and Color copies, with a Solid layer for the cap and label, so it's see-through on any background.
+  - `glass-bend`: refraction, the background bowed inside the glass.
+  - `glass-contact`: a cast shadow and a caustic in the liquid's colour.
+  - `light-on-dark`: powder, smoke and sparks cut out by their own brightness.
+- **`choke` on any mask:** Minimum (positive px) or Maximum (negative) on the finished mask, round or square, to remove a halo or recover an edge.
+- **`fillHoles` on backdrop and clean-plate keys:** see-through pockets inside the subject become solid, so a key on glass gives its silhouette.
+- **Saturation masks:** select by how colourful pixels are.
+- **Pass-through groups with a mask or opacity work as in Photoshop:** the layers inside blend with what's below the group, and the mask fades between that and what was there. Before, a masked group was rendered on its own, so blend modes inside it couldn't reach the layers beneath.
 - **Cut-out checks:** `canvas_inspect` with `matte: true` measures a cut-out's soft-edge width, its halo of old background (and whether it shows on dark or light backgrounds), specks and holes. `map: "matte"` shows it over black, white and red.
 - **Download links in claude.ai:** export results now carry each file's download link in their structured part too. Some hosts, claude.ai among them, show the model only that part, so the links never arrived.
 - **Hosted servers keep their own folders private:** every result, warning and error names files relative to the workspace, and the home folder as `~`. That covers `manifest.json` and `job.json` on disk. Results used to show the server's user name and the workspace's folder, which is its key.
