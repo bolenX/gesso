@@ -1,5 +1,6 @@
 import type { BlendIf, Mask, Refine } from "@gesso/core";
 import { rgbToLab } from "./cpu.js";
+import { boxMean, colourLine, estimateForeground, makeTrimap, matte } from "./matting.js";
 
 // Masks computed from pixels, and Blend If. Both read straight 8-bit RGBA.
 
@@ -129,92 +130,77 @@ export function computeCalculations(a: Uint8Array, b: Uint8Array, mask: Calculat
 
 // ── Refine Edge ──────────────────────────────────────────────────────────────────────────
 
-/** Mean over a (2r+1)² box, edges repeating; separable running sums, so its cost doesn't depend on r. */
-function boxMean(p: Float32Array, w: number, h: number, r: number): Float32Array {
-  const tmp = new Float32Array(w * h);
-  const out = new Float32Array(w * h);
-  const n = 2 * r + 1;
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    let s = 0;
-    for (let k = -r; k <= r; k++) s += p[row + Math.min(w - 1, Math.max(0, k))]!;
-    for (let x = 0; x < w; x++) {
-      tmp[row + x] = s / n;
-      s += p[row + Math.min(w - 1, x + r + 1)]! - p[row + Math.max(0, x - r)]!;
-    }
-  }
-  for (let x = 0; x < w; x++) {
-    let s = 0;
-    for (let k = -r; k <= r; k++) s += tmp[Math.min(h - 1, Math.max(0, k)) * w + x]!;
-    for (let y = 0; y < h; y++) {
-      out[y * w + x] = s / n;
-      s += tmp[Math.min(h - 1, y + r + 1) * w + x]! - tmp[Math.max(0, y - r) * w + x]!;
-    }
-  }
-  return out;
-}
-
 /**
- * Select and Mask: the band within `radius` of the mask's edge is treated as unknown, like Refine Edge's
- * edge detection. There, each pixel's opacity comes from its colour: where it falls between the subject's
- * colour (averaged from the solid inside nearby) and the background's (from the clear outside nearby). Hair
- * strands and leaves that are darker or lighter than the background come through, even past the rough edge.
- * The result is then smoothed, hardened and shifted. Decontaminating replaces the old background's colour in
- * the soft edge with the subject's. `content` and the result are straight RGBA; `scale` is the render scale.
+ * Select and Mask. The band within `radius` of the mask's edge (with smart radius, only where the edge has
+ * fine detail) is solved for opacity from the layer's own pixels by closed-form matting, so hair and fur come
+ * through strand by strand (matting.ts). The result is then smoothed, hardened and shifted. Decontaminating
+ * replaces the old background's colour in the soft edge with the subject's own, estimated pixel by pixel.
+ * `content` and the result are straight RGBA; `scale` is the render scale. Only the area around the edge is
+ * worked on.
  */
 export function refineMask(content: Uint8Array, coverage: Uint8Array, w: number, h: number, refine: Refine, scale = 1): { coverage: Uint8Array; content?: Uint8Array } {
   const n = w * h;
   const r = Math.max(1, Math.round((refine.radius ?? 4) * scale));
-  const m = new Float32Array(n);
-  for (let i = 0; i < n; i++) m[i] = coverage[i]! / 255;
-  // The unknown band: anything whose neighbourhood holds both inside and outside.
-  const near = boxMean(m, w, h, r);
-  // Solid inside and clear outside, and the average colour of each around every pixel (a wider window, to find samples).
-  const fg = m.map((v) => (v >= 0.98 ? 1 : 0));
-  const bg = m.map((v) => (v <= 0.02 ? 1 : 0));
   const reach = r * 2;
-  const fgWeight = boxMean(fg, w, h, reach);
-  const bgWeight = boxMean(bg, w, h, reach);
-  const fgColour = [0, 1, 2].map((c) => boxMean(fg.map((f, i) => f * content[i * 4 + c]!), w, h, reach));
-  const bgColour = [0, 1, 2].map((c) => boxMean(bg.map((b, i) => b * content[i * 4 + c]!), w, h, reach));
-  let alpha: Float32Array = new Float32Array(n);
-  const F = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    alpha[i] = m[i]!;
-    if (near[i]! <= 0.001 || near[i]! >= 0.999 || fgWeight[i]! < 1e-3 || bgWeight[i]! < 1e-3) continue;
-    let [dot, len] = [0, 0];
-    for (let c = 0; c < 3; c++) {
-      const f = fgColour[c]![i]! / fgWeight[i]!;
-      const b = bgColour[c]![i]! / bgWeight[i]!;
-      F[i * 3 + c] = f;
-      dot += (content[i * 4 + c]! - b) * (f - b);
-      len += (f - b) ** 2;
+  // The area to work on: around every soft pixel and every step between in and out.
+  let [x0, y0, x1, y1] = [w, h, -1, -1];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const v = coverage[i]!;
+      const edge = (x + 1 < w && v >= 128 !== coverage[i + 1]! >= 128) || (y + 1 < h && v >= 128 !== coverage[i + w]! >= 128);
+      if (!edge && (v <= 5 || v >= 250)) continue;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
     }
-    // Inside and outside look alike here: colour can't tell them apart, so the rough mask stands.
-    if (len < 400) continue;
-    alpha[i] = Math.min(1, Math.max(0, dot / len));
   }
-  if (refine.smooth) {
-    const k = Math.max(1, Math.round((r * refine.smooth) / 200));
-    alpha = boxMean(alpha, w, h, k);
+  const alpha = new Float64Array(n);
+  for (let i = 0; i < n; i++) alpha[i] = coverage[i]! / 255;
+  let fore: { F: [Float64Array, Float64Array, Float64Array]; box: [number, number, number, number] } | undefined;
+  if (x1 >= 0) {
+    const margin = reach + r + 4;
+    [x0, y0, x1, y1] = [Math.max(0, x0 - margin), Math.max(0, y0 - margin), Math.min(w - 1, x1 + margin), Math.min(h - 1, y1 + margin)];
+    const [cw, ch] = [x1 - x0 + 1, y1 - y0 + 1];
+    const crop = (get: (i: number) => number) => {
+      const out = new Float64Array(cw * ch);
+      for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) out[y * cw + x] = get((y + y0) * w + x + x0);
+      return out;
+    };
+    const I = [0, 1, 2].map((c) => crop((i) => content[i * 4 + c]! / 255)) as [Float64Array, Float64Array, Float64Array];
+    const m = crop((i) => alpha[i]!);
+    const estimate = colourLine(I, m, cw, ch, reach);
+    const tri = makeTrimap(I, m, cw, ch, r, refine.smartRadius ?? false, estimate);
+    const solved = matte(I, tri, estimate, cw, ch, { prior: { value: estimate, weight: estimate.confidence! } });
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) alpha[(y + y0) * w + x + x0] = solved[y * cw + x]!;
+    if (refine.decontaminate) fore = { F: estimateForeground(I, solved, cw, ch), box: [x0, y0, cw, ch] };
   }
+  let shaped: Float64Array = alpha;
+  if (refine.smooth) shaped = boxMean(alpha, w, h, Math.max(1, Math.round((r * refine.smooth) / 200)));
   const shift = (refine.shift ?? 0) / 200;
   const gain = 1 + ((refine.contrast ?? 0) / 100) * 9;
   const out = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    const v = Math.min(1, Math.max(0, (alpha[i]! - 0.5 + shift) * gain + 0.5));
-    alpha[i] = v;
+    const v = Math.min(1, Math.max(0, (shaped[i]! - 0.5 + shift) * gain + 0.5));
+    shaped[i] = v;
     out[i] = Math.round(v * 255);
   }
-  if (!refine.decontaminate) return { coverage: out };
+  if (!refine.decontaminate || !fore) return { coverage: out };
   const amount = refine.decontaminate / 100;
   const clean = content.slice();
-  for (let i = 0; i < n; i++) {
-    const a = alpha[i]!;
-    if (a <= 0 || a >= 1 || fgWeight[i]! < 1e-3 || F[i * 3]! + F[i * 3 + 1]! + F[i * 3 + 2]! === 0) continue;
-    // The pixel's colour is a·subject + (1 − a)·background: keep the subject's part.
-    const t = amount * (1 - a);
-    for (let c = 0; c < 3; c++) clean[i * 4 + c] = Math.round(Math.min(255, Math.max(0, content[i * 4 + c]! + (F[i * 3 + c]! - content[i * 4 + c]!) * t)));
+  const [bx, by, bw, bh] = fore.box;
+  for (let y = 0; y < bh; y++) {
+    for (let x = 0; x < bw; x++) {
+      const i = (y + by) * w + x + bx;
+      const a = shaped[i]!;
+      if (a <= 0 || a >= 1) continue;
+      // The pixel's colour is a·subject + (1 − a)·background: keep the subject's part.
+      for (let c = 0; c < 3; c++) {
+        const f = fore.F[c]![y * bw + x]! * 255;
+        clean[i * 4 + c] = Math.round(Math.min(255, Math.max(0, content[i * 4 + c]! + (f - content[i * 4 + c]!) * amount)));
+      }
+    }
   }
   return { coverage: out, content: clean };
 }

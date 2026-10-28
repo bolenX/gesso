@@ -367,3 +367,157 @@ export function sideBySide(before: Rendered, after: Rendered, gap = 6): Rendered
   put(after, before.width + gap);
   return { ...after, width: w, height: h, pixels: out };
 }
+
+// ── Cut-outs ─────────────────────────────────────────────────────────────────────────────
+
+/** How a cut-out's edge holds up: what a retoucher checks over black, white and red before handing one over. */
+export type Matte = {
+  /** Share of the image the cut-out covers solidly (98% opacity or more), in percent. */
+  solid: number;
+  /** Soft edge pixels (2–98% opacity) as a share of the solid area, in percent: hair and fur have plenty. */
+  soft: number;
+  /** Typical width of the soft edge, in pixels: about 1 for a clean hard edge, more for hair, very wide for a blurry matte. */
+  edgeWidth: number;
+  /** How far the edge's colours stray from the subject's own colour just inside it (mean ΔE): under 10 is clean, over 20 shows as a fringe of the old background. */
+  halo: number;
+  /** Which way the stray colour goes, so which new backgrounds will show it: a lighter fringe shows on dark ones, a darker fringe on light ones. */
+  haloTone: "lighter" | "darker" | "none";
+  /** Separate bits much smaller than the subject: specks of background left behind, or loose strands. */
+  specks: number;
+  /** See-through holes inside the subject: a dropout (a pale shirt keyed out with the backdrop) or a real gap (between an arm and the body). */
+  holes: number;
+  /** Their area, as a share of the solid area, in percent. */
+  holeArea: number;
+};
+
+/** Connected regions (4-neighbours) of the pixels that are set, as sizes and a label per pixel (−1 for unset). */
+function regions(on: Uint8Array, w: number, h: number): { sizes: number[]; label: Int32Array } {
+  const label = new Int32Array(w * h).fill(-1);
+  const sizes: number[] = [];
+  const stack: number[] = [];
+  for (let start = 0; start < w * h; start++) {
+    if (!on[start] || label[start]! >= 0) continue;
+    const id = sizes.length;
+    let size = 0;
+    label[start] = id;
+    stack.push(start);
+    while (stack.length) {
+      const i = stack.pop()!;
+      size++;
+      const [x, y] = [i % w, Math.floor(i / w)];
+      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
+        if (j < 0 || !on[j] || label[j]! >= 0) continue;
+        label[j] = id;
+        stack.push(j);
+      }
+    }
+    sizes.push(size);
+  }
+  return { sizes, label };
+}
+
+/** Measures a cut-out rendered alone (on transparency): its solid and soft areas, edge width, halo, specks and holes. */
+export function matteReport(r: Rendered): Matte {
+  const { width: w, height: h, pixels: p } = r;
+  const n = w * h;
+  const a = (i: number) => p[i * 4 + 3]! / 255;
+  let [solid, soft, contour] = [0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    const v = a(i);
+    if (v >= 0.98) solid++;
+    else if (v > 0.02) soft++;
+    if (v < 0.5) continue;
+    const [x, y] = [i % w, Math.floor(i / w)];
+    if ((x > 0 && a(i - 1) < 0.5) || (x < w - 1 && a(i + 1) < 0.5) || (y > 0 && a(i - w) < 0.5) || (y < h - 1 && a(i + w) < 0.5)) contour++;
+  }
+  // The subject's colour just inside the edge: solid pixels' colour, averaged nearby.
+  const r6 = 6;
+  const weight = new Float32Array(n);
+  const sums = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+  for (let i = 0; i < n; i++) {
+    if (a(i) < 0.98) continue;
+    weight[i] = 1;
+    for (let c = 0; c < 3; c++) sums[c]![i] = p[i * 4 + c]!;
+  }
+  const box = (src: Float32Array) => {
+    const tmp = new Float32Array(n);
+    const out = new Float32Array(n);
+    for (let y = 0; y < h; y++) {
+      let s = 0;
+      for (let x = 0; x <= Math.min(w - 1, r6); x++) s += src[y * w + x]!;
+      for (let x = 0; x < w; x++) {
+        tmp[y * w + x] = s;
+        if (x + r6 + 1 < w) s += src[y * w + x + r6 + 1]!;
+        if (x - r6 >= 0) s -= src[y * w + x - r6]!;
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let y = 0; y <= Math.min(h - 1, r6); y++) s += tmp[y * w + x]!;
+      for (let y = 0; y < h; y++) {
+        out[y * w + x] = s;
+        if (y + r6 + 1 < h) s += tmp[(y + r6 + 1) * w + x]!;
+        if (y - r6 >= 0) s -= tmp[(y - r6) * w + x]!;
+      }
+    }
+    return out;
+  };
+  const near = box(weight);
+  const means = sums.map(box);
+  const [edge, inner] = [new Float64Array(3), new Float64Array(3)];
+  let [halo, tone, counted] = [0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    const v = a(i);
+    if (v <= 0.1 || v >= 0.9 || near[i]! < 1) continue;
+    rgbToLab(p[i * 4]! / 255, p[i * 4 + 1]! / 255, p[i * 4 + 2]! / 255, edge);
+    rgbToLab(means[0]![i]! / near[i]! / 255, means[1]![i]! / near[i]! / 255, means[2]![i]! / near[i]! / 255, inner);
+    halo += Math.hypot(edge[0]! - inner[0]!, edge[1]! - inner[1]!, edge[2]! - inner[2]!);
+    tone += edge[0]! - inner[0]!;
+    counted++;
+  }
+  // Bits of the cut-out much smaller than its main part.
+  const filled = Uint8Array.from({ length: n }, (_, i) => (a(i) >= 0.5 ? 1 : 0));
+  const parts = regions(filled, w, h);
+  const largest = Math.max(0, ...parts.sizes);
+  const specks = parts.sizes.filter((s) => s < Math.max(4, largest * 0.002)).length;
+  // Holes: see-through pockets that don't reach the image's edge.
+  const clear = Uint8Array.from(filled, (v) => 1 - v);
+  const pockets = regions(clear, w, h);
+  const outer = new Set<number>();
+  for (let x = 0; x < w; x++) for (const y of [0, h - 1]) if (clear[y * w + x]) outer.add(pockets.label[y * w + x]!);
+  for (let y = 0; y < h; y++) for (const x of [0, w - 1]) if (clear[y * w + x]) outer.add(pockets.label[y * w + x]!);
+  const inside = pockets.sizes.map((size, id) => (outer.has(id) || size < 4 ? 0 : size)).filter((s) => s > 0);
+  const meanTone = counted ? tone / counted : 0;
+  const round = (v: number, d = 1) => Math.round(v * 10 ** d) / 10 ** d;
+  return {
+    solid: round((solid / n) * 100),
+    soft: round(solid ? (soft / solid) * 100 : 0),
+    edgeWidth: round(contour ? soft / contour : 0),
+    halo: round(counted ? halo / counted : 0),
+    haloTone: Math.abs(meanTone) < 3 ? "none" : meanTone > 0 ? "lighter" : "darker",
+    specks,
+    holes: inside.length,
+    holeArea: round(solid ? (inside.reduce((s, v) => s + v, 0) / solid) * 100 : 0),
+  };
+}
+
+/** A cut-out four ways, two by two: its mask, and it over black, white and red, where fringes and specks show. */
+export function matteMap(r: Rendered, gap = 6): Rendered {
+  const { width: w, height: h, pixels: p } = r;
+  const W = w * 2 + gap;
+  const H = h * 2 + gap;
+  const out = new Uint8Array(W * H * 4).fill(255);
+  const tiles: Array<[number, number, [number, number, number] | undefined]> = [[0, 0, undefined], [w + gap, 0, [0, 0, 0]], [0, h + gap, [255, 255, 255]], [w + gap, h + gap, [255, 0, 0]]];
+  for (const [ox, oy, back] of tiles) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const o = ((oy + y) * W + ox + x) * 4;
+        const a = p[i + 3]! / 255;
+        for (let c = 0; c < 3; c++) out[o + c] = back ? Math.round(p[i + c]! * a + back[c]! * (1 - a)) : p[i + 3]!;
+        out[o + 3] = 255;
+      }
+    }
+  }
+  return { ...r, width: W, height: H, pixels: out };
+}

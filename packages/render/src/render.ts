@@ -21,6 +21,7 @@ import { extractFace } from "./fonts.js";
 import { meshVertices } from "./mesh.js";
 import { DISSOLVE, setBlend } from "./blend.js";
 import { blendIfWeights, computeCalculations, computeMask, refineMask } from "./masks.js";
+import { backdropKey, differenceKey, planesOf } from "./matting.js";
 import { seamMap } from "./retouch.js";
 import { boxPlane, gaussBlur, readRaster, writeRaster } from "./cpu.js";
 import { applyFilter, filterReach, type FilterKit } from "./filters.js";
@@ -1726,7 +1727,30 @@ class Compositor {
 
   /** Adjustment layers recolour everything below them in scope, weighted by opacity, mask and clip base. */
   /** A computed mask's coverage per output pixel, from a layer or from what's below. */
-  private computedMask(mask: Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "calculations" }>, parent: Box, layerId: string | undefined, below: Surface | undefined): Uint8Array {
+  private computedMask(mask: Extract<Mask, { kind: "luminosity" | "color-range" | "channel" | "calculations" | "backdrop" | "difference" }>, parent: Box, layerId: string | undefined, below: Surface | undefined): Uint8Array {
+    if (mask.kind === "backdrop" || mask.kind === "difference") {
+      // Keys read the layer's own pixels by default (the photo being cut out), or a source layer's.
+      const read = (id: string | undefined, what: string) => {
+        const layer = id ? this.byId.get(id) : undefined;
+        if (!layer) throw new Error(`${what} refers to missing layer "${id}"`);
+        const image = this.nested(() => this.renderLayer(layer, parent, false));
+        const pixels = image.readPixels(0, 0, this.info(this.ck.AlphaType.Unpremul)) as Uint8Array;
+        image.delete();
+        return pixels;
+      };
+      const pixels = read(mask.source ?? layerId, "Mask");
+      const n = this.width * this.height;
+      const opaque = new Uint8Array(n);
+      for (let i = 0; i < n; i++) opaque[i] = pixels[i * 4 + 3]! > 127 ? 1 : 0;
+      const I = planesOf(pixels, n);
+      const alpha =
+        mask.kind === "backdrop"
+          ? backdropKey(I, opaque, this.width, this.height, { ...(mask.color ? { color: [1, 3, 5].map((k) => parseInt(mask.color!.slice(k, k + 2), 16) / 255) as [number, number, number] } : {}), ...(mask.tolerance ? { tolerance: mask.tolerance } : {}) })
+          : differenceKey(I, planesOf(read(mask.plate, "Clean plate"), n), opaque, n, mask.tolerance);
+      const coverage = new Uint8Array(n);
+      for (let i = 0; i < n; i++) coverage[i] = Math.round((mask.invert ? (opaque[i] ? 1 - alpha[i]! : 0) : alpha[i]!) * 255);
+      return coverage;
+    }
     if (mask.kind === "calculations") {
       const given = layerId ? this.givenMasks?.get(layerId) : undefined;
       if (given && given.length === this.width * this.height) return given;

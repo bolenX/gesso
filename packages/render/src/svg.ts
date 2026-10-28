@@ -1,5 +1,5 @@
 import type { Artboard, Doc, Layer, Paint } from "@gesso/core";
-import { isComputedMask, isStandardBlend, paintColor } from "@gesso/core";
+import { isComputedMask, isKeyMask, isStandardBlend, paintColor } from "@gesso/core";
 import sharp from "sharp";
 import { defaultAssetLoader, type AssetLoader } from "./assets.js";
 import { extractFace } from "./fonts.js";
@@ -83,7 +83,7 @@ function needsBackdrop(layer: Layer, pdf = false): boolean {
   if (!isStandardBlend(layer.blend)) return true;
   // Blend If and masks computed from what's below read the pixels beneath.
   if (layer.blendIf) return true;
-  if (isComputedMask(layer.mask) && (layer.mask.kind === "calculations" ? [layer.mask.a.source, layer.mask.b.source] : [layer.mask.source]).some((s) => (s ?? "below") === "below")) return true;
+  if (isComputedMask(layer.mask) && !isKeyMask(layer.mask) && (layer.mask.kind === "calculations" ? [layer.mask.a.source, layer.mask.b.source] : [layer.mask.source]).some((s) => (s ?? "below") === "below")) return true;
   return layer.type === "group" && layer.children.some((c) => needsBackdrop(c, pdf));
 }
 

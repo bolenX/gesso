@@ -4,6 +4,8 @@ import { Doc, docIssues, GENERATOR, type Op, GESSO_URL, GESSO_VERSION, isConflic
 import {
   clippingMap,
   cropRendered,
+  matteMap,
+  matteReport,
   defaultAssetLoader,
   difference,
   encode,
@@ -803,7 +805,7 @@ export function createServer({
     "canvas_inspect",
     {
       description:
-        "Measure an artboard (or a region, or some layers alone) at full size, like Photoshop's Histogram and Info panels: tonal range, clipping, contrast, colour cast, saturation, sharpness and noise, plus eyedropper samples (hex, RGB, HSB, Lab, and the vectorscope angle against the skin-tone line). A map shows clipped pixels or where the detail is. Use it to check retouching and grading with numbers, before and after a change.",
+        "Measure an artboard (or a region, or some layers alone) at full size, like Photoshop's Histogram and Info panels: tonal range, clipping, contrast, colour cast, saturation, sharpness and noise, plus eyedropper samples (hex, RGB, HSB, Lab, and the vectorscope angle against the skin-tone line). A map shows clipped pixels or where the detail is. Use it to check retouching and grading with numbers, before and after a change. With matte and layers, it checks a cut-out's edge: soft-edge width, halo of the old background, specks and holes.",
       inputSchema: {
         doc: docId,
         artboard: z.string().optional().describe("Needed when the document has several artboards"),
@@ -816,17 +818,22 @@ export function createServer({
           .default(5)
           .describe("Eyedropper sample size: 1 is a point, 5 averages 5×5 pixels"),
         map: z
-          .enum(["clipping", "sharpness"])
+          .enum(["clipping", "sharpness", "matte"])
           .optional()
-          .describe("Also return an image: clipping (red = clipped to white in a channel, blue = clipped to black) or sharpness (bright = detailed, dark = soft)"),
+          .describe("Also return an image: clipping (red = clipped to white in a channel, blue = clipped to black), sharpness (bright = detailed, dark = soft), or matte (with layers: the cut-out's mask, and the cut-out over black, white and red)"),
+        matte: z
+          .boolean()
+          .optional()
+          .describe("With layers: check them as a cut-out. Reports soft-edge width, halo (how far edge colours stray from the subject's own: under 10 clean, over 20 a visible fringe) and its tone, specks of background left behind, and see-through holes inside the subject"),
         preflight: z
           .boolean()
           .optional()
           .describe("Also list layout problems: text and logos in a preset's safe-zone margins or off the artboard, type too small to read, images enlarged past their pixels, hidden or empty layers"),
       },
     },
-    async ({ doc, artboard, region, layers, revision, samples, sampleSize, map, preflight: wantPreflight }) =>
+    async ({ doc, artboard, region, layers, revision, samples, sampleSize, map, matte, preflight: wantPreflight }) =>
       guard(async () => {
+        if ((matte || map === "matte") && !layers?.length) return error("A matte check needs layers: the cut-out's layer id, measured alone on transparency.");
         const history = store.history(doc);
         let d = revision === undefined ? history.head : history.at(revision);
         const id = pickArtboard(d, artboard);
@@ -844,10 +851,11 @@ export function createServer({
           ...measure(view),
           ...(samples?.length ? { samples: samples.map((p) => sampleAt(full, p, sampleSize)) } : {}),
           ...(issues ? { preflight: issues.length ? issues : "no problems found" } : {}),
+          ...(matte ? { matte: matteReport(view) } : {}),
         };
         const content: CallToolResult["content"] = [{ type: "text", text: JSON.stringify(result, null, 1) }];
         if (map) {
-          const image = map === "clipping" ? clippingMap(view) : sharpnessMap(view);
+          const image = map === "clipping" ? clippingMap(view) : map === "matte" ? matteMap(view) : sharpnessMap(view);
           // Large maps are scaled to fit 1024 px; zoom in with a region for full detail.
           const png = await sharp(await encode(image, "png"))
             .resize(1024, 1024, { fit: "inside", withoutEnlargement: true, kernel: "nearest" })
