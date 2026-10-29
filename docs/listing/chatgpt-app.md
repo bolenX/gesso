@@ -95,4 +95,4 @@ Codex users can install the plugin today: `codex plugin marketplace add bolenX/g
 
 ## Release notes (first version)
 
-> First release of Gesso for ChatGPT and Codex: layered design and photo editing, 74 filters, every adjustment layer and blend mode, a masking engine for hair and glass, before and after checks, and PSD, TIFF, PDF, SVG, PNG, JPEG and WebP export.
+> First release of Gesso for ChatGPT and Codex: layered design and photo editing, all 121 Filter-menu filters, every adjustment layer and blend mode, a masking engine for hair and glass, before and after checks, and PSD, TIFF, PDF, SVG, PNG, JPEG and WebP export.

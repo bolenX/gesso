@@ -424,6 +424,40 @@ export function kuwahara(r: Raster, radius: number): Raster {
   return fromPlanes(w, h, out, a);
 }
 
+/**
+ * Kuwahara with its four quadrants blended rather than picked: each weighs by how flat it is
+ * (variance to the power −2), so strokes keep crisp edges without the classic filter's square
+ * steps (after Papari et al.'s generalised Kuwahara).
+ */
+export function softKuwahara(r: Raster, radius: number): Raster {
+  const { w, h } = r;
+  const R = Math.max(1, Math.round(radius));
+  const n = w * h;
+  const { rgb, a } = planes(r);
+  const means = rgb.map((p) => trailing(p, w, h, R));
+  const variance = new Float32Array(n);
+  for (let c = 0; c < 3; c++) {
+    const sq = new Float32Array(n);
+    for (let i = 0; i < n; i++) sq[i] = rgb[c]![i]! * rgb[c]![i]!;
+    const msq = trailing(sq, w, h, R);
+    for (let i = 0; i < n; i++) variance[i]! += Math.max(0, msq[i]! - means[c]![i]! * means[c]![i]!);
+  }
+  const out: Float32Array[] = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let total = 0;
+      const sum = [0, 0, 0];
+      for (const [qx, qy] of [[x, y], [x + R, y], [x, y + R], [x + R, y + R]] as const) {
+        const i = clamp(qy, 0, h - 1) * w + clamp(qx, 0, w - 1);
+        const wt = 1 / (1e-4 + variance[i]!) ** 2;
+        total += wt;
+        for (let c = 0; c < 3; c++) sum[c]! += means[c]![i]! * wt;
+      }
+      for (let c = 0; c < 3; c++) out[c]![y * w + x] = sum[c]! / total;
+    }
+  return fromPlanes(w, h, out, a);
+}
+
 /** Maximum (grow) or minimum (shrink) over a square of radius r, in O(1) per pixel (van Herk / Gil-Werman). */
 export function morph(r: Raster, radius: number, max: boolean): Raster {
   const { w, h } = r;

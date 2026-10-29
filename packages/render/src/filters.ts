@@ -33,6 +33,8 @@ import {
   type Raster,
 } from "./cpu.js";
 import type { Box } from "./layout.js";
+import { GALLERY_KINDS, gallery, type GalleryFilter } from "./gallery.js";
+import { adaptiveWideAngle, colorToAlpha, flame, pictureFrame, relight, tree, vanishingPoint } from "./menu.js";
 import { blendPlanes, contentAwareFill, heal, shifted, spotMask } from "./retouch.js";
 import { directionField, samplePath, shaderEffect, shearRows } from "./shaders.js";
 
@@ -65,6 +67,9 @@ type Ctx = {
   at: (p?: Pt) => Pt;
   minSide: number;
 };
+export type FilterCtx = Ctx;
+const GALLERY = new Set<string>(GALLERY_KINDS);
+const isGallery = (filter: Filter): filter is GalleryFilter => GALLERY.has(filter.kind);
 
 // Grain stays a CanvasKit shader (one sample per pixel), matching earlier renders.
 const SRC = {
@@ -116,6 +121,8 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
   const named = (name: Parameters<typeof shaderEffect>[1], uniforms: number[], f = 1) =>
     kit.runShader(image, f, (child) => ({ shader: shaderEffect(ck, name).makeShaderWithChildren(uniforms, [child]) }));
 
+  // Filter Gallery's Artistic, Brush Strokes, Sketch and Texture filters (gallery.ts).
+  if (isGallery(filter)) return js((r) => gallery(ctx, r, filter));
   switch (filter.kind) {
     // ── Blur
     case "gaussian-blur":
@@ -217,6 +224,10 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
       return js((r) => warpField(r, (fw, fh, sx, sy) => liquifyField(ctx, filter, fw, fh, sx, sy)));
     case "puppet-warp":
       return js((r) => warpField(r, (fw, fh, sx, sy) => puppetField(ctx, filter, fw, fh, sx, sy)));
+    case "adaptive-wide-angle":
+      return js((r) => adaptiveWideAngle(ctx, r, filter));
+    case "vanishing-point":
+      return js((r) => vanishingPoint(ctx, r, filter));
     case "lens-correction":
       return js((r) => lensCorrection(ctx, r, filter));
     // ── Noise
@@ -252,6 +263,14 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
       return js((r) => clouds(ctx, r, filter));
     case "lens-flare":
       return js((r) => lensFlare(ctx, r, filter));
+    case "flame":
+      return js((r) => flame(ctx, r, filter));
+    case "picture-frame":
+      return js((r) => pictureFrame(ctx, r, filter));
+    case "tree":
+      return tree(ctx, image, filter);
+    case "relight":
+      return js((r) => relight(ctx, r, filter));
     case "lighting-effects":
       return js((r) => lighting(ctx, r, filter));
     // ── Sharpen
@@ -327,6 +346,8 @@ function run(kit: FilterKit, image: Image, filter: Filter, box: Box, x: number, 
       return js((r) => morph(r, filter.radius * k, filter.kind === "maximum"));
     case "offset":
       return js((r) => offset(r, filter.x * k, filter.y * k, filter.edges ?? "wrap"));
+    case "color-to-alpha":
+      return js((r) => colorToAlpha(r, filter));
     case "camera-raw":
       return cameraRaw(ctx, image, filter);
     // ── Image › Adjustments

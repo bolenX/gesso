@@ -72,7 +72,7 @@ Before you start, read the current site and compare it with this brief. Keep the
 **Subhead options:**
 
 - Filters, adjustment layers, blend modes, layer styles, masks, retouching and print output, all as non-destructive layers. Every result opens in Photoshop as a layered PSD.
-- 74 filters, all 16 adjustment layers, 27 blend modes and every layer style, for any agent that speaks MCP. Open the result in Photoshop and keep editing.
+- 121 filters, all 16 adjustment layers, 27 blend modes and every layer style, for any agent that speaks MCP. Open the result in Photoshop and keep editing.
 - Select and Mask, Auto-Blend, frequency separation and 51 tested recipes, with an agent that measures its own results. Every layer opens in Photoshop.
 
 ## Feature groups
@@ -81,19 +81,19 @@ Each group has a heading, a line of copy and the points to show. Use Photoshop's
 
 ### 1. Filters
 
-**The Filter menu, as smart filters.**
+**The whole Filter menu, as smart filters.**
 
-74 of Photoshop's filters. Each one stays editable on its layer, with Fade (opacity and blend mode), so changing a setting later re-renders the result.
+Every filter in Photoshop's Filter menu, 121 in all, the whole Filter Gallery included. Each one stays editable on its layer, with Fade (opacity and blend mode), so changing a setting later re-renders the result.
 
 - **Blur and Blur Gallery:** Gaussian, box, smart and surface blur; lens blur with depth maps; motion, radial and shape blur; field, iris, tilt-shift, path and spin blur.
-- **Distort:** displace, Liquify, Puppet Warp, Lens Correction, spherize, pinch, twirl, wave, ripple, zigzag, shear, polar coordinates, glass, ocean ripple, diffuse glow.
+- **Distort and perspective:** displace, Liquify, Puppet Warp, Lens Correction, Adaptive Wide Angle (fisheye, wide-angle and 360° panoramas), Vanishing Point (clone and paste in perspective), spherize, pinch, twirl, wave, ripple, zigzag, shear, polar coordinates, glass, ocean ripple, diffuse glow.
 - **Noise:** add noise, reduce noise, despeckle, dust & scratches, median.
 - **Pixelate:** colour halftone, crystallize, facet, fragment, mezzotint, mosaic, pointillize.
-- **Render:** clouds, difference clouds, fibres, lens flare, lighting effects.
+- **Render:** flame, picture frame, tree, relight, clouds, difference clouds, fibres, lens flare, lighting effects.
 - **Sharpen:** sharpen and unsharp mask, smart sharpen, sharpen edges, and high-pass from Other.
 - **Stylize:** oil paint, emboss, extrude, find edges, glowing edges, solarize, tiles, trace contour, wind, diffuse.
-- **Filter Gallery:** cutout, poster edges, halftone pattern.
-- **Video and Other:** de-interlace, NTSC colours, custom kernels, HSB/HSL, maximum, minimum, offset.
+- **Filter Gallery, all 47:** Artistic (coloured pencil, dry brush, film grain, fresco, neon glow, paint daubs, palette knife, plastic wrap, rough pastels, smudge stick, sponge, underpainting, watercolour, cutout, poster edges), Brush Strokes (accented edges, angled strokes, crosshatch, dark strokes, ink outlines, spatter, sprayed strokes, sumi-e), Sketch (bas relief, chalk & charcoal, charcoal, chrome, Conté crayon, graphic pen, halftone pattern, note paper, photocopy, plaster, reticulation, stamp, torn edges, water paper), Texture (craquelure, grain, mosaic tiles, patchwork, stained glass, texturizer), plus glass, ocean ripple, diffuse glow and glowing edges. The Sketch filters draw in any two colours.
+- **Video and Other:** de-interlace, NTSC colours, custom kernels, HSB/HSL, maximum, minimum, offset, Color to Alpha (drop white paper out of scans and sketches).
 - **Camera Raw:** exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, vibrance, saturation, clarity, texture, dehaze, vignette, grain.
 
 ### 2. Adjustments
@@ -260,7 +260,7 @@ For a section titled something like "Open it in Photoshop". Suggested copy:
 
 | Number | What it counts |
 | --- | --- |
-| 74 | Filter-menu filters. With the 5 Image › Adjustments commands and 3 retouching tools on the same filter stack, there are 82 filter kinds. |
+| 121 | Filter-menu filters: the whole menu, Filter Gallery included. With the 5 Image › Adjustments commands and 3 retouching tools on the same filter stack, there are 129 filter kinds. |
 | 16 | Adjustment layers: all of Photoshop's |
 | 27 | Blend modes |
 | 10 | Photoshop layer styles, plus background blur |

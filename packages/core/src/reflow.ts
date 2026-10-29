@@ -168,8 +168,57 @@ function scaleFilter(f: Filter, s: number): Filter {
       return { ...f, x: f.x * s, y: f.y * s };
     case "shadows-highlights":
       return f.radius ? { ...f, radius: by(f.radius, 0.1) } : f;
-    default:
+    case "flame":
+      return sized(f, { length: [0.1], width: [0.1], interval: [0.1] }, s, false);
+    case "picture-frame":
+      return sized(f, { margin: [0], width: [0.1] }, s, false);
+    default: {
+      // Filter Gallery sizes are whole numbers within Photoshop's ranges.
+      const fields = GALLERY_SIZES[f.kind];
+      if (fields) return sized(f, fields, s, true);
       // Radial blurs, twirl, pinch and the like are relative to the layer; the rest have no size.
       return f;
+    }
   }
 }
+
+/** The size fields of the Filter Gallery filters, with Photoshop's ranges. */
+const GALLERY_SIZES: Partial<Record<Filter["kind"], Record<string, [number, number?]>>> = {
+  "colored-pencil": { width: [1, 24] },
+  "dry-brush": { size: [0, 10] },
+  fresco: { size: [0, 10] },
+  "neon-glow": { size: [-24, 24] },
+  "paint-daubs": { size: [1, 50] },
+  "palette-knife": { size: [1, 50] },
+  "rough-pastels": { length: [0, 40] },
+  "smudge-stick": { length: [0, 10] },
+  sponge: { size: [0, 10] },
+  underpainting: { size: [0, 40] },
+  "accented-edges": { width: [1, 14] },
+  "angled-strokes": { length: [3, 50] },
+  crosshatch: { length: [3, 50] },
+  "ink-outlines": { length: [1, 50] },
+  spatter: { radius: [0, 25] },
+  "sprayed-strokes": { length: [0, 20], radius: [0, 25] },
+  "sumi-e": { width: [3, 15] },
+  charcoal: { thickness: [1, 7] },
+  "graphic-pen": { length: [1, 15] },
+  "water-paper": { length: [3, 50] },
+  craquelure: { spacing: [2, 100] },
+  "mosaic-tiles": { size: [2, 100], grout: [1, 15] },
+  patchwork: { size: [0, 10] },
+  "stained-glass": { size: [2, 50], border: [1, 20] },
+};
+
+/** Scales the given fields that are set by s, within [lo, hi], rounded when the field is a whole number. */
+function sized(f: Filter, fields: Record<string, [number, number?]>, s: number, whole: boolean): Filter {
+  const out: Record<string, unknown> = { ...f };
+  for (const [key, [lo, hi = Infinity]] of Object.entries(fields)) {
+    const v = out[key];
+    if (typeof v !== "number") continue;
+    const scaled = Math.min(hi, Math.max(lo, v * s));
+    out[key] = whole ? Math.round(scaled) : scaled;
+  }
+  return out as Filter;
+}
+

@@ -4,7 +4,15 @@ Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each vers
 
 ## Unreleased
 
-Gesso as a plugin and in the agents' directories.
+Photoshop's whole Filter menu, and Gesso as a plugin and in the agents' directories.
+
+- **Every filter in Photoshop's Filter menu:** 47 new ones, for 121 in all.
+  - **The whole Filter Gallery:** the 13 Artistic filters Gesso didn't have (Colored Pencil, Dry Brush, Film Grain, Fresco, Neon Glow, Paint Daubs, Palette Knife, Plastic Wrap, Rough Pastels, Smudge Stick, Sponge, Underpainting, Watercolor), all 8 Brush Strokes, the 13 Sketch filters, which draw in any two colours, and all 6 Texture filters, with canvas, burlap, brick and sandstone surfaces. Each takes Photoshop's parameters, ranges and defaults.
+  - **Adaptive Wide Angle:** straightens fisheye photos, eases stretched wide-angle edges, and makes a normal view of a 360° panorama.
+  - **Vanishing Point:** clone along a wall or floor in perspective, so patches shrink with distance, and paste or tile an image onto it.
+  - **Render › Flame, Picture Frame, Tree and Relight:** fire along a path; framed edges in six styles; oaks, maples, pines, willows and birches grown from a seed; new lights that follow a photo's own shapes or a depth map.
+  - **Other › Color to Alpha:** drops white paper (or any colour) out of scans and sketches, keeping ink as ink.
+  - Their sizes scale when a design is adapted to other sizes. The filters skill covers them all.
 
 - **The Gesso plugin** (`plugins/gesso`): the hosted server plus the 31 skills and a get-started skill, in each agent's plugin format. Install it in Claude Code (`/plugin marketplace add bolenX/gesso`), claude.ai and Cowork, Codex, the Copilot CLI and Cursor. Nothing to install, since it uses `mcp.gesso.run`.
 - **Ready for the directories:** the plugin passes `claude plugin validate`, its OpenAI manifest carries the listing and review test cases, and `node scripts/build-openai-plugin.mjs` builds the ZIP for OpenAI's plugin directory. Submission kits for every directory are in `docs/listing`.

@@ -11,7 +11,7 @@ What works today:
 
 - **Document and editing:** the document IR, atomic patches with revision history, and PSD import and export (artboards, live text, shapes, adjustments, layer styles, smart objects, and smart filters wherever Photoshop has the same filter).
 - **Exports:** SVG, print PDF, and PNG/JPEG/WebP/TIFF, in RGB or CMYK with ICC profiles.
-- **Filters:** Photoshop's whole Filter menu as smart filters, including Blur Gallery, Liquify, Puppet Warp and Camera Raw.
+- **Filters:** Photoshop's whole Filter menu as smart filters (121 filters), including the whole Filter Gallery, Blur Gallery, Liquify, Puppet Warp, Adaptive Wide Angle, Vanishing Point, Flame, Tree, Relight, Color to Alpha and Camera Raw.
 - **Adjustments:** every adjustment layer, plus the Image › Adjustments commands as filters.
 - **Compositing:** all blend modes, Blend If, luminosity, colour-range, channel and Calculations masks, Select and Mask edge refining with Decontaminate Colors, and every layer style.
 - **Merging exposures:** Auto-Align and Auto-Blend for focus stacks and exposure brackets.
