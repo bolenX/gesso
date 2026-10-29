@@ -1,14 +1,20 @@
-# Landing page brief: Gesso 0.13.0
+# Landing page brief: Gesso 0.14.0
 
 This brief is for the session that maintains the Gesso landing page. Use it as the source of truth when you update the site's copy.
 
-**0.13.0 update:** Gesso now has its own masking engine for hard cut-outs, and a cutouts skill. Update:
+**0.14.0 update:** Gesso now has every filter in Photoshop's Filter menu (121), and installs as a plugin. Update:
+- **Features:** the Filters group (group 1): the whole Filter Gallery, Adaptive Wide Angle, Vanishing Point, Flame, Picture Frame, Tree, Relight and Color to Alpha.
+- **Numbers:** 121 filters (was 74).
+- **Install section:** a Plugin tab or line, with the install commands from [install.md](install.md#the-gesso-plugin), and the one-click "Add to Cursor" and "Install in VS Code" links from [docs/listing/other-directories.md](listing/other-directories.md#install-links-for-the-website).
+- **What's new:** add a 0.14.0 row.
+- **Filenames:** use `gesso-0.14.0.mcpb` wherever a filename shows a version.
+
+**0.13.0 update (still applies):** Gesso now has its own masking engine for hard cut-outs, and a cutouts skill. Update:
 - **Features:** the Compositing points (group 3) and the cut-out check under Checking work (group 9).
 - **Workflows:** add the cut-outs skill (group 7).
 - **Numbers:** 31 skills and 56 recipes.
 - **What's new:** add a 0.13.0 row.
 - **Claims to avoid:** two new ones, under "What Gesso covers".
-- **Filenames:** use `gesso-0.13.0.mcpb` wherever a filename shows a version.
 
 **0.12.0 update (still applies):** claude.ai and ChatGPT work, for free, through `https://mcp.gesso.run/mcp`. The two install cards use it (exact copy in [install.md](install.md), in the landing-page tabs table). Everything else below still applies.
 
@@ -33,17 +39,17 @@ Before you start, read the current site and compare it with this brief. Keep the
 3. **Workflows.** The workflows section covers the five photo niches, cut-outs, and design and adaptation skills (31 skills in all).
 4. **"Opens in Photoshop."** Update the live and baked lists (see [What opens live in Photoshop](#what-opens-live-in-photoshop)). Some filters, distortions and warps are now live.
 5. **Numbers.** Use the updated counts under [Numbers you can quote](#numbers-you-can-quote): 21 tools, 31 skills and 56 recipes.
-6. **Install section.** The extension is still about 62 MB. Use `gesso-0.13.0.mcpb` wherever the filename shows a version.
+6. **Install section.** The extension is still about 62 MB. Use `gesso-0.14.0.mcpb` wherever the filename shows a version.
 7. **Claims.** Remove or fix anything listed under [Claims to avoid](#claims-to-avoid). Several 0.10 caveats no longer apply: auto-align and auto-blend, Calculations, and live smart filters.
 
 ## Release facts
 
 | Fact | Value |
 | --- | --- |
-| Version | 0.13.0, the `latest` tag of `gesso-mcp` on npm |
+| Version | 0.14.0, the `latest` tag of `gesso-mcp` on npm |
 | Claude Code | `claude mcp add gesso -- npx -y gesso-mcp` |
 | Other agents | Every config runs `npx -y gesso-mcp` and needs Node 22 or later |
-| Claude Desktop extension | `gesso-0.13.0.mcpb`, about 62 MB. Nothing else to install. |
+| Claude Desktop extension | `gesso-0.14.0.mcpb`, about 62 MB. Nothing else to install. |
 | claude.ai and ChatGPT | `https://mcp.gesso.run/mcp` as a custom connector (claude.ai) or a developer-mode app with OAuth (ChatGPT). Free, no account, nothing to install. Or `npx -y gesso-mcp --tunnel` to run it on your own computer. |
 | Platforms | macOS (Apple silicon and Intel), Windows, Linux |
 | Agent tools | 21 |
@@ -288,7 +294,8 @@ If the site has a changelog or "What's new" strip:
 
 | Version | What's in it |
 | --- | --- |
-| **0.13.0** | A masking engine for hard cut-outs: hair solved strand by strand, Smart Radius, studio-backdrop and clean-plate keys, choke and spread, and a cut-out check. A cutouts skill, including see-through glass rebuilt from blend modes. Fixes for hosted servers: download links in claude.ai, no server paths in results, open-licence fonts only |
+| **0.14.0** | Every filter in Photoshop's Filter menu: the whole Filter Gallery (Artistic, Brush Strokes, Sketch in any two colours, Texture), Adaptive Wide Angle, Vanishing Point, Flame, Picture Frame, Tree, Relight and Color to Alpha, for 121 filters. The Gesso plugin for Claude, ChatGPT and Codex, Copilot and Cursor, and a listing in the official MCP Registry |
+| 0.13.0 | A masking engine for hard cut-outs: hair solved strand by strand, Smart Radius, studio-backdrop and clean-plate keys, choke and spread, and a cut-out check. A cutouts skill, including see-through glass rebuilt from blend modes. Fixes for hosted servers: download links in claude.ai, no server paths in results, open-licence fonts only |
 | 0.12.0 | claude.ai and ChatGPT, free: connect to `https://mcp.gesso.run/mcp`, or run Gesso on your own computer with `npx -y gesso-mcp --tunnel` (with a pairing code, so only you can connect). Behind it: OAuth sign-in, worker processes and abuse limits |
 | 0.11.0 | Zoom, compare and measure, preflight, 30 skills with 51 tested recipes, Select and Mask, Calculations, Auto-Align and Auto-Blend, AI selections (subject, sky, face parts) on your own tools, one expand for every size, live smart filters and warps in the PSD, self-hosting |
 | 0.10.0 | Photoshop's Filter menu as smart filters, every adjustment layer, all blend modes and layer styles, Blend If and computed masks, boolean shapes and free transform, content-aware fill, healing and cloning, TIFF and CMYK export, slices, batch runs, and 11 workflow skills |

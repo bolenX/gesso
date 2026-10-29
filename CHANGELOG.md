@@ -2,9 +2,9 @@
 
 Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each version's notes become its GitHub release.
 
-## Unreleased
+## 0.14.0 (2026-10-29)
 
-Photoshop's whole Filter menu, and Gesso as a plugin and in the agents' directories.
+0.14.0 completes Photoshop's Filter menu, with 47 new filters (the whole Filter Gallery, Adaptive Wide Angle, Vanishing Point, Flame, Picture Frame, Tree, Relight and Color to Alpha), and makes Gesso a plugin for Claude, ChatGPT and Codex, Copilot and Cursor, listed in the official MCP Registry.
 
 - **Every filter in Photoshop's Filter menu:** 47 new ones, for 121 in all.
   - **The whole Filter Gallery:** the 13 Artistic filters Gesso didn't have (Colored Pencil, Dry Brush, Film Grain, Fresco, Neon Glow, Paint Daubs, Palette Knife, Plastic Wrap, Rough Pastels, Smudge Stick, Sponge, Underpainting, Watercolor), all 8 Brush Strokes, the 13 Sketch filters, which draw in any two colours, and all 6 Texture filters, with canvas, burlap, brick and sandstone surfaces. Each takes Photoshop's parameters, ranges and defaults.
