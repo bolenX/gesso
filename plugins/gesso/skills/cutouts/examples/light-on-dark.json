@@ -1,0 +1,9 @@
+{
+  "description": "A powder burst shot on black, cut out by its own brightness, sits on wood without a black box around it",
+  "layers": ["wood", "powder"],
+  "steps": [{ "recipe": "light-on-dark", "params": { "layer": "powder" } }],
+  "checks": [
+    { "what": "the black around the burst turns clear and shows the wood", "metric": "luminance.mean", "region": [10, 10, 60, 60], "min": 30 },
+    { "what": "the dense centre of the burst stays bright", "metric": "luminance.mean", "region": [235, 180, 20, 20], "min": 170 }
+  ]
+}

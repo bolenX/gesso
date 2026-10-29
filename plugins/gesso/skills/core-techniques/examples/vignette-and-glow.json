@@ -1,0 +1,39 @@
+{
+ "description": "The vignette darkens the corners and leaves the centre alone",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "vignette",
+   "params": {
+    "artboard": "a",
+    "above": "landscape"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the corners are darker",
+   "metric": "luminance.mean",
+   "region": [
+    0,
+    0,
+    50,
+    40
+   ],
+   "less": 0.85
+  },
+  {
+   "what": "the centre is untouched",
+   "sample": [
+    240,
+    180
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 2
+   }
+  }
+ ]
+}

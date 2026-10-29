@@ -1,0 +1,11 @@
+{
+  "description": "Cuts the subject and its stray hairs out of a grey backdrop that falls off towards the corners",
+  "layers": ["studio-hair"],
+  "steps": [{ "recipe": "studio-cutout", "params": { "photo": "studio-hair" } }],
+  "checks": [
+    { "what": "the backdrop is gone at the top left, where it's darker", "metric": "transparent", "region": [0, 0, 60, 60], "min": 95 },
+    { "what": "and at the top right", "metric": "transparent", "region": [420, 0, 60, 60], "min": 95 },
+    { "what": "the face stays solid", "metric": "transparent", "region": [210, 220, 60, 60], "max": 1 },
+    { "what": "the stray hairs above the head come through, between clear gaps", "metric": "transparent", "region": [190, 92, 100, 22], "min": 50, "max": 98.5 }
+  ]
+}

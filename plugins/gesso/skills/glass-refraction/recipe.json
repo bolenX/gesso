@@ -1,0 +1,41 @@
+{
+  "recipes": {
+    "ribbed-glass": {
+      "description": "Ribbed glass over a layer: the glass filter shifts each rib's slice of the image. Add the fractal-glass strips on top for ridge highlights.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The photo or design"
+        },
+        "size": {
+          "type": "number",
+          "description": "Rib width in px",
+          "default": 40
+        },
+        "amount": {
+          "type": "number",
+          "description": "How far each rib shifts the image, px",
+          "default": 18
+        },
+        "angle": {
+          "type": "number",
+          "description": "Rib angle in degrees (0 = vertical ribs)",
+          "default": 0
+        }
+      },
+      "ops": [
+        {
+          "op": "set",
+          "target": "#{{source}}",
+          "path": "filters.+",
+          "value": {
+            "kind": "glass",
+            "size": "{{size}}",
+            "amount": "{{amount}}",
+            "angle": "{{angle}}"
+          }
+        }
+      ]
+    }
+  }
+}

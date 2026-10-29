@@ -1,0 +1,280 @@
+{
+  "recipes": {
+    "clean-damage": {
+      "description": "Removes dust, specks and thin scratches from a scan on a copy, with Dust & Scratches. Heal what's left by hand; add grain back with grain-unify.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The scan"
+        },
+        "radius": {
+          "type": "number",
+          "description": "Radius in px: a little over the widest scratch or speck",
+          "default": 2
+        },
+        "threshold": {
+          "type": "number",
+          "description": "Threshold, 0..255: higher keeps more of the grain",
+          "default": 18
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "{{source}}-clean"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-clean",
+          "path": "name",
+          "value": "Dust and scratches removed"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-clean",
+          "path": "filters.+",
+          "value": {
+            "kind": "dust-and-scratches",
+            "radius": "{{radius}}",
+            "threshold": "{{threshold}}"
+          }
+        }
+      ]
+    },
+    "faded-contrast": {
+      "description": "Restores a faded print's range: Levels pins the black and white points (read them from canvas_inspect's luminance range), then a gentle S-curve adds midtone contrast.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the layers just above this one"
+        },
+        "black": {
+          "type": "number",
+          "description": "Input black: the darkest real tone, 0..255"
+        },
+        "white": {
+          "type": "number",
+          "description": "Input white: the brightest real tone, 0..255"
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "restore-levels",
+            "name": "Restore: levels",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "levels",
+              "inputBlack": "{{black}}",
+              "inputWhite": "{{white}}",
+              "gamma": 1
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#restore-levels",
+          "layer": {
+            "id": "restore-curve",
+            "name": "Restore: contrast",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "curves",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  64,
+                  56
+                ],
+                [
+                  192,
+                  202
+                ],
+                [
+                  255,
+                  255
+                ]
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    },
+    "stain-removal": {
+      "description": "Takes the colour out of a stain: Hue/Saturation at −100 saturation, masked by the stain's colour (Color Range on the scan). Then match its brightness with curves and heal the edges.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "source": {
+          "type": "layer",
+          "description": "The scan"
+        },
+        "color": {
+          "type": "color",
+          "description": "The stain's colour (sample it with canvas_inspect)"
+        },
+        "fuzziness": {
+          "type": "number",
+          "description": "Color Range fuzziness",
+          "default": 45
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{source}}",
+          "layer": {
+            "id": "stain-desaturate",
+            "name": "Stain: remove colour",
+            "type": "adjustment",
+            "adjustment": {
+              "kind": "hue-saturation",
+              "hue": 0,
+              "saturation": -100,
+              "lightness": 0
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            },
+            "mask": {
+              "kind": "color-range",
+              "source": "{{source}}",
+              "color": "{{color}}",
+              "fuzziness": "{{fuzziness}}",
+              "feather": 2
+            }
+          }
+        }
+      ]
+    },
+    "grain-unify": {
+      "description": "Gives repaired and original areas one shared grain: monochrome noise on a 50% grey layer in overlay above everything.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the grain just above this layer (usually the top)"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Noise amount, 0..1",
+          "default": 0.05
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "grain",
+            "name": "Grain",
+            "type": "shape",
+            "shape": {
+              "kind": "rect"
+            },
+            "fill": "#808080",
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            },
+            "blend": "overlay",
+            "filters": [
+              {
+                "kind": "noise",
+                "amount": "{{amount}}",
+                "monochrome": true,
+                "distribution": "gaussian"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "colourise-base": {
+      "description": "A starting tint for colourising: a gradient map from deep brown to warm cream in colour blend. Then add areas of researched colour on top.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put it just above this layer"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 0.35
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "colourise-base",
+            "name": "Colourise: base tint",
+            "type": "adjustment",
+            "blend": "color",
+            "opacity": "{{amount}}",
+            "adjustment": {
+              "kind": "gradient-map",
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "#2B1D14"
+                },
+                {
+                  "offset": 0.5,
+                  "color": "#8C6A4F"
+                },
+                {
+                  "offset": 1,
+                  "color": "#F2E3C9"
+                }
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

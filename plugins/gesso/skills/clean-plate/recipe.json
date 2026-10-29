@@ -1,0 +1,39 @@
+{
+  "recipes": {
+    "clean-plate": {
+      "description": "Removes a subject from a copy of the photo with a live content-aware fill over the given spots.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The photo"
+        },
+        "spots": {
+          "type": "json",
+          "description": "Spots over the subject: [{\"at\": [x, y], \"size\": [w, h], \"shape\"?: \"rect\"}…] as fractions of the layer's box, a little larger than the subject"
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "{{source}}-plate"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-plate",
+          "path": "name",
+          "value": "Clean plate"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-plate",
+          "path": "filters.+",
+          "value": {
+            "kind": "content-aware-fill",
+            "spots": "{{spots}}"
+          }
+        }
+      ]
+    }
+  }
+}

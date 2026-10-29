@@ -1,0 +1,89 @@
+{
+ "description": "Skin smoothing evens the cheeks and keeps some grain; eye enhancement adds contrast to the eyes only",
+ "layers": [
+  "portrait"
+ ],
+ "steps": [
+  {
+   "recipe": "skin-smoothing",
+   "params": {
+    "source": "portrait",
+    "region": {
+     "x": 135,
+     "y": 180,
+     "w": 210,
+     "h": 100
+    }
+   }
+  },
+  {
+   "recipe": "eye-enhance",
+   "params": {
+    "source": "portrait",
+    "region": {
+     "x": 165,
+     "y": 148,
+     "w": 150,
+     "h": 34
+    }
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "cheeks are smoother",
+   "metric": "luminance.contrast",
+   "region": [
+    150,
+    195,
+    60,
+    50
+   ],
+   "less": 0.9
+  },
+  {
+   "what": "cheeks keep some grain",
+   "metric": "noise",
+   "region": [
+    150,
+    195,
+    60,
+    50
+   ],
+   "more": 0.3
+  },
+  {
+   "what": "the eyes have more contrast",
+   "metric": "luminance.contrast",
+   "region": [
+    180,
+    158,
+    30,
+    14
+   ],
+   "more": 1.03
+  },
+  {
+   "what": "the eyes are sharper",
+   "metric": "sharpness",
+   "region": [
+    180,
+    158,
+    30,
+    14
+   ],
+   "more": 1.05
+  },
+  {
+   "what": "the background is untouched",
+   "sample": [
+    40,
+    320
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1.5
+   }
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 ---
 name: retouching
-description: Photo retouching in Gesso: content-aware fill, spot healing, clone stamp, frequency separation, dodge & burn, liquify and skin, all non-destructive, plus Generative Fill jobs for bigger removals.
+description: "Photo retouching in Gesso: content-aware fill, spot healing, clone stamp, frequency separation, dodge & burn, liquify and skin, all non-destructive, plus Generative Fill jobs for bigger removals."
 ---
 
 # Retouching

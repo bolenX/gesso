@@ -1,0 +1,50 @@
+{
+ "description": "Dust & Scratches removes scratches and specks; one grain layer makes it all match again",
+ "layers": [
+  "old-photo"
+ ],
+ "steps": [
+  {
+   "recipe": "clean-damage",
+   "params": {
+    "source": "old-photo"
+   }
+  },
+  {
+   "recipe": "grain-unify",
+   "params": {
+    "artboard": "a",
+    "above": "old-photo-clean"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "a scratch is gone",
+   "sample": [
+    65,
+    180
+   ],
+   "size": 1,
+   "deltaE": {
+    "min": 10
+   }
+  },
+  {
+   "what": "overall tone is kept",
+   "metric": "luminance.mean",
+   "keep": 3
+  },
+  {
+   "what": "grain is back after cleaning",
+   "metric": "noise",
+   "region": [
+    300,
+    260,
+    120,
+    60
+   ],
+   "more": 0.6
+  }
+ ]
+}

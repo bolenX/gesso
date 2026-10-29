@@ -18,6 +18,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.check.outputs.skip != 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -45,6 +47,42 @@ jobs:
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Lists the new version in the official MCP Registry (registry.modelcontextprotocol.io), which VS Code,
+  # GitHub and other directories read. It signs in with this workflow's GitHub identity, so there's no secret;
+  # the registry checks that the npm package's mcpName matches server.json's name.
+  registry:
+    needs: publish
+    if: needs.publish.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+      - name: Wait for the version to reach npm
+        run: |
+          version=$(node -p "require('./packages/gesso-mcp/package.json').version")
+          for i in $(seq 1 30); do
+            npm view "gesso-mcp@$version" mcpName 2>/dev/null | grep -q . && exit 0
+            sleep 20
+          done
+          echo "gesso-mcp@$version isn't on npm yet"; exit 1
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish
 
   # Attaches the Claude Desktop extension to a GitHub release for each version, as gesso-<version>.mcpb
   # and gesso.mcpb, so releases/latest/download/gesso.mcpb always points at the newest one. The notes

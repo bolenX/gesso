@@ -91,13 +91,13 @@ describe("hosted sign-in (OAuth)", () => {
     expect(key).toBeDefined();
     const client = await connect(access_token);
 
-    // Read-only tools say so; tools that change things ask first.
-    const tools = (await client.listTools()).tools.filter((t) => t.name !== FILE_TOOL);
+    // Read-only tools say so; tools that change things ask first. The app directories require every hint, on every tool.
+    const all = (await client.listTools()).tools;
+    const tools = all.filter((t) => t.name !== FILE_TOOL);
     expect(tools).toHaveLength(21);
-    for (const tool of tools) {
+    for (const tool of all) {
       expect(tool.annotations?.title, tool.name).toBeTruthy();
-      expect(typeof tool.annotations?.readOnlyHint, tool.name).toBe("boolean");
-      if (!tool.annotations?.readOnlyHint) expect(typeof tool.annotations?.destructiveHint, tool.name).toBe("boolean");
+      for (const hint of ["readOnlyHint", "destructiveHint", "openWorldHint"] as const) expect(typeof tool.annotations?.[hint], `${tool.name} ${hint}`).toBe("boolean");
     }
     expect(tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name).sort()).toEqual(["canvas_get", "canvas_inspect", "canvas_list", "canvas_outline", "canvas_render", "font_list", "skill_read"]);
 

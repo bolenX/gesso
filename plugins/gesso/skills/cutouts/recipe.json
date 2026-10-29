@@ -1,0 +1,169 @@
+{
+  "recipes": {
+    "studio-cutout": {
+      "description": "Cuts a subject out of a plain studio backdrop in one go: the backdrop key, hair solved with Select and Mask (smart radius), the old backdrop's colour cleaned out of the edge, and an optional choke for any halo left.",
+      "params": {
+        "photo": { "type": "layer", "description": "The photo on its studio backdrop" },
+        "radius": { "type": "number", "default": 12, "description": "Edge radius, px: 4–6 for a product, 10–20 for hair, 25–30 for fur" },
+        "tolerance": { "type": "number", "default": 10, "description": "Colour difference (ΔE) still counted as backdrop: raise it if backdrop shows in shadows, lower it if pale parts drop out" },
+        "decontaminate": { "type": "number", "default": 80, "description": "How much of the backdrop's colour to remove from the edge, 0..100" },
+        "choke": { "type": "number", "default": 0, "description": "Px to choke the finished edge in (Minimum), for a halo that's left: 1–3" }
+      },
+      "ops": [
+        {
+          "op": "set",
+          "target": "#{{photo}}",
+          "path": "mask",
+          "value": { "kind": "backdrop", "tolerance": "{{tolerance}}", "refine": { "radius": "{{radius}}", "smartRadius": true, "decontaminate": "{{decontaminate}}" }, "choke": "{{choke}}" }
+        }
+      ]
+    },
+    "glass": {
+      "description": "Makes a glass object shot on a plain backdrop see-through on any new background: a group with the object's silhouette as its mask, holding a Multiply copy for the dark rims (Shadows), a Screen copy for the speculars (Highlights), a Color copy for the tint of the liquid and cap, and a white Solid layer for the parts that should stay opaque.",
+      "params": {
+        "artboard": { "type": "artboard", "description": "The artboard" },
+        "photo": { "type": "layer", "description": "The photo of the glass object on its backdrop: a top-level image layer. It's hidden; the group shows it" },
+        "backdrop": { "type": "number", "default": 195, "description": "The backdrop's brightness seen through clear glass, 0..255 (sample it with canvas_inspect): Shadows treat it as white, Highlights keep only what's brighter" },
+        "shadows": { "type": "number", "default": 0.9, "description": "Shadows midtone (Levels gamma): lower darkens the rims and reflections, 0.6..1. Above 1 the glass fades away" },
+        "highlights": { "type": "number", "default": 15, "description": "How far above the backdrop's brightness a specular must be to show, in levels: higher keeps fewer" },
+        "opaque": { "type": "json", "default": { "kind": "vector", "shape": { "kind": "rect" }, "frame": { "x": 0, "y": 0, "w": 0, "h": 0 } }, "description": "A mask over the parts that aren't see-through (cap, label, foil), for the Solid layer: a vector shape or compound, or any mask. Left out, nothing is solid" },
+        "tolerance": { "type": "number", "default": 8, "description": "Backdrop key tolerance (ΔE) for the silhouette" }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{photo}}",
+          "layer": {
+            "id": "{{photo}}-glass",
+            "name": "Glass",
+            "type": "group",
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+            "mask": { "kind": "backdrop", "source": "{{photo}}", "tolerance": "{{tolerance}}", "fillHoles": true, "refine": { "radius": 2 } },
+            "children": [
+              { "id": "{{photo}}-solid", "name": "Solid", "type": "shape", "shape": { "kind": "rect" }, "fill": "#FFFFFF", "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }, "mask": "{{opaque}}" }
+            ]
+          }
+        },
+        { "op": "duplicate", "target": "#{{photo}}", "id": "{{photo}}-shadows", "into": "#{{photo}}-glass" },
+        { "op": "set", "target": "#{{photo}}-shadows", "path": "name", "value": "Shadows" },
+        { "op": "set", "target": "#{{photo}}-shadows", "path": "blend", "value": "multiply" },
+        { "op": "set", "target": "#{{photo}}-shadows", "path": "filters", "value": [{ "kind": "desaturate" }] },
+        { "op": "set", "target": "#{{photo}}-shadows", "path": "mask", "value": null },
+        { "op": "set", "target": "#{{photo}}-shadows", "path": "visible", "value": true },
+        {
+          "op": "insert",
+          "after": "#{{photo}}-shadows",
+          "layer": { "id": "{{photo}}-shadows-levels", "name": "Shadows levels", "type": "adjustment", "clip": true, "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }, "adjustment": { "kind": "levels", "inputBlack": 0, "inputWhite": "{{backdrop}}", "gamma": "{{shadows}}" } }
+        },
+        { "op": "duplicate", "target": "#{{photo}}", "id": "{{photo}}-highlights", "into": "#{{photo}}-glass" },
+        { "op": "set", "target": "#{{photo}}-highlights", "path": "name", "value": "Highlights" },
+        { "op": "set", "target": "#{{photo}}-highlights", "path": "blend", "value": "screen" },
+        { "op": "set", "target": "#{{photo}}-highlights", "path": "filters", "value": [{ "kind": "desaturate" }] },
+        { "op": "set", "target": "#{{photo}}-highlights", "path": "mask", "value": null },
+        { "op": "set", "target": "#{{photo}}-highlights", "path": "visible", "value": true },
+        {
+          "op": "insert",
+          "after": "#{{photo}}-highlights",
+          "layer": { "id": "{{photo}}-highlights-levels", "name": "Highlights levels", "type": "adjustment", "clip": true, "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }, "adjustment": { "kind": "levels", "inputBlack": "{{= min(250, backdrop + highlights)}}", "inputWhite": 255, "gamma": 1 } }
+        },
+        { "op": "duplicate", "target": "#{{photo}}", "id": "{{photo}}-color", "into": "#{{photo}}-glass" },
+        { "op": "set", "target": "#{{photo}}-color", "path": "name", "value": "Color" },
+        { "op": "set", "target": "#{{photo}}-color", "path": "blend", "value": "color" },
+        { "op": "set", "target": "#{{photo}}-color", "path": "mask", "value": { "kind": "saturation", "source": "{{photo}}", "black": 10, "white": 50 } },
+        { "op": "set", "target": "#{{photo}}-color", "path": "visible", "value": true },
+        { "op": "set", "target": "#{{photo}}", "path": "visible", "value": false }
+      ]
+    },
+    "glass-bend": {
+      "description": "Refraction for a glass made with the glass recipe: a copy of the background, bowed with a warp, at the bottom of the glass group, so lines seen through the glass no longer meet the ones outside it.",
+      "params": {
+        "photo": { "type": "layer", "description": "The photo the glass recipe was applied to" },
+        "background": { "type": "layer", "description": "The new background under the glass" },
+        "at": { "type": "number", "default": 0.5, "description": "Where across the background the glass stands, as a fraction of its width: the bow peaks there" },
+        "strength": { "type": "number", "default": 0.04, "description": "How far the background bows, as a fraction of its height" }
+      },
+      "ops": [
+        { "op": "duplicate", "target": "#{{background}}", "id": "{{photo}}-bent", "into": "#{{photo}}-glass" },
+        { "op": "set", "target": "#{{photo}}-bent", "path": "name", "value": "Refraction" },
+        { "op": "move", "target": "#{{photo}}-bent", "to": "bottom" },
+        {
+          "op": "set",
+          "target": "#{{photo}}-bent",
+          "path": "warp",
+          "value": [
+            [[0, 0], ["{{at}}", "{{= 0 - strength}}"], [1, 0]],
+            [[0, 0.5], ["{{at}}", "{{= 0.5 - strength}}"], [1, 0.5]],
+            [[0, 1], ["{{at}}", "{{= 1 - strength}}"], [1, 1]]
+          ]
+        }
+      ]
+    },
+    "glass-contact": {
+      "description": "Light and shadow where a glass made with the glass recipe meets its new surface: a soft cast shadow (the silhouette, offset and blurred away from the light, in Multiply) and a coloured caustic where light passes through the liquid (Color Dodge), both kept off the glass by its inverted silhouette.",
+      "params": {
+        "artboard": { "type": "artboard", "description": "The artboard" },
+        "photo": { "type": "layer", "description": "The photo the glass recipe was applied to" },
+        "direction": { "type": "number", "default": 1, "description": "1 when the light comes from the left (shadow falls right), −1 from the right" },
+        "length": { "type": "number", "default": 60, "description": "How far the shadow reaches, px" },
+        "shadow": { "type": "color", "default": "#2A1A10", "description": "Shadow colour: a dark version of the surface's" },
+        "opacity": { "type": "number", "default": 0.8, "description": "Shadow opacity, 0..1" },
+        "tint": { "type": "color", "default": "#E8C050", "description": "Caustic colour: the liquid's (sample it)" },
+        "caustic": { "type": "number", "default": 0.45, "description": "Caustic strength, 0..1" },
+        "tolerance": { "type": "number", "default": 8, "description": "Backdrop key tolerance, as in the glass recipe" }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "before": "#{{photo}}-glass",
+          "layer": {
+            "id": "{{photo}}-contact",
+            "name": "Light and shadow",
+            "type": "group",
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+            "mask": { "kind": "backdrop", "source": "{{photo}}", "tolerance": "{{tolerance}}", "fillHoles": true, "invert": true },
+            "children": [
+              {
+                "id": "{{photo}}-cast",
+                "name": "Cast shadow",
+                "type": "group",
+                "isolation": "isolate",
+                "blend": "multiply",
+                "opacity": "{{opacity}}",
+                "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+                "filters": [{ "kind": "offset", "x": "{{= direction * length * 0.5}}", "y": 0, "edges": "transparent" }, { "kind": "motion-blur", "angle": 0, "distance": "{{length}}" }],
+                "children": [
+                  { "id": "{{photo}}-cast-shape", "name": "Silhouette", "type": "shape", "shape": { "kind": "rect" }, "fill": "{{shadow}}", "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }, "mask": { "kind": "backdrop", "source": "{{photo}}", "tolerance": "{{tolerance}}", "fillHoles": true } }
+                ]
+              },
+              {
+                "id": "{{photo}}-caustic",
+                "name": "Caustic",
+                "type": "group",
+                "isolation": "isolate",
+                "blend": "color-dodge",
+                "opacity": "{{caustic}}",
+                "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+                "filters": [{ "kind": "offset", "x": "{{= direction * length * 0.6}}", "y": 0, "edges": "transparent" }, { "kind": "gaussian-blur", "radius": "{{= length * 0.2 + 2}}" }],
+                "children": [
+                  { "id": "{{photo}}-caustic-shape", "name": "Silhouette", "type": "shape", "shape": { "kind": "rect" }, "fill": "{{tint}}", "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }, "mask": { "kind": "saturation", "source": "{{photo}}", "black": 20, "white": 60 } }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "light-on-dark": {
+      "description": "Cuts out light things shot on black (powder, smoke, sparks, fire, light leaks) by their own brightness, so they get real transparency: effects like a drop shadow follow the particles instead of the layer's rectangle.",
+      "params": {
+        "layer": { "type": "layer", "description": "The image of the light element on black" },
+        "level": { "type": "number", "default": 1, "description": "1 uses brightness as it is; 2–3 thin out the faint parts" },
+        "blend": { "type": "string", "default": "normal", "description": "\"screen\" also lifts the thin parts on dark backgrounds; keep \"normal\" on light ones" }
+      },
+      "ops": [
+        { "op": "set", "target": "#{{layer}}", "path": "mask", "value": { "kind": "luminosity", "range": "lights", "level": "{{level}}", "source": "{{layer}}" } },
+        { "op": "set", "target": "#{{layer}}", "path": "blend", "value": "{{blend}}" }
+      ]
+    }
+  }
+}

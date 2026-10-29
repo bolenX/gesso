@@ -1,0 +1,57 @@
+{
+ "description": "The type scale sets three readable levels inside the artboard",
+ "doc": {
+  "id": "poster",
+  "revision": 0,
+  "assets": {},
+  "artboards": [
+   {
+    "id": "a",
+    "name": "A",
+    "preset": "instagram-portrait",
+    "frame": {
+     "x": 0,
+     "y": 0,
+     "w": 1080,
+     "h": 1350
+    },
+    "background": "#FFFFFF",
+    "layers": []
+   }
+  ]
+ },
+ "steps": [
+  {
+   "recipe": "type-scale",
+   "params": {
+    "artboard": "a",
+    "font": "Inter"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the headline is three steps up the scale",
+   "field": {
+    "target": "#headline",
+    "path": "style.size",
+    "equals": 76
+   }
+  },
+  {
+   "what": "the subhead is one step up",
+   "field": {
+    "target": "#subhead",
+    "path": "style.size",
+    "equals": 43
+   }
+  },
+  {
+   "what": "nothing is too small or cut off",
+   "preflight": {
+    "maxErrors": 0,
+    "maxWarnings": 0
+   }
+  }
+ ]
+}

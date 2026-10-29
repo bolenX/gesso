@@ -1,6 +1,6 @@
 ---
 name: typography-reflow
-description: Typography reflow across sizes: area text that shrinks to fit with a minimum size, line breaks, and when to cut copy instead of shrinking it.
+description: "Typography reflow across sizes: area text that shrinks to fit with a minimum size, line breaks, and when to cut copy instead of shrinking it."
 ---
 
 # Typography reflow

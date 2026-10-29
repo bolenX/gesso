@@ -1,0 +1,22 @@
+{
+  "description": "A wine bottle shot on grey becomes see-through glass on dark wood, keeping its wine colour, speculars and opaque cap",
+  "layers": ["wood", "glass"],
+  "steps": [
+    {
+      "recipe": "glass",
+      "params": {
+        "artboard": "a",
+        "photo": "glass",
+        "opaque": { "kind": "vector", "shape": { "kind": "compound", "parts": [{ "shape": { "kind": "rect" }, "frame": { "x": 224, "y": 27, "w": 32, "h": 36 } }, { "shape": { "kind": "rect" }, "frame": { "x": 204, "y": 229, "w": 72, "h": 62 } }] } }
+      }
+    }
+  ],
+  "checks": [
+    { "what": "the grey backdrop beside the bottle is gone, showing the dark wood", "metric": "luminance.mean", "region": [20, 100, 80, 80], "less": 0.5 },
+    { "what": "the wood shows through the clear neck, warm instead of the grey backdrop", "metric": "color.lab.1", "region": [234, 88, 12, 18], "min": 4 },
+    { "what": "the neck is darker than the grey backdrop it was shot on", "metric": "luminance.mean", "region": [234, 88, 12, 18], "less": 0.7 },
+    { "what": "the wine keeps its yellow", "metric": "color.lab.2", "region": [225, 150, 30, 60], "min": 12 },
+    { "what": "the specular stripe survives", "metric": "luminance.mean", "region": [214, 170, 4, 40], "min": 180 },
+    { "what": "the foil cap stays gold and opaque", "sample": [240, 45], "deltaE": { "max": 15 } }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 name: production
-description: Getting files out of Gesso for print and for teams: CMYK and ICC profiles with soft proofing, TIFF, print PDFs with bleed, asset-generator slices from layer names, batch runs over images or data rows, merging layers, and find and replace.
+description: "Getting files out of Gesso for print and for teams: CMYK and ICC profiles with soft proofing, TIFF, print PDFs with bleed, asset-generator slices from layer names, batch runs over images or data rows, merging layers, and find and replace."
 ---
 
 # Production

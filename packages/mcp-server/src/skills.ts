@@ -25,7 +25,11 @@ export function loadSkills(root = skillsRoot()): Skill[] {
     if (!entry.isDirectory() || !existsSync(file)) continue;
     const text = readFileSync(file, "utf8");
     const front = /^---\n([\s\S]*?)\n---\n/.exec(text);
-    const field = (key: string) => front?.[1]?.match(new RegExp(`^${key}:\\s*(.+)$`, "m"))?.[1]?.trim();
+    // A value with ": " in it is double-quoted, as YAML requires; JSON reads the same quoting.
+    const field = (key: string) => {
+      const value = front?.[1]?.match(new RegExp(`^${key}:\\s*(.+)$`, "m"))?.[1]?.trim();
+      return value?.startsWith('"') ? (JSON.parse(value) as string) : value;
+    };
     if (field("status") === "placeholder") continue;
     const name = field("name") ?? entry.name;
     const recipePath = join(dir, "recipe.json");

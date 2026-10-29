@@ -1,0 +1,196 @@
+{
+  "recipes": {
+    "cast-shadow": {
+      "description": "A shadow cast on the ground behind an object: a black silhouette copy, laid down in perspective with a quad, blurred and multiplied. Light from the front left by default; flip lean for the other side.",
+      "params": {
+        "subject": {
+          "type": "layer",
+          "description": "The object (cut-out or shape) with an absolute frame"
+        },
+        "lean": {
+          "type": "number",
+          "description": "How far the shadow's top shifts sideways, as a fraction of the height (negative for left)",
+          "default": 0.45
+        },
+        "length": {
+          "type": "number",
+          "description": "Shadow length as a fraction of the object's height",
+          "default": 0.5
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 0.45
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{subject}}",
+          "id": "{{subject}}-cast",
+          "before": "#{{subject}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-cast",
+          "path": "name",
+          "value": "Cast shadow"
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-cast",
+          "path": "effects",
+          "value": [
+            {
+              "kind": "color-overlay",
+              "color": "#000000"
+            }
+          ]
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-cast",
+          "path": "blend",
+          "value": "multiply"
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-cast",
+          "path": "opacity",
+          "value": "{{amount}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-cast",
+          "path": "filters.+",
+          "value": {
+            "kind": "gaussian-blur",
+            "radius": 4
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{subject}}-cast",
+          "path": "quad",
+          "value": [
+            [
+              "{{= subject.frame.x + subject.frame.h * lean}}",
+              "{{= subject.frame.y + subject.frame.h * (1 - length)}}"
+            ],
+            [
+              "{{= subject.frame.x + subject.frame.w + subject.frame.h * lean}}",
+              "{{= subject.frame.y + subject.frame.h * (1 - length)}}"
+            ],
+            [
+              "{{= subject.frame.x + subject.frame.w}}",
+              "{{= subject.frame.y + subject.frame.h}}"
+            ],
+            [
+              "{{subject.frame.x}}",
+              "{{= subject.frame.y + subject.frame.h}}"
+            ]
+          ]
+        }
+      ]
+    },
+    "match-to-plate": {
+      "description": "Moves a placed element's colour and tone towards the background plate's with Match Color, as a live filter, faded so it doesn't go flat.",
+      "params": {
+        "subject": {
+          "type": "layer",
+          "description": "The placed element"
+        },
+        "plate": {
+          "type": "string",
+          "description": "The plate's image asset id"
+        },
+        "intensity": {
+          "type": "number",
+          "description": "Colour intensity, 1..200",
+          "default": 70
+        },
+        "fade": {
+          "type": "number",
+          "description": "Fade, 0..100",
+          "default": 20
+        }
+      },
+      "ops": [
+        {
+          "op": "set",
+          "target": "#{{subject}}",
+          "path": "filters.+",
+          "value": {
+            "kind": "match-color",
+            "source": "{{plate}}",
+            "intensity": "{{intensity}}",
+            "fade": "{{fade}}"
+          }
+        }
+      ]
+    },
+    "blend-texture": {
+      "description": "Lays a texture onto an object: the texture clipped to it in overlay, dropped out of the deepest shadows and brightest highlights with Blend If.",
+      "params": {
+        "texture": {
+          "type": "layer",
+          "description": "The texture layer"
+        },
+        "onto": {
+          "type": "layer",
+          "description": "The object it goes on"
+        },
+        "blend": {
+          "type": "string",
+          "description": "Blend mode",
+          "default": "overlay"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 0.8
+        }
+      },
+      "ops": [
+        {
+          "op": "move",
+          "target": "#{{texture}}",
+          "to": {
+            "after": "#{{onto}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{texture}}",
+          "path": "clip",
+          "value": true
+        },
+        {
+          "op": "set",
+          "target": "#{{texture}}",
+          "path": "blend",
+          "value": "{{blend}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{texture}}",
+          "path": "opacity",
+          "value": "{{amount}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{texture}}",
+          "path": "blendIf",
+          "value": {
+            "underlying": [
+              20,
+              50,
+              215,
+              245
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

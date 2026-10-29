@@ -54,14 +54,14 @@ export const TOOL_TITLES: Record<string, string> = {
   canvas_stack: "Auto-blend",
 };
 
-const READS = { readOnlyHint: true, openWorldHint: false } as const;
+const READS = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 /** Creates something new (a document, a job folder) or sets the selection, without changing what's there. */
 const CREATES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 /** Changes an existing document, or writes files that can replace earlier ones. */
 const CHANGES = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
 
-/** MCP tool hints, which hosts use for permissions: read-only tools can run without asking, changes ask. */
-export const TOOL_HINTS: Record<string, { readOnlyHint: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint: boolean }> = {
+/** MCP tool hints, which hosts use for permissions: read-only tools can run without asking, changes ask. Every hint is explicit, as the app directories require. */
+export const TOOL_HINTS: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint?: boolean; openWorldHint: boolean }> = {
   canvas_list: READS,
   canvas_outline: READS,
   canvas_get: READS,

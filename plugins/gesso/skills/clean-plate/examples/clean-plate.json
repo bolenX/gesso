@@ -1,0 +1,62 @@
+{
+ "description": "The bottle disappears from the seamless backdrop",
+ "layers": [
+  "product"
+ ],
+ "steps": [
+  {
+   "recipe": "clean-plate",
+   "params": {
+    "source": "product",
+    "spots": [
+     {
+      "at": [
+       0.5,
+       0.5
+      ],
+      "size": [
+       0.21,
+       0.86
+      ],
+      "shape": "rect"
+     }
+    ]
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "where the bottle was is now backdrop",
+   "metric": "luminance.mean",
+   "region": [
+    215,
+    100,
+    50,
+    180
+   ],
+   "more": 1.7
+  },
+  {
+   "what": "the area is as plain as the backdrop",
+   "metric": "luminance.contrast",
+   "region": [
+    215,
+    100,
+    50,
+    180
+   ],
+   "max": 15
+  },
+  {
+   "what": "the backdrop around is untouched",
+   "sample": [
+    420,
+    150
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 1
+   }
+  }
+ ]
+}

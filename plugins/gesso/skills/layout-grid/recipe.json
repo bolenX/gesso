@@ -1,0 +1,77 @@
+{
+  "recipes": {
+    "column-guides": {
+      "description": "A group of tinted column guides (tagged guide) for placing layers on a grid. Remove or hide it before export.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "columns": {
+          "type": "number",
+          "description": "Number of columns",
+          "default": 12
+        },
+        "margin": {
+          "type": "number",
+          "description": "Side margin as a fraction of the width",
+          "default": 0.07
+        },
+        "gutter": {
+          "type": "number",
+          "description": "Gutter as a fraction of the width",
+          "default": 0.02
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "into": "#{{artboard}}",
+          "layer": {
+            "id": "grid-guides",
+            "name": "Grid guides (remove before export)",
+            "type": "group",
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            },
+            "children": [],
+            "meta": {
+              "tags": [
+                "guide"
+              ],
+              "description": "Layout guides: remove or hide before exporting"
+            }
+          }
+        },
+        {
+          "repeat": "{{columns}}",
+          "op": "insert",
+          "into": "#grid-guides",
+          "layer": {
+            "id": "guide-col-{{i}}",
+            "name": "Column {{i}}",
+            "type": "shape",
+            "shape": {
+              "kind": "rect"
+            },
+            "fill": "#FF2D7A26",
+            "meta": {
+              "tags": [
+                "guide"
+              ]
+            },
+            "frame": {
+              "x": "{{= artboard.w * margin + i * (artboard.w * (1 - 2 * margin) + artboard.w * gutter) / columns}}",
+              "y": 0,
+              "w": "{{= (artboard.w * (1 - 2 * margin) - (columns - 1) * artboard.w * gutter) / columns}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

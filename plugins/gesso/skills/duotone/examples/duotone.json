@@ -1,0 +1,33 @@
+{
+ "description": "The duotone recolours the sky and keeps the image's contrast",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "duotone",
+   "params": {
+    "artboard": "a",
+    "above": "landscape"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the blue sky turns to the inks",
+   "sample": [
+    60,
+    30
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 15
+   }
+  },
+  {
+   "what": "contrast survives",
+   "metric": "luminance.contrast",
+   "more": 0.7
+  }
+ ]
+}

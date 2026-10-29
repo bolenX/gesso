@@ -1,0 +1,21 @@
+{
+  "name": "gesso",
+  "version": "0.13.0",
+  "description": "Layered design and photo editing: build images as editable layers and export PSDs that open live in Photoshop.",
+  "mcpServers": {
+    "gesso": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "gesso-mcp"
+      ]
+    }
+  },
+  "settings": [
+    {
+      "name": "Gesso folder",
+      "description": "Folder Gesso reads your images and fonts from and saves exports to, such as ~/Documents/Gesso. Leave empty to use the folder you start Gemini in.",
+      "envVar": "GESSO_WORKDIR"
+    }
+  ]
+}

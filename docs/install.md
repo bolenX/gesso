@@ -7,15 +7,19 @@ Pick the agent you use:
 | Agent | How | Status |
 | --- | --- | --- |
 | Claude Desktop | Install the extension | Ready |
-| Claude Code | One terminal command | Ready |
-| Cursor | Add to `mcp.json` | Ready |
-| VS Code (Copilot agent mode) | One terminal command | Ready |
-| Gemini CLI | Add to `settings.json` | Ready |
+| Claude Code | One terminal command, or the plugin | Ready |
+| Cursor | One click, or add to `mcp.json` | Ready |
+| VS Code (Copilot agent mode) | One click, or one terminal command | Ready |
+| GitHub Copilot CLI | Install the plugin | Ready |
+| Codex | One terminal command, or the plugin | Ready |
+| Gemini CLI | Install the extension | Ready |
 | Hermes Agent | Add to `config.yaml` | Ready |
 | claude.ai (web and mobile) | Custom connector to `https://mcp.gesso.run/mcp`, or `--tunnel` on your computer | Ready, free |
 | ChatGPT | Developer-mode app with `https://mcp.gesso.run/mcp`, or `--tunnel` on your computer | Ready, free |
 
-Every route except the Claude Desktop extension runs Gesso with `npx`, so it needs **Node 22 or later** (`node -v` to check; get it from [nodejs.org](https://nodejs.org)).
+Gesso runs on your computer with `npx`, which needs **Node 22 or later** (`node -v` to check; get it from [nodejs.org](https://nodejs.org)). The Claude Desktop extension includes everything it needs.
+
+**The Gesso plugin** is the other way in. It adds Gesso's skills to your agent along with the server, and it connects to the free hosted server at `https://mcp.gesso.run/mcp`, so there's nothing to install: see [The Gesso plugin](#the-gesso-plugin). Your files are then kept in a private workspace on that server, not on your computer.
 
 ## Your Gesso folder
 
@@ -56,9 +60,18 @@ claude mcp add gesso -- npx -y gesso-mcp
 
 Gesso uses the folder you start `claude` in. Run `/mcp` to confirm **gesso** shows as connected.
 
+Or install [the Gesso plugin](#the-gesso-plugin), which uses the hosted server and adds Gesso's skills as `/gesso:<skill>` commands:
+
+```
+/plugin marketplace add bolenX/gesso
+/plugin install gesso@gesso
+```
+
 ## Cursor
 
-Add Gesso to `~/.cursor/mcp.json` (all projects), or `.cursor/mcp.json` in one project:
+**One click:** [Add Gesso to Cursor](https://cursor.com/install-mcp?name=gesso&config=eyJ0eXBlIjoic3RkaW8iLCJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImdlc3NvLW1jcCJdLCJlbnYiOnsiR0VTU09fV09SS0RJUiI6In4vRG9jdW1lbnRzL0dlc3NvIn19). It adds the same entry as the block below.
+
+Or add Gesso to `~/.cursor/mcp.json` (all projects), or `.cursor/mcp.json` in one project:
 
 ```json
 {
@@ -133,15 +146,43 @@ With nvm, both paths include the Node version, so update them when you change ve
 
 ## VS Code (Copilot agent mode)
 
+**One click:** [Install Gesso in VS Code](https://insiders.vscode.dev/redirect/mcp/install?name=gesso&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22gesso-mcp%22%5D%2C%22env%22%3A%7B%22GESSO_WORKDIR%22%3A%22~%2FDocuments%2FGesso%22%7D%7D), or [use the hosted server](https://insiders.vscode.dev/redirect/mcp/install?name=gesso&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fmcp.gesso.run%2Fmcp%22%7D) with nothing to install.
+
+Or from a terminal:
+
 ```sh
 code --add-mcp '{"name":"gesso","type":"stdio","command":"npx","args":["-y","gesso-mcp"],"env":{"GESSO_WORKDIR":"~/Documents/Gesso"}}'
 ```
 
 This adds Gesso to your VS Code user profile. Open Copilot Chat in **Agent** mode; Gesso's tools appear in the tools picker. You can also run **MCP: Add Server** from the Command Palette, choose **Command (stdio)** and enter `npx -y gesso-mcp`.
 
+## GitHub Copilot CLI
+
+Install [the Gesso plugin](#the-gesso-plugin):
+
+```sh
+copilot plugin install bolenX/gesso:plugins/gesso
+```
+
+## Codex
+
+```sh
+codex mcp add gesso --env GESSO_WORKDIR=~/Documents/Gesso -- npx -y gesso-mcp
+```
+
+Or install [the Gesso plugin](#the-gesso-plugin): run `codex plugin marketplace add bolenX/gesso`, then `/plugins` in Codex, and install **Gesso**.
+
 ## Gemini CLI
 
-Add Gesso to `~/.gemini/settings.json` (all projects), or `.gemini/settings.json` in one project:
+Install Gesso as an extension, which also adds its skills:
+
+```sh
+gemini extensions install https://github.com/bolenX/gesso
+```
+
+Gemini asks for your Gesso folder (such as `~/Documents/Gesso`); leave it empty to use the folder you start `gemini` in.
+
+Or add the server to `~/.gemini/settings.json` (all projects), or `.gemini/settings.json` in one project:
 
 ```json
 {
@@ -171,6 +212,22 @@ mcp_servers:
 ```
 
 Start `hermes chat`. If Hermes is already running, run `/reload-mcp`. Gesso's tools appear as `mcp_gesso_<tool>`.
+
+## The Gesso plugin
+
+The plugin bundles two things: a connection to Gesso's free hosted server, and Gesso's 31 skills plus a get-started guide, which your agent loads when a task needs them. It's one folder, [`plugins/gesso`](../plugins/gesso), that every agent below reads in its own format.
+
+| Agent | Install |
+| --- | --- |
+| Claude Code | `/plugin marketplace add bolenX/gesso`, then `/plugin install gesso@gesso` |
+| claude.ai and Cowork | **Customize › Plugins › Add › Add marketplace**, enter `bolenX/gesso`, then add **Gesso** |
+| Codex | `codex plugin marketplace add bolenX/gesso`, then `/plugins` |
+| GitHub Copilot CLI | `copilot plugin install bolenX/gesso:plugins/gesso` |
+| Cursor | From Cursor's marketplace, once it's listed there |
+
+The first time a Gesso tool runs, the agent opens Gesso's sign-in page: choose **Continue without an account**. Your files are kept in a private workspace on `mcp.gesso.run`, deleted 7 days after it was last used.
+
+To keep files on your own computer instead, use the `npx` setup for your agent above, or the Claude Desktop extension. Gesso's skills also work there: the server offers them through `skill_read`.
 
 ## claude.ai and ChatGPT
 
@@ -228,6 +285,8 @@ Text uses fonts installed on your computer or put in your Gesso folder. The agen
 ## Update
 
 - **Claude Desktop extension:** download the new `.mcpb` and double-click it.
+- **The plugin:** the hosted server is always the latest version. For new skills, update the plugin: in Claude Code, `/plugin marketplace update gesso`, then `/plugin update gesso@gesso`. Other agents update from their plugin menu.
+- **Gemini extension:** `gemini extensions update gesso`.
 - **Everything else:** `npx -y gesso-mcp` fetches the latest version when Gesso starts. Restart the agent, or reconnect Gesso from its MCP menu.
 
 ---

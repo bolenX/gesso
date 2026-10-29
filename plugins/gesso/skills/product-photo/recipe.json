@@ -1,0 +1,116 @@
+{
+  "recipes": {
+    "contact-shadow": {
+      "description": "Grounds a cut-out product with two shadows under it: a dark, tight contact shadow and a soft, wide one. Both are blurred ellipses in multiply, sized from the product's frame.",
+      "params": {
+        "product": {
+          "type": "layer",
+          "description": "The product layer (a cut-out, or a shape standing in for it)"
+        },
+        "strength": {
+          "type": "number",
+          "description": "Shadow opacity, 0..1",
+          "default": 0.7
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "before": "#{{product}}",
+          "layer": {
+            "id": "{{product}}-shadow-soft",
+            "name": "Soft shadow",
+            "type": "shape",
+            "shape": {
+              "kind": "ellipse"
+            },
+            "fill": "#000000",
+            "blend": "multiply",
+            "opacity": "{{= strength * 0.45}}",
+            "frame": {
+              "x": "{{= product.frame.x - product.frame.w * 0.15}}",
+              "y": "{{= product.frame.y + product.frame.h * 0.94}}",
+              "w": "{{= product.frame.w * 1.3}}",
+              "h": "{{= product.frame.h * 0.12}}"
+            },
+            "filters": [
+              {
+                "kind": "gaussian-blur",
+                "radius": "{{= product.frame.h * 0.03 + 3}}"
+              }
+            ]
+          }
+        },
+        {
+          "op": "insert",
+          "before": "#{{product}}",
+          "layer": {
+            "id": "{{product}}-shadow-contact",
+            "name": "Contact shadow",
+            "type": "shape",
+            "shape": {
+              "kind": "ellipse"
+            },
+            "fill": "#000000",
+            "blend": "multiply",
+            "opacity": "{{strength}}",
+            "frame": {
+              "x": "{{= product.frame.x + product.frame.w * 0.04}}",
+              "y": "{{= product.frame.y + product.frame.h * 0.975}}",
+              "w": "{{= product.frame.w * 0.92}}",
+              "h": "{{= product.frame.h * 0.05}}"
+            },
+            "filters": [
+              {
+                "kind": "gaussian-blur",
+                "radius": "{{= product.frame.h * 0.008 + 1.5}}"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "despeckle": {
+      "description": "Removes dust and specks from a product shot on a copy, with Dust & Scratches. Mask it off labels and text afterwards (core-techniques: mask-out), since it softens fine print.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The photo"
+        },
+        "radius": {
+          "type": "number",
+          "description": "Dust & Scratches radius, px: a little over the largest speck",
+          "default": 3
+        },
+        "threshold": {
+          "type": "number",
+          "description": "Threshold, 0..255: higher keeps more texture",
+          "default": 14
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "{{source}}-clean"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-clean",
+          "path": "name",
+          "value": "Dust removed"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-clean",
+          "path": "filters.+",
+          "value": {
+            "kind": "dust-and-scratches",
+            "radius": "{{radius}}",
+            "threshold": "{{threshold}}"
+          }
+        }
+      ]
+    }
+  }
+}

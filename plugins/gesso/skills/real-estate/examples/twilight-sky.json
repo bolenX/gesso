@@ -1,0 +1,60 @@
+{
+ "description": "Twilight darkens and cools the house; a new sky replaces the flat grey one",
+ "layers": [
+  "landscape",
+  "exterior"
+ ],
+ "steps": [
+  {
+   "recipe": "sky-replace",
+   "params": {
+    "photo": "exterior",
+    "sky": "landscape",
+    "skyColor": "#B8BCC0",
+    "fuzziness": 25
+   }
+  },
+  {
+   "recipe": "twilight",
+   "params": {
+    "artboard": "a",
+    "above": "exterior"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the sky turns blue",
+   "metric": "color.lab.2",
+   "region": [
+    20,
+    10,
+    100,
+    40
+   ],
+   "max": -10
+  },
+  {
+   "what": "the house is darker",
+   "metric": "luminance.mean",
+   "region": [
+    140,
+    120,
+    70,
+    60
+   ],
+   "less": 0.7
+  },
+  {
+   "what": "the house turns cooler",
+   "metric": "color.lab.2",
+   "region": [
+    140,
+    120,
+    70,
+    60
+   ],
+   "less": 0.9
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 ---
 name: data-driven-variants
-description: Data-driven variants: one template filled from rows of data (names, prices, photos) into many outputs with canvas_batch, like Photoshop's Variables.
+description: "Data-driven variants: one template filled from rows of data (names, prices, photos) into many outputs with canvas_batch, like Photoshop's Variables."
 ---
 
 # Data-driven variants

@@ -1,6 +1,6 @@
 ---
 name: double-exposure
-description: Double exposure: a second image (landscape, city, texture) blended inside a portrait's silhouette, with a shared tone so they read as one picture.
+description: "Double exposure: a second image (landscape, city, texture) blended inside a portrait's silhouette, with a shared tone so they read as one picture."
 ---
 
 # Double exposure

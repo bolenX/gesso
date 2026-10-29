@@ -1,0 +1,32 @@
+{
+ "description": "Film fade lifts the blacks and keeps highlights off white",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "film-fade",
+   "params": {
+    "artboard": "a",
+    "above": "landscape"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "blacks are lifted",
+   "metric": "luminance.range.0",
+   "min": 25
+  },
+  {
+   "what": "whites stay below white",
+   "metric": "luminance.clipped.highlights",
+   "max": 0.05
+  },
+  {
+   "what": "colour is muted",
+   "metric": "color.chroma.mean",
+   "less": 0.95
+  }
+ ]
+}

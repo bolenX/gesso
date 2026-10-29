@@ -1,0 +1,13 @@
+{
+  "description": "A glass bottle on wood gets a soft shadow away from the light, and stays clear itself",
+  "layers": ["wood", "glass"],
+  "steps": [
+    { "setup": true, "recipe": "glass", "params": { "artboard": "a", "photo": "glass" } },
+    { "recipe": "glass-contact", "params": { "artboard": "a", "photo": "glass" } }
+  ],
+  "checks": [
+    { "what": "the wood right of the bottle falls into shadow", "metric": "luminance.mean", "region": [280, 200, 30, 100], "less": 0.92 },
+    { "what": "the wood left of it, towards the light, is untouched", "metric": "luminance.mean", "region": [150, 200, 40, 100], "keep": 1 },
+    { "what": "the glass itself isn't painted over", "metric": "luminance.mean", "region": [228, 150, 24, 60], "keep": 1 }
+  ]
+}

@@ -1,6 +1,6 @@
 # Claude Connectors Directory: submission kit
 
-Everything the developer portal at [claude.ai/directory/manage](https://claude.ai/directory/manage) asks for, for **Submit new › MCP connector**, ready to paste. The steps follow the portal, as of October 2026. Check the portal itself, because the fields change.
+Everything the developer portal at [claude.ai/directory/manage](https://claude.ai/directory/manage) asks for, for **Submit new › MCP connector**, ready to paste. Submit the [plugin](claude-plugin.md) too, and pair the two listings. The steps follow the portal, as of October 2026. Check the portal itself, because the fields change.
 
 **Before you submit:**
 - [ ] `mcp.gesso.run` is deployed and `https://mcp.gesso.run/health` answers (see [deploy/README.md](../../deploy/README.md)).
@@ -38,12 +38,13 @@ These sync from the server. Every tool has a `title` and `readOnlyHint`. Tools t
 > What Claude can do with it:
 > - Design posters, social posts and banners, then adapt one design to a story, a square and a landscape so each looks designed for its size.
 > - Retouch and grade photos non-destructively: curves and levels, colour balance, frequency separation, healing, dodge & burn, sky and colour fixes.
-> - Composite with all 27 blend modes, Blend If, luminosity and channel masks, Select and Mask, and every Photoshop layer style.
+> - Composite with all 27 blend modes, Blend If, luminosity and channel masks, and every Photoshop layer style.
+> - Cut out hard subjects with its own masking engine: hair strand by strand, studio backdrops, and see-through glass.
 > - Apply 74 Filter-menu filters as smart filters, plus Liquify, Puppet Warp and Camera Raw.
 > - Check its own work: zoom into a region at up to 400%, compare with an earlier version, and measure tones, colour casts, sharpness and clipping like Photoshop's Histogram and Info panels.
 > - Export PSD, TIFF, print PDF with bleed, SVG, PNG, JPEG and WebP, in RGB or CMYK. PSDs open in Photoshop with live text, shapes, adjustment layers, layer styles, smart objects and many smart filters.
 >
-> 30 bundled skills teach Claude professional workflows for beauty, product, real estate, compositing, restoration and graphic design.
+> 31 bundled skills teach Claude professional workflows for beauty, product, real estate, compositing, cut-outs, restoration and graphic design.
 >
 > Gesso renders every pixel itself and never calls an AI image model. Your files stay in a private workspace that is deleted after 7 days without use. No account is needed: approve the connection and start. Free and open source (Apache-2.0).
 
@@ -55,7 +56,7 @@ These sync from the server. Every tool has a `title` and `readOnlyHint`. Tools t
 
 **Support contact:** `https://github.com/bolenX/gesso/issues`, or [support email]
 
-**Icon:** `packages/mcp-server/assets/logo.svg`, exported as a square PNG of at least 512 px.
+**Icon:** `plugins/gesso/assets/icon.png`, a square 512 px PNG. (`logo.svg` is the wide wordmark, not an icon.)
 
 **URL slug:** `gesso`. It's permanent once published.
 
@@ -107,7 +108,7 @@ Read all seven acknowledgements carefully. The one to think about is **AI media 
 - Gesso doesn't generate images with AI models.
 - `gen_prepare` only writes files and instructions for an image tool the user has connected separately. Gesso never calls that tool.
 
-If a reviewer treats `gen_prepare` as AI image generation, the server can drop it for the listing with `GESSO_DISABLE_TOOLS=gen_prepare` and a redeploy.
+The policy rules out image editing that isn't purely design-focused when it uses AI models. Decide before you submit whether to turn `gen_prepare` off on the listed server with `GESSO_DISABLE_TOOLS=gen_prepare` and a restart (see the [checklist](README.md#before-any-submission)); it's easier than answering a rejection.
 
 ## Allowed link URIs (optional)
 

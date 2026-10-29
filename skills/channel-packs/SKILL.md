@@ -1,6 +1,6 @@
 ---
 name: channel-packs
-description: Channel packs: the sizes, formats and file-size limits each channel needs (Meta, Instagram, TikTok, LinkedIn, X, YouTube, Pinterest, display ads, email), and how to export to them.
+description: "Channel packs: the sizes, formats and file-size limits each channel needs (Meta, Instagram, TikTok, LinkedIn, X, YouTube, Pinterest, display ads, email), and how to export to them."
 ---
 
 # Channel packs

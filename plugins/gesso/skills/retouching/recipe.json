@@ -1,0 +1,319 @@
+{
+  "recipes": {
+    "frequency-separation": {
+      "description": "Splits a photo into a tone layer (low frequency: blurred) and a texture layer (high frequency: high pass at half strength in linear light, Photoshop's 8-bit method with Apply Image at scale 2). Together they rebuild the original exactly, dark detail included. Even out tone on the low layer; clean texture on the high one.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The photo, or a stamp of it, to separate"
+        },
+        "radius": {
+          "type": "number",
+          "default": 6,
+          "description": "Separation radius in px: about the size of the pores and blemishes (4–8 at 1–2 MP, 10–20 at 24 MP)"
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "{{source}}-low"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-low",
+          "path": "name",
+          "value": "Low frequency (tone)"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-low",
+          "path": "filters.+",
+          "value": {
+            "kind": "gaussian-blur",
+            "radius": "{{radius}}"
+          }
+        },
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "{{source}}-high",
+          "after": "#{{source}}-low"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-high",
+          "path": "name",
+          "value": "High frequency (texture)"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-high",
+          "path": "filters.+",
+          "value": {
+            "kind": "high-pass",
+            "radius": "{{radius}}",
+            "scale": 0.5
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-high",
+          "path": "blend",
+          "value": "linear-light"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-high",
+          "path": "opacity",
+          "value": 1
+        }
+      ]
+    },
+    "smooth-tone": {
+      "description": "Evens out blotchy tone within a region (cheeks, forehead, jaw) on a copy of the low-frequency layer, masked with a soft ellipse. Texture stays, because it lives on the high layer above.",
+      "params": {
+        "low": {
+          "type": "layer",
+          "description": "The low-frequency layer from frequency-separation"
+        },
+        "region": {
+          "type": "json",
+          "description": "Where to smooth: {\"x\", \"y\", \"w\", \"h\"} in the layer's pixels. The mask is an ellipse inside it, feathered"
+        },
+        "id": {
+          "type": "string",
+          "default": "tone-smoothing",
+          "description": "Id for the new layer (use a new one for each region)"
+        },
+        "radius": {
+          "type": "number",
+          "default": 12,
+          "description": "Extra blur in px; about twice the separation radius"
+        },
+        "amount": {
+          "type": "number",
+          "default": 0.7,
+          "description": "Opacity, 0..1"
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{low}}",
+          "id": "{{id}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "name",
+          "value": "Tone smoothing"
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "filters.+",
+          "value": {
+            "kind": "gaussian-blur",
+            "radius": "{{radius}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "opacity",
+          "value": "{{amount}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{id}}",
+          "path": "mask",
+          "value": {
+            "kind": "vector",
+            "shape": {
+              "kind": "ellipse"
+            },
+            "frame": "{{region}}",
+            "feather": "{{= min(region.w, region.h) / 5}}"
+          }
+        }
+      ]
+    },
+    "heal-spots": {
+      "description": "Heals spots (blemishes, dust, stray hairs) on a layer, as a heal filter added to its filter list: live, so it can be changed or removed later. On a frequency separation, heal the high layer for texture and the low layer for colour.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The photo, or a layer of a frequency separation"
+        },
+        "spots": {
+          "type": "json",
+          "description": "The heal filter's spots: [{\"at\": [x, y], \"size\": [w, h]}…] as fractions of the layer's box, a little larger than each blemish"
+        }
+      },
+      "ops": [
+        {
+          "op": "set",
+          "target": "#{{source}}",
+          "path": "filters.+",
+          "value": {
+            "kind": "heal",
+            "spots": "{{spots}}"
+          }
+        }
+      ]
+    },
+    "dodge-burn-setup": {
+      "description": "Adds a dodge & burn group above a layer: a 50% grey layer in soft light, which changes nothing until dodge and burn strokes are added to it.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the group just above this layer"
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "dodge-burn",
+            "name": "Dodge & burn",
+            "type": "group",
+            "frame": "{{artboard.frame}}",
+            "children": [
+              {
+                "id": "dodge-burn-neutral",
+                "name": "Neutral grey (soft light)",
+                "type": "shape",
+                "shape": {
+                  "kind": "rect"
+                },
+                "fill": "#808080",
+                "blend": "soft-light",
+                "frame": "{{artboard.frame}}"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "dodge": {
+      "description": "Lightens a round area softly (a dodge stroke) in the dodge & burn group: a white radial gradient in soft light.",
+      "params": {
+        "id": {
+          "type": "string",
+          "description": "Id for the stroke, e.g. \"dodge-cheekbone\""
+        },
+        "at": {
+          "type": "json",
+          "description": "Centre [x, y] in artboard pixels"
+        },
+        "size": {
+          "type": "number",
+          "description": "Diameter in px"
+        },
+        "amount": {
+          "type": "number",
+          "default": 0.5,
+          "description": "Strength, 0..1 (0.2–0.4 for skin, more for sculpting)"
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "into": "#dodge-burn",
+          "layer": {
+            "id": "{{id}}",
+            "name": "Dodge",
+            "type": "shape",
+            "shape": {
+              "kind": "ellipse"
+            },
+            "fill": {
+              "kind": "radial-gradient",
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "#FFFFFFFF"
+                },
+                {
+                  "offset": 1,
+                  "color": "#FFFFFF00"
+                }
+              ]
+            },
+            "blend": "soft-light",
+            "opacity": "{{amount}}",
+            "frame": {
+              "x": "{{= at.0 - size / 2}}",
+              "y": "{{= at.1 - size / 2}}",
+              "w": "{{size}}",
+              "h": "{{size}}"
+            }
+          }
+        }
+      ]
+    },
+    "burn": {
+      "description": "Darkens a round area softly (a burn stroke) in the dodge & burn group: a black radial gradient in soft light.",
+      "params": {
+        "id": {
+          "type": "string",
+          "description": "Id for the stroke, e.g. \"burn-jawline\""
+        },
+        "at": {
+          "type": "json",
+          "description": "Centre [x, y] in artboard pixels"
+        },
+        "size": {
+          "type": "number",
+          "description": "Diameter in px"
+        },
+        "amount": {
+          "type": "number",
+          "default": 0.5,
+          "description": "Strength, 0..1"
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "into": "#dodge-burn",
+          "layer": {
+            "id": "{{id}}",
+            "name": "Burn",
+            "type": "shape",
+            "shape": {
+              "kind": "ellipse"
+            },
+            "fill": {
+              "kind": "radial-gradient",
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "#000000FF"
+                },
+                {
+                  "offset": 1,
+                  "color": "#00000000"
+                }
+              ]
+            },
+            "blend": "soft-light",
+            "opacity": "{{amount}}",
+            "frame": {
+              "x": "{{= at.0 - size / 2}}",
+              "y": "{{= at.1 - size / 2}}",
+              "w": "{{size}}",
+              "h": "{{size}}"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

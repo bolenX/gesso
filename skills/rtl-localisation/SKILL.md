@@ -1,6 +1,6 @@
 ---
 name: rtl-localisation
-description: Right-to-left localisation (Arabic, Hebrew, Persian, Urdu): text direction, mirroring the layout, fonts that cover the script, and numbers.
+description: "Right-to-left localisation (Arabic, Hebrew, Persian, Urdu): text direction, mirroring the layout, fonts that cover the script, and numbers."
 ---
 
 # Right-to-left localisation
