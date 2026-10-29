@@ -1,6 +1,6 @@
 {
   "name": "gesso",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Layered design and photo editing: build images as editable layers and export PSDs that open live in Photoshop.",
   "mcpServers": {
     "gesso": {

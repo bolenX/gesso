@@ -2,7 +2,7 @@
 // "creator tool" field (Photoshop shows it under File > File Info as the
 // application), and manifests name their generator.
 
-export const GESSO_VERSION = "0.13.0";
+export const GESSO_VERSION = "0.14.0";
 export const GENERATOR = `Gesso ${GESSO_VERSION}`;
 export const GESSO_URL = "https://gesso.run";
 

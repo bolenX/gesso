@@ -3,7 +3,7 @@
   "name": "io.github.bolenX/gesso",
   "title": "Gesso",
   "description": "Layered image editing for agents: design, retouch and composite, and export editable PSDs.",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "websiteUrl": "https://gesso.run",
   "repository": {
     "url": "https://github.com/bolenX/gesso",
@@ -23,7 +23,7 @@
     {
       "registryType": "npm",
       "identifier": "gesso-mcp",
-      "version": "0.13.0",
+      "version": "0.14.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
