@@ -13,6 +13,23 @@ const Spot = z.object({ at: Point, size: Point, shape: z.enum(["ellipse", "rect"
 const Fade = { opacity: z.number().min(0).max(1).optional(), blend: BlendMode.optional() };
 const f = <K extends string, T extends z.ZodRawShape>(kind: K, shape: T) => z.object({ kind: z.literal(kind), ...shape, ...Fade });
 
+/** Where a Filter Gallery light comes from, as in Photoshop's Light menu. */
+const Light = z.enum(["top", "top-right", "right", "bottom-right", "bottom", "bottom-left", "left", "top-left"]);
+/** Filter Gallery's surface textures, shared by Texturizer, Rough Pastels, Underpainting and Conté Crayon. */
+const Surface = {
+  texture: z.enum(["canvas", "burlap", "brick", "sandstone"]).optional(),
+  /** 50..200 (%) */
+  scaling: z.number().min(50).max(200).optional(),
+  relief: z.number().min(0).max(50).optional(),
+  light: Light.optional(),
+  invert: z.boolean().optional(),
+};
+/** The Sketch filters draw in Photoshop's foreground and background colours: [foreground, background], black and white by default. */
+const Inks = { colors: z.tuple([Color, Color]).optional() };
+const Direction = z.enum(["right-diagonal", "horizontal", "left-diagonal", "vertical"]);
+const int = (lo: number, hi: number) => z.number().int().min(lo).max(hi);
+const num = (lo: number, hi: number) => z.number().min(lo).max(hi);
+
 export const Filter = z.discriminatedUnion("kind", [
   // ── Blur ──────────────────────────────────────────────────────────────────────────────
   f("gaussian-blur", { radius: z.number().nonnegative() }),
@@ -85,6 +102,38 @@ export const Filter = z.discriminatedUnion("kind", [
     redCyan: z.number().min(-100).max(100).optional(),
     blueYellow: z.number().min(-100).max(100).optional(),
   }),
+  /**
+   * Adaptive Wide Angle: "fisheye" straightens a fisheye photo into a normal (rectilinear) one;
+   * "perspective" eases the stretched edges of a wide rectilinear photo (to a stereographic view);
+   * "full-spherical" turns a 2:1 360° panorama into a normal view looking towards `yaw` and `pitch`.
+   * `focalLength` is in mm for the full-frame (36 mm) width, times `cropFactor`; `scale` is 50..150 (%).
+   */
+  f("adaptive-wide-angle", {
+    correction: z.enum(["fisheye", "perspective", "full-spherical"]),
+    focalLength: z.number().positive().max(300).optional(),
+    cropFactor: z.number().positive().max(10).optional(),
+    scale: num(50, 150).optional(),
+    yaw: z.number().optional(),
+    pitch: num(-90, 90).optional(),
+  }),
+  /**
+   * Vanishing Point: work in perspective on a flat surface (a wall, a floor, a box side), the
+   * `plane`'s corners given clockwise from the top left, as fractions of the layer's box. Positions
+   * inside the plane are [u, v] fractions of it. A stamp copies the patch around `from` to `to` (Clone
+   * Stamp in perspective, `size` a fraction of the plane; `heal` matches the light); a paste places an
+   * image asset across `rect` [u0, v0, u1, v1] of the plane, `tile` times across if set.
+   */
+  f("vanishing-point", {
+    plane: z.tuple([Point, Point, Point, Point]),
+    stamps: z
+      .array(z.object({ from: Point, to: Point, size: z.number().positive().max(1), heal: z.boolean().optional() }))
+      .max(32)
+      .optional(),
+    paste: z
+      .array(z.object({ asset: z.string(), rect: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(), tile: z.number().positive().max(64).optional(), opacity: z.number().min(0).max(1).optional() }))
+      .max(8)
+      .optional(),
+  }),
   // ── Noise ─────────────────────────────────────────────────────────────────────────────
   /** Add Noise / film grain: `amount` 0..1; `size` in px; colour unless monochrome. */
   f("noise", { amount: z.number().min(0).max(1), size: z.number().positive().optional(), monochrome: z.boolean().optional(), distribution: z.enum(["uniform", "gaussian"]).optional() }),
@@ -128,6 +177,63 @@ export const Filter = z.discriminatedUnion("kind", [
     ambient: z.number().min(0).max(1).optional(),
     height: z.number().min(0).max(100).optional(),
   }),
+  /**
+   * Flame: fire along `path` (points as fractions of the box). "one" is a single flame following the
+   * path; "multiple" sets flames along it every `interval` px, rising at `angle` (degrees, 90 up);
+   * "candle" is one small flame at the first point. `length` and `width` are px; `turbulence` and
+   * `jag` 0..100; `color` tints it (natural fire colours by default).
+   */
+  f("flame", {
+    path: z.array(Point).min(1).max(16),
+    type: z.enum(["one", "multiple", "candle"]).optional(),
+    length: z.number().positive().optional(),
+    width: z.number().positive().optional(),
+    interval: z.number().positive().optional(),
+    angle: z.number().optional(),
+    turbulence: num(0, 100).optional(),
+    jag: num(0, 100).optional(),
+    color: Color.optional(),
+    seed: z.number().int().optional(),
+  }),
+  /** Picture Frame: a frame drawn `margin` px inside the layer's edges, `width` px wide (6% of the shorter side by default). */
+  f("picture-frame", {
+    style: z.enum(["flat", "bevel", "double", "wood", "gold", "stripes"]).optional(),
+    margin: z.number().nonnegative().optional(),
+    width: z.number().positive().optional(),
+    color: Color.optional(),
+  }),
+  /**
+   * Tree: a tree growing from `at` (default the bottom centre), `height` a fraction of the box's
+   * height. `leaves` 0..100 is how many; `leafSize` and `thickness` are percentages (100 normal).
+   * Lit from `light` degrees (135: the top left). Each `seed` grows a different tree of the type.
+   */
+  f("tree", {
+    type: z.enum(["oak", "maple", "pine", "willow", "birch", "bare"]).optional(),
+    at: Point.optional(),
+    height: num(0.05, 1.5).optional(),
+    leaves: num(0, 100).optional(),
+    leafSize: num(10, 300).optional(),
+    thickness: num(10, 300).optional(),
+    leafColor: Color.optional(),
+    trunkColor: Color.optional(),
+    light: z.number().optional(),
+    seed: z.number().int().optional(),
+  }),
+  /**
+   * Relight: new lights on the photo's own shapes. Without a `depth` map (image asset, white is
+   * near), shapes come from the photo's tones at the scale `smoothness` sets (0..100). `ambient`
+   * −100..100 darkens (or brightens) the existing light first. Each light: `at`, `color`,
+   * `intensity` 0..2, `radius` (fraction of the box's larger side) and `height` 0..1 above the surface.
+   */
+  f("relight", {
+    lights: z
+      .array(z.object({ at: Point, color: Color.optional(), intensity: num(0, 2).optional(), radius: z.number().positive().optional(), height: num(0, 1).optional() }))
+      .min(1)
+      .max(8),
+    ambient: num(-100, 100).optional(),
+    depth: z.string().optional(),
+    smoothness: num(0, 100).optional(),
+  }),
   // ── Sharpen ───────────────────────────────────────────────────────────────────────────
   /** Unsharp Mask: `amount` 0..5 (1 is 100%), `radius` px, `threshold` 0..255 skips low-contrast detail. */
   f("sharpen", { amount: z.number().min(0).max(5), radius: z.number().positive().optional(), threshold: z.number().min(0).max(255).optional() }),
@@ -152,6 +258,73 @@ export const Filter = z.discriminatedUnion("kind", [
   f("cutout", { levels: z.number().int().min(2).max(8), simplicity: z.number().min(0).max(10).optional() }),
   f("poster-edges", { thickness: z.number().min(0).max(10).optional(), intensity: z.number().min(0).max(10).optional(), posterization: z.number().int().min(0).max(6).optional() }),
   f("halftone-pattern", { size: z.number().min(1).max(12), contrast: z.number().min(0).max(50).optional(), type: z.enum(["circle", "dot", "line"]).optional() }),
+  // ── Filter Gallery › Artistic (Cutout and Poster Edges are above) ─────────────────────
+  // Every Filter Gallery field is optional, with Photoshop's default, and uses its range.
+  f("colored-pencil", { width: int(1, 24).optional(), pressure: int(0, 15).optional(), paper: int(0, 50).optional() }),
+  /** `roughness` is Photoshop's Texture (1..3). */
+  f("dry-brush", { size: int(0, 10).optional(), detail: int(0, 10).optional(), roughness: int(1, 3).optional() }),
+  f("film-grain", { grain: int(0, 20).optional(), highlight: int(0, 20).optional(), intensity: int(0, 10).optional() }),
+  f("fresco", { size: int(0, 10).optional(), detail: int(0, 10).optional(), roughness: int(1, 3).optional() }),
+  /** Neon Glow: the image in the foreground and background colours, glowing in `color`; a negative `size` glows in the shadows. */
+  f("neon-glow", { size: int(-24, 24).optional(), brightness: int(0, 50).optional(), color: Color.optional(), ...Inks }),
+  f("paint-daubs", { size: int(1, 50).optional(), sharpness: int(0, 40).optional(), brush: z.enum(["simple", "light-rough", "dark-rough", "wide-sharp", "wide-blurry", "sparkle"]).optional() }),
+  f("palette-knife", { size: int(1, 50).optional(), detail: int(1, 3).optional(), softness: int(0, 10).optional() }),
+  f("plastic-wrap", { highlight: int(0, 20).optional(), detail: int(1, 15).optional(), smoothness: int(1, 15).optional() }),
+  f("rough-pastels", { length: int(0, 40).optional(), detail: int(1, 20).optional(), ...Surface }),
+  f("smudge-stick", { length: int(0, 10).optional(), highlight: int(0, 20).optional(), intensity: int(0, 10).optional() }),
+  f("sponge", { size: int(0, 10).optional(), definition: int(0, 25).optional(), smoothness: int(1, 15).optional() }),
+  /** `coverage` is Photoshop's Texture Coverage. */
+  f("underpainting", { size: int(0, 40).optional(), coverage: int(0, 40).optional(), ...Surface }),
+  /** `shadow` is Shadow Intensity; `roughness` is Texture (1..3). */
+  f("watercolor", { detail: int(1, 14).optional(), shadow: int(0, 10).optional(), roughness: int(1, 3).optional() }),
+  // ── Filter Gallery › Brush Strokes ────────────────────────────────────────────────────
+  f("accented-edges", { width: int(1, 14).optional(), brightness: int(0, 50).optional(), smoothness: int(1, 15).optional() }),
+  /** `balance` is Direction Balance (0..100). */
+  f("angled-strokes", { balance: int(0, 100).optional(), length: int(3, 50).optional(), sharpness: int(0, 10).optional() }),
+  f("crosshatch", { length: int(3, 50).optional(), sharpness: int(0, 20).optional(), strength: int(1, 3).optional() }),
+  /** `black` and `white` are Black and White Intensity. */
+  f("dark-strokes", { balance: int(0, 10).optional(), black: int(0, 10).optional(), white: int(0, 10).optional() }),
+  /** `dark` and `light` are Dark and Light Intensity. */
+  f("ink-outlines", { length: int(1, 50).optional(), dark: int(0, 50).optional(), light: int(0, 50).optional() }),
+  /** `radius` is Spray Radius. */
+  f("spatter", { radius: int(0, 25).optional(), smoothness: int(1, 15).optional() }),
+  f("sprayed-strokes", { length: int(0, 20).optional(), radius: int(0, 25).optional(), direction: Direction.optional() }),
+  f("sumi-e", { width: int(3, 15).optional(), pressure: int(0, 15).optional(), contrast: int(0, 40).optional() }),
+  // ── Filter Gallery › Sketch (Halftone Pattern is above) ───────────────────────────────
+  f("bas-relief", { detail: int(1, 15).optional(), smoothness: int(1, 15).optional(), light: Light.optional(), ...Inks }),
+  /** `charcoal` and `chalk` are Charcoal Area and Chalk Area. */
+  f("chalk-charcoal", { charcoal: int(0, 20).optional(), chalk: int(0, 20).optional(), pressure: int(0, 5).optional(), ...Inks }),
+  /** `balance` is Light/Dark Balance (0..100). */
+  f("charcoal", { thickness: int(1, 7).optional(), detail: int(0, 5).optional(), balance: int(0, 100).optional(), ...Inks }),
+  f("chrome", { detail: int(0, 10).optional(), smoothness: int(0, 10).optional() }),
+  /** `foreground` and `background` are Foreground and Background Level. */
+  f("conte-crayon", { foreground: int(1, 15).optional(), background: int(1, 15).optional(), ...Surface, ...Inks }),
+  f("graphic-pen", { length: int(1, 15).optional(), balance: int(0, 100).optional(), direction: Direction.optional(), ...Inks }),
+  /** `balance` is Image Balance. */
+  f("note-paper", { balance: int(0, 50).optional(), graininess: int(0, 20).optional(), relief: int(0, 25).optional(), ...Inks }),
+  f("photocopy", { detail: int(1, 24).optional(), darkness: int(1, 50).optional(), ...Inks }),
+  f("plaster", { balance: int(0, 50).optional(), smoothness: int(1, 15).optional(), light: Light.optional(), ...Inks }),
+  /** `foreground` and `background` are Foreground and Background Level. */
+  f("reticulation", { density: int(0, 50).optional(), foreground: int(0, 50).optional(), background: int(0, 50).optional(), ...Inks }),
+  /** `balance` is Light/Dark Balance (0..50). */
+  f("stamp", { balance: int(0, 50).optional(), smoothness: int(1, 50).optional(), ...Inks }),
+  f("torn-edges", { balance: int(0, 50).optional(), smoothness: int(1, 15).optional(), contrast: int(1, 25).optional(), ...Inks }),
+  /** `length` is Fiber Length. */
+  f("water-paper", { length: int(3, 50).optional(), brightness: int(0, 100).optional(), contrast: int(0, 100).optional() }),
+  // ── Filter Gallery › Texture ──────────────────────────────────────────────────────────
+  /** `spacing`, `depth` and `brightness` are Crack Spacing, Depth and Brightness. */
+  f("craquelure", { spacing: int(2, 100).optional(), depth: int(0, 10).optional(), brightness: int(0, 10).optional() }),
+  f("grain", {
+    intensity: int(0, 100).optional(),
+    contrast: int(0, 100).optional(),
+    type: z.enum(["regular", "soft", "sprinkles", "clumped", "contrasty", "enlarged", "stippled", "horizontal", "vertical", "speckle"]).optional(),
+  }),
+  /** `size`, `grout` and `lighten` are Tile Size, Grout Width and Lighten Grout. */
+  f("mosaic-tiles", { size: int(2, 100).optional(), grout: int(1, 15).optional(), lighten: int(0, 10).optional() }),
+  f("patchwork", { size: int(0, 10).optional(), relief: int(0, 25).optional() }),
+  /** Stained Glass: cells of one colour with `border` lines in `color` (the foreground colour, black by default), lit from the centre by `intensity` (Light Intensity). */
+  f("stained-glass", { size: int(2, 50).optional(), border: int(1, 20).optional(), intensity: int(0, 10).optional(), color: Color.optional() }),
+  f("texturizer", Surface),
   // ── Video ─────────────────────────────────────────────────────────────────────────────
   f("de-interlace", { eliminate: z.enum(["odd", "even"]).optional(), create: z.enum(["duplication", "interpolation"]).optional() }),
   f("ntsc-colors", {}),
@@ -162,6 +335,12 @@ export const Filter = z.discriminatedUnion("kind", [
   f("maximum", { radius: z.number().positive() }),
   f("minimum", { radius: z.number().positive() }),
   f("offset", { x: z.number(), y: z.number(), edges: z.enum(["wrap", "repeat", "transparent"]).optional() }),
+  /**
+   * Color to Alpha: turns `color` (white by default) into transparency, and the colours near it
+   * partly transparent, keeping what's left of them, like dropping white paper behind ink. Colours
+   * closer than `transparency` (0..1) go fully clear; those beyond `opacity` stay solid.
+   */
+  f("color-to-alpha", { color: Color.optional(), transparency: num(0, 1).optional(), opacity: num(0, 1).optional() }),
   // ── Image › Adjustments that Photoshop applies to pixels (or as smart filters) ─────────
   /** Shadows/Highlights: lightens dark areas and darkens bright ones by their surroundings (`radius` px); `color` adjusts saturation where tones change. */
   f("shadows-highlights", {
@@ -227,5 +406,7 @@ export function filterAssets(filter: Filter): string[] {
   if (filter.kind === "displace") return [filter.map];
   if (filter.kind === "lens-blur" && filter.depth) return [filter.depth];
   if (filter.kind === "match-color" && filter.source) return [filter.source];
+  if (filter.kind === "relight" && filter.depth) return [filter.depth];
+  if (filter.kind === "vanishing-point") return (filter.paste ?? []).map((p) => p.asset);
   return [];
 }

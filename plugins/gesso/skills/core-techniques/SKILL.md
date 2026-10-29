@@ -46,7 +46,7 @@ Gesso is non-destructive by construction: filters, masks and adjustments are dat
 |---|---|
 | Liquify | `liquify` filter ops (forward-warp, pucker, bloat, twirl, push-left) |
 | Displacement | `displace` with `map` = a greyscale, slightly blurred copy of the surface (stamp, then `gaussian-blur` 2–4, saved as an asset) |
-| Vanishing point / perspective | `quad` on the layer (corner pin). For editable art, a smart layer with `quad` |
+| Vanishing point / perspective | `quad` on the layer (corner pin). For editable art, a smart layer with `quad`. To clone along a wall or floor, or tile a texture onto it, the `vanishing-point` filter |
 | Puppet warp | `puppet-warp` pins |
 | Perspective correction (keystoning) | `lens-correction` for lens distortion, then `quad` with the top corners pulled out until verticals are straight |
 | Content-aware scale | image `"fit": "content-aware"` |

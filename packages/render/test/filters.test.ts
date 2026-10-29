@@ -75,7 +75,9 @@ describe("Filter menu", () => {
       expect(a.warnings, filter.kind).toEqual([]);
       expect(Buffer.from(a.pixels).equals(Buffer.from(b.pixels)), `${filter.kind} is deterministic`).toBe(true);
       expect(meanDiff(a.pixels, plain.pixels), `${filter.kind} changes the image`).toBeGreaterThan(0.2);
-      for (const [x, y] of [[0, 0], [50, 50], [99, 99]] as const) expect(px(a.pixels, x, y)[3], `${filter.kind} keeps the layer opaque`).toBe(255);
+      // Color to Alpha's job is to make colour transparent; every other filter keeps the layer solid.
+      if (filter.kind !== "color-to-alpha")
+        for (const [x, y] of [[0, 0], [50, 50], [99, 99]] as const) expect(px(a.pixels, x, y)[3], `${filter.kind} keeps the layer opaque`).toBe(255);
     }
     expect(slow).toEqual([]);
   }, 60_000);

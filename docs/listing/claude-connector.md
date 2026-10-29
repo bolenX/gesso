@@ -40,7 +40,7 @@ These sync from the server. Every tool has a `title` and `readOnlyHint`. Tools t
 > - Retouch and grade photos non-destructively: curves and levels, colour balance, frequency separation, healing, dodge & burn, sky and colour fixes.
 > - Composite with all 27 blend modes, Blend If, luminosity and channel masks, and every Photoshop layer style.
 > - Cut out hard subjects with its own masking engine: hair strand by strand, studio backdrops, and see-through glass.
-> - Apply 74 Filter-menu filters as smart filters, plus Liquify, Puppet Warp and Camera Raw.
+> - Apply every filter in Photoshop's Filter menu (121, the whole Filter Gallery included) as smart filters, with Liquify, Puppet Warp, Vanishing Point and Camera Raw.
 > - Check its own work: zoom into a region at up to 400%, compare with an earlier version, and measure tones, colour casts, sharpness and clipping like Photoshop's Histogram and Info panels.
 > - Export PSD, TIFF, print PDF with bleed, SVG, PNG, JPEG and WebP, in RGB or CMYK. PSDs open in Photoshop with live text, shapes, adjustment layers, layer styles, smart objects and many smart filters.
 >

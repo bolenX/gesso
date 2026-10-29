@@ -37,6 +37,22 @@ describe("reflowArtboard", () => {
     expect(layers[0]!.filters).toEqual([{ kind: "box-blur", radius: 4 }, { kind: "crystallize", size: 3 }, { kind: "displace", map: "m", scale: [10, 5] }, { kind: "pinch", amount: 50 }]);
   });
 
+  it("scales Filter Gallery sizes as whole numbers, and frames and flames freely", () => {
+    const card = {
+      ...rect("card", { x: 100, y: 100, w: 200, h: 200 }),
+      filters: [{ kind: "stained-glass", size: 9, border: 3 }, { kind: "angled-strokes", length: 4 }, { kind: "picture-frame", width: 15 }, { kind: "flame", path: [[0.5, 1]], length: 50 }, { kind: "texturizer", relief: 10 }],
+    } as Layer;
+    const { layers } = reflowArtboard(board([card]), { w: 500, h: 500 });
+    expect(layers[0]!.filters).toEqual([
+      { kind: "stained-glass", size: 5, border: 2 },
+      // Photoshop's smallest stroke length is 3.
+      { kind: "angled-strokes", length: 3 },
+      { kind: "picture-frame", width: 7.5 },
+      { kind: "flame", path: [[0.5, 1]], length: 25 },
+      { kind: "texturizer", relief: 10 },
+    ]);
+  });
+
   it("scales layer style sizes with the layout", () => {
     const card = { ...rect("card", { x: 100, y: 100, w: 200, h: 200 }), effects: [{ kind: "drop-shadow", distance: 10, size: 20, angle: 90 }, { kind: "bevel", size: 8, soften: 2, depth: 150 }, { kind: "stroke", color: "#000000", width: 4 }] } as Layer;
     const { layers } = reflowArtboard(board([card]), { w: 500, h: 500 });
