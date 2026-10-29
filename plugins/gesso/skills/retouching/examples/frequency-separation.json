@@ -1,0 +1,78 @@
+{
+ "description": "Frequency separation alone looks like the original",
+ "layers": [
+  "portrait"
+ ],
+ "steps": [
+  {
+   "recipe": "frequency-separation",
+   "params": {
+    "source": "portrait",
+    "radius": 6
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the eye is unchanged",
+   "sample": [
+    195,
+    165
+   ],
+   "size": 3,
+   "deltaE": {
+    "max": 3
+   }
+  },
+  {
+   "what": "the cheek is unchanged",
+   "sample": [
+    175,
+    215
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 3
+   }
+  },
+  {
+   "what": "the lips are unchanged",
+   "sample": [
+    240,
+    258
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 3
+   }
+  },
+  {
+   "what": "overall brightness is unchanged",
+   "metric": "luminance.mean",
+   "keep": 1.5
+  },
+  {
+   "what": "pore texture is kept",
+   "metric": "noise",
+   "region": [
+    150,
+    190,
+    60,
+    40
+   ],
+   "more": 0.85,
+   "less": 1.15
+  },
+  {
+   "what": "the eyes stay as sharp",
+   "metric": "sharpness",
+   "region": [
+    170,
+    150,
+    140,
+    30
+   ],
+   "more": 0.9
+  }
+ ]
+}

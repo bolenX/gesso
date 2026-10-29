@@ -1,6 +1,6 @@
 ---
 name: safe-zone-compliance
-description: Safe-zone compliance: keeping text, logos and buttons clear of platform UI (story bars, captions, buttons) and checking it with preflight.
+description: "Safe-zone compliance: keeping text, logos and buttons clear of platform UI (story bars, captions, buttons) and checking it with preflight."
 ---
 
 # Safe-zone compliance

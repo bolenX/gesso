@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gesso": {
+      "type": "http",
+      "url": "https://mcp.gesso.run/mcp"
+    }
+  }
+}

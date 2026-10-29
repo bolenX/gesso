@@ -1,6 +1,6 @@
 ---
 name: extreme-ratio-relayout
-description: Relayout for extreme ratios: turning a layout into very wide banners (8:1 leaderboards) or very tall ones (skyscrapers, stories) by restructuring, not scaling.
+description: "Relayout for extreme ratios: turning a layout into very wide banners (8:1 leaderboards) or very tall ones (skyscrapers, stories) by restructuring, not scaling."
 ---
 
 # Extreme-ratio relayout

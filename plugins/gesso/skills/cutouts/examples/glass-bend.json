@@ -1,0 +1,12 @@
+{
+  "description": "Refraction: the planks seen through the bottle bow away from the ones beside it",
+  "layers": ["wood", "glass"],
+  "steps": [
+    { "setup": true, "recipe": "glass", "params": { "artboard": "a", "photo": "glass" } },
+    { "recipe": "glass-bend", "params": { "photo": "glass", "background": "wood" } }
+  ],
+  "checks": [
+    { "what": "the plank seam seen through the wine has moved", "sample": [240, 180], "size": 1, "deltaE": { "min": 4 } },
+    { "what": "the seam beside the bottle stays put", "sample": [100, 180], "size": 1, "deltaE": { "max": 1 } }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 name: poster-composition
-description: Poster and editorial composition: hero image, type over image, scrims for legibility, clipping masks and blend modes, with a clear reading order.
+description: "Poster and editorial composition: hero image, type over image, scrims for legibility, clipping masks and blend modes, with a clear reading order."
 ---
 
 # Poster and editorial composition

@@ -1,6 +1,6 @@
 ---
 name: brand-application
-description: Brand application: applying a brand's colours, fonts and logo rules to a layout by layer role, consistently across every size.
+description: "Brand application: applying a brand's colours, fonts and logo rules to a layout by layer role, consistently across every size."
 ---
 
 # Brand application

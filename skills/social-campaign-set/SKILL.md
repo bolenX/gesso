@@ -1,6 +1,6 @@
 ---
 name: social-campaign-set
-description: Social campaign sets: one master design adapted to every channel size (feed, story, reel, banner) with shared smart objects, roles and per-size checks.
+description: "Social campaign sets: one master design adapted to every channel size (feed, story, reel, banner) with shared smart objects, roles and per-size checks."
 ---
 
 # Social campaign set

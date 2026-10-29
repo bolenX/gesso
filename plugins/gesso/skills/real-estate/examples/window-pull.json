@@ -1,0 +1,54 @@
+{
+ "description": "The window frame fills only the blown window; the walls stay as the interior exposure",
+ "layers": [
+  "interior-ambient",
+  "interior-window"
+ ],
+ "steps": [
+  {
+   "recipe": "window-pull",
+   "params": {
+    "interior": "interior-ambient",
+    "window": "interior-window"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the window is no longer blown out",
+   "metric": "luminance.clipped.highlights",
+   "region": [
+    305,
+    85,
+    110,
+    130
+   ],
+   "max": 5
+  },
+  {
+   "what": "the view shows trees",
+   "sample": [
+    330,
+    205
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 30
+   }
+  },
+  {
+   "what": "the walls are unchanged",
+   "sample": [
+    120,
+    140
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 2
+   }
+  }
+ ],
+ "before": [
+  "interior-ambient"
+ ]
+}

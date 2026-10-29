@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.bolenX/gesso",
+  "title": "Gesso",
+  "description": "Layered image editing for agents: design, retouch and composite, and export editable PSDs.",
+  "version": "0.13.0",
+  "websiteUrl": "https://gesso.run",
+  "repository": {
+    "url": "https://github.com/bolenX/gesso",
+    "source": "github",
+    "subfolder": "packages/gesso-mcp"
+  },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/bolenX/gesso/main/plugins/gesso/assets/icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "gesso-mcp",
+      "version": "0.13.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "GESSO_WORKDIR",
+          "description": "Folder Gesso reads images and fonts from and saves exports to. Defaults to the folder the agent starts in.",
+          "isRequired": false,
+          "format": "filepath"
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.gesso.run/mcp"
+    }
+  ]
+}

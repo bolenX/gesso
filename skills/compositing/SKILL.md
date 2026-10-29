@@ -1,6 +1,6 @@
 ---
 name: compositing
-description: Photoshop compositing in Gesso: every blend mode, Blend If, luminosity / colour-range / channel / calculations masks, Select and Mask edge refining, layer styles (bevel, inner shadow and glow, satin, gradient and pattern overlays), boolean shapes, skew, distort, perspective and warp, with recipes for blending objects into scenes.
+description: "Photoshop compositing in Gesso: every blend mode, Blend If, luminosity / colour-range / channel / calculations masks, Select and Mask edge refining, layer styles (bevel, inner shadow and glow, satin, gradient and pattern overlays), boolean shapes, skew, distort, perspective and warp, with recipes for blending objects into scenes."
 ---
 
 # Compositing

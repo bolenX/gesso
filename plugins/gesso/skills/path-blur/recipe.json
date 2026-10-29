@@ -1,0 +1,63 @@
+{
+  "recipes": {
+    "motion-trail": {
+      "description": "Motion along a curve while the subject stays sharp: a path-blurred copy above the photo with the subject region cut out of its mask.",
+      "params": {
+        "source": {
+          "type": "layer",
+          "description": "The photo"
+        },
+        "path": {
+          "type": "json",
+          "description": "2–16 points [x, y] in the layer's pixels, in the direction of travel"
+        },
+        "distance": {
+          "type": "number",
+          "description": "Blur length in px",
+          "default": 40
+        },
+        "keep": {
+          "type": "json",
+          "description": "The subject to keep sharp: {\"x\", \"y\", \"w\", \"h\"} in the layer's pixels (an ellipse)"
+        }
+      },
+      "ops": [
+        {
+          "op": "duplicate",
+          "target": "#{{source}}",
+          "id": "{{source}}-motion"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-motion",
+          "path": "name",
+          "value": "Motion"
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-motion",
+          "path": "filters.+",
+          "value": {
+            "kind": "path-blur",
+            "path": "{{path}}",
+            "distance": "{{distance}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{source}}-motion",
+          "path": "mask",
+          "value": {
+            "kind": "vector",
+            "shape": {
+              "kind": "ellipse"
+            },
+            "frame": "{{keep}}",
+            "feather": "{{= min(keep.w, keep.h) / 4}}",
+            "invert": true
+          }
+        }
+      ]
+    }
+  }
+}

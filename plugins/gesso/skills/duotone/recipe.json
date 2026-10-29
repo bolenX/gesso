@@ -1,0 +1,131 @@
+{
+  "recipes": {
+    "duotone": {
+      "description": "Maps the image's tones to two inks with a live gradient map: dark ink in the shadows, light ink in the highlights.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put it just above this layer (or the group to tone)"
+        },
+        "dark": {
+          "type": "color",
+          "description": "Dark ink",
+          "default": "#14213D"
+        },
+        "light": {
+          "type": "color",
+          "description": "Light ink",
+          "default": "#FFD2C2"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 1
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "duotone",
+            "name": "Duotone",
+            "type": "adjustment",
+            "opacity": "{{amount}}",
+            "adjustment": {
+              "kind": "gradient-map",
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "{{dark}}"
+                },
+                {
+                  "offset": 1,
+                  "color": "{{light}}"
+                }
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    },
+    "tritone": {
+      "description": "Three inks: dark, middle and light, for smoother tones than a duotone.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put it just above this layer"
+        },
+        "dark": {
+          "type": "color",
+          "description": "Dark ink",
+          "default": "#1A1033"
+        },
+        "mid": {
+          "type": "color",
+          "description": "Middle ink",
+          "default": "#C8553D"
+        },
+        "light": {
+          "type": "color",
+          "description": "Light ink",
+          "default": "#F7E9C8"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 1
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "tritone",
+            "name": "Tritone",
+            "type": "adjustment",
+            "opacity": "{{amount}}",
+            "adjustment": {
+              "kind": "gradient-map",
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "{{dark}}"
+                },
+                {
+                  "offset": 0.5,
+                  "color": "{{mid}}"
+                },
+                {
+                  "offset": 1,
+                  "color": "{{light}}"
+                }
+              ]
+            },
+            "frame": {
+              "x": 0,
+              "y": 0,
+              "w": "{{artboard.w}}",
+              "h": "{{artboard.h}}"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

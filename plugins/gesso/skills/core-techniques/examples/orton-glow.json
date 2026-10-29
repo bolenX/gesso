@@ -1,0 +1,26 @@
+{
+ "description": "The Orton glow brightens and softens the image",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "orton-glow",
+   "params": {
+    "source": "landscape"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the image is brighter",
+   "metric": "luminance.mean",
+   "more": 1.05
+  },
+  {
+   "what": "detail softens",
+   "metric": "sharpness",
+   "less": 0.9
+  }
+ ]
+}

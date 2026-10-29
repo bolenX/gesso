@@ -1,0 +1,20 @@
+{
+  "name": "gesso",
+  "interface": {
+    "displayName": "Gesso"
+  },
+  "plugins": [
+    {
+      "name": "gesso",
+      "source": {
+        "source": "local",
+        "path": "./plugins/gesso"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Design"
+    }
+  ]
+}

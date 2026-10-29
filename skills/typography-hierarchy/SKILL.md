@@ -1,6 +1,6 @@
 ---
 name: typography-hierarchy
-description: Typography hierarchy: a modular type scale (headline, subhead, body), line lengths, leading and tracking, set as live text layers.
+description: "Typography hierarchy: a modular type scale (headline, subhead, body), line lengths, leading and tracking, set as live text layers."
 ---
 
 # Typography hierarchy

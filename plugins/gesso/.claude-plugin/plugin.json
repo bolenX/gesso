@@ -1,0 +1,26 @@
+{
+  "name": "gesso",
+  "displayName": "Gesso",
+  "version": "0.13.0",
+  "description": "Layered design and photo editing: build posters, social sizes, retouches and cut-outs as editable layers, check them up close, and export PSDs that open live in Photoshop.",
+  "author": {
+    "name": "Gesso",
+    "url": "https://gesso.run"
+  },
+  "homepage": "https://gesso.run",
+  "repository": "https://github.com/bolenX/gesso",
+  "license": "Apache-2.0",
+  "keywords": [
+    "design",
+    "image-editing",
+    "photoshop",
+    "psd",
+    "retouching",
+    "compositing"
+  ],
+  "icon": "./assets/icon.png",
+  "documentationUrl": "https://github.com/bolenX/gesso/blob/main/plugins/gesso/README.md",
+  "supportUrl": "https://gesso.run/support",
+  "privacyPolicyUrl": "https://gesso.run/privacy",
+  "termsOfServiceUrl": "https://gesso.run/terms"
+}

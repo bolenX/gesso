@@ -1,0 +1,94 @@
+{
+  "recipes": {
+    "fluted-glass": {
+      "description": "Fractal / fluted glass over an area: a pass-through group of identical strips, each blurring only what's beneath it, with a gradient ridge in overlay.",
+      "params": {
+        "artboard": {
+          "type": "artboard",
+          "description": "The artboard"
+        },
+        "above": {
+          "type": "layer",
+          "description": "Put the glass just above this layer"
+        },
+        "region": {
+          "type": "json",
+          "description": "The glass area {\"x\", \"y\", \"w\", \"h\"} in artboard pixels"
+        },
+        "count": {
+          "type": "number",
+          "description": "Number of strips across the area",
+          "default": 8
+        },
+        "blur": {
+          "type": "number",
+          "description": "Background blur radius (60–120 classic, 20–40 subtle)",
+          "default": 30
+        },
+        "ridge": {
+          "type": "number",
+          "description": "Ridge strength (fill opacity), 0..1",
+          "default": 0.2
+        }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "fractal-glass",
+            "name": "Fractal glass",
+            "type": "group",
+            "frame": "{{region}}",
+            "children": []
+          }
+        },
+        {
+          "repeat": "{{count}}",
+          "op": "insert",
+          "into": "#fractal-glass",
+          "layer": {
+            "id": "glass-{{i}}",
+            "name": "Glass {{i}}",
+            "type": "shape",
+            "shape": {
+              "kind": "rect"
+            },
+            "frame": {
+              "x": "{{= i * region.w / count}}",
+              "y": 0,
+              "w": "{{= region.w / count / 0.85}}",
+              "h": "{{region.h}}"
+            },
+            "fill": {
+              "kind": "linear-gradient",
+              "angle": 0,
+              "stops": [
+                {
+                  "offset": 0,
+                  "color": "#FFFFFF0D"
+                },
+                {
+                  "offset": 0.76,
+                  "color": "#040404"
+                },
+                {
+                  "offset": 1,
+                  "color": "#FFFFFF0D"
+                }
+              ]
+            },
+            "blend": "overlay",
+            "fillOpacity": "{{ridge}}",
+            "effects": [
+              {
+                "kind": "background-blur",
+                "radius": "{{blur}}"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

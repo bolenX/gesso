@@ -1,0 +1,33 @@
+{
+ "description": "The colourise base tints the photo warm",
+ "layers": [
+  "old-photo"
+ ],
+ "steps": [
+  {
+   "recipe": "colourise-base",
+   "params": {
+    "artboard": "a",
+    "above": "old-photo"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the tint is visible",
+   "sample": [
+    240,
+    120
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 2
+   }
+  },
+  {
+   "what": "brightness is kept",
+   "metric": "luminance.mean",
+   "keep": 4
+  }
+ ]
+}

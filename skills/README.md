@@ -14,6 +14,8 @@ Gesso serves every skill whose front matter isn't `status: placeholder` in two w
 - as an MCP prompt, which is a slash command in most agents
 - through `skill_read`, which returns SKILL.md, the recipes with their parameters, and checks.md
 
+They also ship in [the Gesso plugin](../plugins/gesso), copied there by `node scripts/sync-plugin.mjs`, and `npx skills add bolenX/gesso` installs them on their own. Either way, they drive Gesso's tools, so the agent needs the Gesso server too ([install.md](../docs/install.md)).
+
 ## Recipes
 
 `recipe.json` holds named recipes, each a description, its parameters, and patch ops with placeholders:

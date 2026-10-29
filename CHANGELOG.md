@@ -2,6 +2,18 @@
 
 Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each version's notes become its GitHub release.
 
+## Unreleased
+
+Gesso as a plugin and in the agents' directories.
+
+- **The Gesso plugin** (`plugins/gesso`): the hosted server plus the 31 skills and a get-started skill, in each agent's plugin format. Install it in Claude Code (`/plugin marketplace add bolenX/gesso`), claude.ai and Cowork, Codex, the Copilot CLI and Cursor. Nothing to install, since it uses `mcp.gesso.run`.
+- **Ready for the directories:** the plugin passes `claude plugin validate`, its OpenAI manifest carries the listing and review test cases, and `node scripts/build-openai-plugin.mjs` builds the ZIP for OpenAI's plugin directory. Submission kits for every directory are in `docs/listing`.
+- **The official MCP Registry:** `server.json` lists the npm package and the hosted server as `io.github.bolenX/gesso`, and each release now publishes there, which feeds VS Code, GitHub and other directories.
+- **A Gemini CLI extension:** `gemini extensions install https://github.com/bolenX/gesso`.
+- **One-click installs** for Cursor and VS Code in the install guide.
+- **Skills load in strict YAML parsers:** 17 skill descriptions held an unquoted ": ", which some agents' skill loaders reject, so those skills were skipped. They're quoted now.
+- **Every tool states all its hints** (`readOnlyHint`, `destructiveHint`, `openWorldHint`), as OpenAI's review requires, and the result card declares that it loads nothing from the web.
+
 ## 0.13.0 (2026-10-28)
 
 0.13.0 gives Gesso its own masking engine for hard cut-outs (hair, fur, glass, smoke), a cutouts skill built from professional Photoshop technique, and fixes for hosted servers found by running every tool through claude.ai.

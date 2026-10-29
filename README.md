@@ -48,8 +48,11 @@ packages/render      @gesso/render: evaluator (Skia via CanvasKit, Sharp for dec
 packages/psd         @gesso/psd: PSD encoder (ag-psd): artboards, live text, shape and adjustment layers
 packages/mcp-server  @gesso/mcp-server: MCP tool surface (canvas_*, artboard_*, asset_*, gen_*)
 skills/              Bundled skills (SKILL.md, recipe.json, checks.md, examples/)
-docs/                Technical spec
+plugins/gesso        The Gesso plugin: the hosted server plus the skills, for Claude, Codex, Copilot and Cursor
+docs/                Technical spec, install guide, hosting and listing kits
 ```
+
+The marketplace files sit at the root: `.claude-plugin/marketplace.json` (Claude Code, Cowork and Copilot), `.cursor-plugin/marketplace.json`, `.agents/plugins/marketplace.json` (Codex), `gemini-extension.json`, and `server.json` for the official MCP Registry.
 
 ## Install
 
@@ -71,13 +74,17 @@ Or install the Claude Desktop extension: download `gesso-<version>.mcpb` and dou
 
 Then ask for a design, for example: "Make a 1080×1350 poster that says Hello from Gesso, show me a preview, then export a PSD to out/." Assets and exports resolve relative to the folder Claude runs in. Requires Node 22 or later.
 
+Or install the Gesso plugin, which connects to the free hosted server and adds the skills, with nothing to install: `/plugin marketplace add bolenX/gesso`, then `/plugin install gesso@gesso`. The same plugin works in Codex, the Copilot CLI and Cursor ([how](docs/install.md#the-gesso-plugin)).
+
 To host Gesso for claude.ai or ChatGPT, run `npx -y gesso-mcp --hosted` (or the Dockerfile) behind HTTPS. Each user gets a private workspace and connector URL. See [docs/hosting.md](docs/hosting.md).
 
 Working on Gesso itself? The repo's `.mcp.json` loads your local checkout as the `gesso` server in any Claude Code session opened here.
 
 ## Publishing gesso-mcp
 
-GitHub publishes it: bump `version` in `packages/gesso-mcp/package.json` and merge to `main`. A `gesso-mcp-v*` tag or a manual run from the Actions tab also works. It needs an npm token with publish rights in the `NPM_TOKEN` repository secret, and it skips versions that are already published.
+GitHub publishes it: bump `version` in `packages/gesso-mcp/package.json`, run `node scripts/sync-plugin.mjs` to carry the version (and any skill changes) into the plugin and marketplace files, and merge to `main`. A `gesso-mcp-v*` tag or a manual run from the Actions tab also works. It needs an npm token with publish rights in the `NPM_TOKEN` repository secret, and it skips versions that are already published. Each new version is then listed in the official MCP Registry, with no secret needed.
+
+The tests fail if the plugin is out of step with `skills/` or the version, so run the sync script after changing a skill too.
 
 ## Development
 

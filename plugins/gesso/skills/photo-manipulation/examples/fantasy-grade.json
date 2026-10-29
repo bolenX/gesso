@@ -1,0 +1,33 @@
+{
+ "description": "The fantasy grade turns green foliage to warm and the sky stays blue-ish",
+ "layers": [
+  "landscape"
+ ],
+ "steps": [
+  {
+   "recipe": "fantasy-grade",
+   "params": {
+    "artboard": "a",
+    "above": "landscape"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "the foliage changes colour strongly",
+   "sample": [
+    240,
+    300
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 25
+   }
+  },
+  {
+   "what": "tones stay in range",
+   "metric": "luminance.clipped.highlights",
+   "max": 1
+  }
+ ]
+}

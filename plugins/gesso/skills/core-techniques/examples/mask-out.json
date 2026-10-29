@@ -1,0 +1,49 @@
+{
+ "description": "mask-out hides a region of the top layer",
+ "layers": [
+  "landscape",
+  "old-photo"
+ ],
+ "steps": [
+  {
+   "recipe": "mask-out",
+   "params": {
+    "layer": "old-photo",
+    "region": {
+     "x": 100,
+     "y": 80,
+     "w": 200,
+     "h": 160
+    }
+   }
+  }
+ ],
+ "before": [
+  "landscape",
+  "old-photo"
+ ],
+ "checks": [
+  {
+   "what": "inside the region, the landscape shows",
+   "sample": [
+    200,
+    160
+   ],
+   "size": 5,
+   "deltaE": {
+    "min": 20
+   }
+  },
+  {
+   "what": "outside, the old photo stays",
+   "sample": [
+    20,
+    20
+   ],
+   "size": 5,
+   "deltaE": {
+    "max": 2
+   }
+  }
+ ]
+}

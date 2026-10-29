@@ -1,0 +1,69 @@
+{
+  "recipes": {
+    "double-exposure": {
+      "description": "Blends a texture image inside a portrait: the texture moves above the portrait with a blend mode, masked to the portrait's light (or dark) areas.",
+      "params": {
+        "subject": {
+          "type": "layer",
+          "description": "The portrait"
+        },
+        "texture": {
+          "type": "layer",
+          "description": "The image to show inside the subject"
+        },
+        "mode": {
+          "type": "string",
+          "description": "Blend mode: multiply for a light subject on dark, screen for a dark silhouette on light",
+          "default": "multiply"
+        },
+        "range": {
+          "type": "string",
+          "description": "Which tones of the subject take the texture: lights or darks",
+          "default": "lights"
+        },
+        "softness": {
+          "type": "number",
+          "description": "Mask softness, 1..5 (luminosity level)",
+          "default": 1
+        },
+        "amount": {
+          "type": "number",
+          "description": "Opacity, 0..1",
+          "default": 1
+        }
+      },
+      "ops": [
+        {
+          "op": "move",
+          "target": "#{{texture}}",
+          "to": {
+            "after": "#{{subject}}"
+          }
+        },
+        {
+          "op": "set",
+          "target": "#{{texture}}",
+          "path": "blend",
+          "value": "{{mode}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{texture}}",
+          "path": "opacity",
+          "value": "{{amount}}"
+        },
+        {
+          "op": "set",
+          "target": "#{{texture}}",
+          "path": "mask",
+          "value": {
+            "kind": "luminosity",
+            "source": "{{subject}}",
+            "range": "{{range}}",
+            "level": "{{softness}}"
+          }
+        }
+      ]
+    }
+  }
+}

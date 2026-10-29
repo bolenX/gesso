@@ -1,6 +1,6 @@
 ---
 name: resolution-adaptation
-description: Resolution adaptation: checking each image's effective resolution for its output (screen or print dpi), and upscaling with a generative job where it falls short.
+description: "Resolution adaptation: checking each image's effective resolution for its output (screen or print dpi), and upscaling with a generative job where it falls short."
 ---
 
 # Resolution adaptation

@@ -1,6 +1,6 @@
 ---
 name: clean-plate
-description: Clean plates: removing the subject (or clutter) from a background so it can be reused, extended and re-composed, with content-aware fill or a generative job.
+description: "Clean plates: removing the subject (or clutter) from a background so it can be reused, extended and re-composed, with content-aware fill or a generative job."
 ---
 
 # Clean plate

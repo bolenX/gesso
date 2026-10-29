@@ -1,6 +1,6 @@
 ---
 name: layout-grid
-description: Layout and grid systems: margins, columns, gutters and baseline rhythm for posters, social and print, with guide layers to place against.
+description: "Layout and grid systems: margins, columns, gutters and baseline rhythm for posters, social and print, with guide layers to place against."
 ---
 
 # Layout and grid systems

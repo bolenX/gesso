@@ -242,7 +242,8 @@ export function createServer({
     "gesso-result",
     WIDGET_URI,
     { title: "Gesso result", description: "Inline card for Gesso results", mimeType: WIDGET_MIME },
-    async () => ({ contents: [{ uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtml(), _meta: { ui: { prefersBorder: true } } }] }),
+    // The card loads nothing from the web: images arrive as data, files through the card-only tool.
+    async () => ({ contents: [{ uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtml(), _meta: { ui: { prefersBorder: true, csp: { connectDomains: [], resourceDomains: [] } } } }] }),
   );
 
   // Every tool gets a human title and hints for the host's permissions; the tools that produce something also
@@ -1143,7 +1144,7 @@ export function createServer({
     FILE_TOOL,
     {
       title: "Download file",
-      annotations: { title: "Download file", readOnlyHint: true, openWorldHint: false },
+      annotations: { title: "Download file", readOnlyHint: true, destructiveHint: false, openWorldHint: false },
       description: "Returns a file this Gesso server exported, for the result card's download buttons.",
       inputSchema: { path: z.string(), maxSize: z.number().int().positive().max(2048).optional().describe("Return images scaled to fit this many pixels, as PNG") },
       _meta: { ui: { visibility: ["app"] } },

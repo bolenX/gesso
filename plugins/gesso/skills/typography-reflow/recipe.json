@@ -1,0 +1,29 @@
+{
+  "recipes": {
+    "fit-text": {
+      "description": "Makes a text layer area text that wraps in its frame and shrinks to fit, down to a minimum size.",
+      "params": {
+        "layer": {
+          "type": "layer",
+          "description": "The text layer"
+        },
+        "minSize": {
+          "type": "number",
+          "description": "Smallest size in px it may shrink to"
+        }
+      },
+      "ops": [
+        {
+          "op": "set",
+          "target": "#{{layer}}",
+          "path": "box",
+          "value": {
+            "kind": "area",
+            "shrinkToFit": true,
+            "minSize": "{{minSize}}"
+          }
+        }
+      ]
+    }
+  }
+}

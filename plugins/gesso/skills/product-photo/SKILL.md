@@ -1,0 +1,85 @@
+---
+name: product-photo
+description: Commercial product and e-commerce workflows in Gesso (clean cut-outs, focus stacking, multi-plate composites, de-speckling, symmetry, label wrapping, contact shadows, glass cut-outs, ghost mannequins, batch catalogue output), as layered recipes.
+---
+
+# Commercial product and e-commerce
+
+## 11. Product cut-out
+
+Pick the method by edge type:
+
+- **Hard edges:** a vector mask with an SVG path traced along the product (`{ "kind": "vector", "shape": { "kind": "path", "d": "…" } }`), with a small feather (0.5–1).
+- **Soft or complex edges:** `gen_prepare` `remove-background`, then import the cut-out above the original.
+- **Fine hair or fur:** `refine` with `smartRadius` (cutouts skill). **Glass:** the cutouts skill's `glass` recipe (see 18).
+- **Any rough mask on a soft edge:** add `refine` (Select and Mask): `{ "radius": 8, "decontaminate": 60 }` snaps the edge to the product's own pixels and removes the old background's colour from it.
+
+Check the edges at 200% (`canvas_render` scale 2 with a `region` via a stamp) for halos. Choke them with `minimum` 1 on a copy, or shrink the path.
+
+## 12. Focus stacking
+
+Edit › Auto-Align Layers, then Auto-Blend Layers › Stack Images:
+
+1. Import each focus slice as an image layer at the same absolute frame.
+2. `canvas_align` with one slice as `reference` and the others as `layers`. It finds each slice's shift (and, with `scale: true`, the small zoom focus breathing adds) and moves its frame. Check each result's `confidence`: below about 0.3, align that slice by hand.
+3. `canvas_stack` with every slice and `mode: "focus"`. Each slice gets a raster mask showing where it's the sharpest; the bottom slice fills whatever's left.
+4. Check edges at 200% (`canvas_render` with a `region`, scale 2) for halos where slices meet. Raise `smoothness` (default about 1% of the short side) if seams show, or paint a fix with a feathered vector mask on the slice that should win.
+
+Shoot on a tripod. `canvas_align` handles shifts and focus breathing, not changes in perspective.
+
+## 13. Multi-exposure composite
+
+Stack the plates (label, glass reflection, liquid fill) as image layers.
+
+- **Label plate:** masked to the label.
+- **Reflection plate:** in `screen` with a gradient mask.
+- **Liquid plate:** masked to the liquid, with `vibrance` clipped to it.
+
+`blendIf` on the reflection plate (`this: [40, 90, 255, 255]`) keeps only its highlights.
+
+## 14. Surface de-speckling
+
+`dust-and-scratches` (radius 2–3, threshold 10–20) on a stamp, masked to the surfaces only, never to the label text. Add `heal` spots for the bigger specks. To keep the gloss, use `blendIf` `this: [0, 0, 220, 245]` on the cleaned layer, so highlights stay original.
+
+## 15. Symmetry
+
+Duplicate the better half (`duplicate` op), `"flip": "horizontal"`, mask it to that half with a soft-edged vector mask, and align it with `quad` or small `liquify` ops. Then check the label isn't mirrored: mask it out of the flip.
+
+## 16. Label wrap
+
+1. Put the flat label art on its own layer (a smart layer with the label symbol keeps it editable).
+2. Bend it with `warp`. A 3-column grid curved around the bottle: move the middle column's points down or out, so the edges recede.
+3. Add `displace` with the bottle's own greyscale (a stamp blurred 3) as the map, `scale` [4, 4], so the label follows dents and highlights.
+4. Set `"blend": "multiply"` on the label (or `linear-burn` at 0.9) so the bottle's shading shows through.
+5. Put a stamp of the bottle highlights above it in `screen` (with `blendIf` `this: [160, 220, 255, 255]`).
+
+## 17. Ground contact shadow
+
+Under the product, build two shadows:
+
+1. **Contact shadow:** a thin black ellipse (5–10% of the product's height), `gaussian-blur` 3–6, `multiply` 0.7.
+2. **Soft shadow:** a wider one, `gaussian-blur` 20–40, 0.3.
+
+For a cast shadow, use the product's shape: a `duplicate` with a black `color-overlay`, laid on the ground with `quad`, `field-blur` (sharp near the product, soft far away) and `multiply` 0.4.
+
+## 18. Glass cut-out
+
+Glass is transparent, so a hard mask looks fake: the backdrop it was shot on stays inside it. Rebuild it with the cutouts skill's `glass` recipe instead:
+- a group with the silhouette as its mask
+- inside it, a Shadows copy in multiply, a Highlights copy in screen and a Color copy in color, with a Solid layer for the cap and label
+- then add `glass-bend` for refraction and `glass-contact` for its shadow and caustic
+
+The cutouts skill has the steps, settings and checks.
+
+## 19. Ghost mannequin
+
+Layers: the exterior shot (masked to remove the mannequin, with feathered vector masks), and the interior (lining) shot below it, scaled and positioned with `quad` so the neck opening lines up.
+
+Darken the interior with `curves` (−20) so it reads as inside. Blend the seam with a soft mask edge and a `heal` spot pass on a stamp.
+
+## 20. E-commerce batch output
+
+1. Build one template document: square artboard (2000×2000), white background, the product image layer (`fit: "contain"`), and the shadow layers.
+2. Give the image a frame with the standard margin (8–10%).
+3. Run `canvas_batch` with `layer: "product"` and `sources` set to the folder of cut-outs, as `jpeg` or `webp`.
+4. For marketplace variants, add artboards (square, 4:5, 16:9) with `artboard_create` from the template first. Each variant is exported per image.

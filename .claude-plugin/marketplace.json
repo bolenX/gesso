@@ -1,0 +1,24 @@
+{
+  "name": "gesso",
+  "owner": {
+    "name": "Gesso",
+    "url": "https://gesso.run"
+  },
+  "metadata": {
+    "description": "Gesso, the layered image editor for agents: design, retouch and composite, and export PSDs that stay editable in Photoshop."
+  },
+  "plugins": [
+    {
+      "name": "gesso",
+      "source": "./plugins/gesso",
+      "description": "Layered design and photo editing, with editable PSD export. Connects to Gesso's free hosted server and adds its skills.",
+      "category": "design",
+      "tags": [
+        "design",
+        "image-editing",
+        "photoshop",
+        "psd"
+      ]
+    }
+  ]
+}

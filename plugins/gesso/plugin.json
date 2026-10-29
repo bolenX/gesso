@@ -1,0 +1,98 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "gesso",
+  "version": "0.13.0",
+  "description": "Layered design and photo editing: build posters, social sizes, retouches and cut-outs as editable layers, check them up close, and export PSDs that open live in Photoshop.",
+  "author": {
+    "name": "Gesso",
+    "url": "https://gesso.run"
+  },
+  "homepage": "https://gesso.run",
+  "repository": "https://github.com/bolenX/gesso",
+  "license": "Apache-2.0",
+  "keywords": [
+    "design",
+    "image-editing",
+    "photoshop",
+    "psd",
+    "retouching",
+    "compositing"
+  ],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/get-started/SKILL.md",
+      "interface": {
+        "displayName": "Gesso",
+        "shortDescription": "Layered images, editable PSDs",
+        "longDescription": "Gesso is a layered image editor for your agent. Ask for a poster, a set of social sizes, a retouch, a grade or a cut-out, and it builds the image as named layers: text, shapes, photos, adjustment layers, masks and layer styles. Every change can be undone. It checks its own work by zooming in, comparing with earlier versions and measuring colour and sharpness. It exports PSD, TIFF, print PDF, SVG, PNG, JPEG and WebP, in RGB or CMYK, and the PSDs open in Photoshop with live text, adjustment layers, layer styles and smart objects. 74 Photoshop filters, all 16 adjustment layers, 27 blend modes, a masking engine for hair and glass, and 31 skills of professional workflows are built in. Gesso renders everything itself and never generates images with AI. Files stay in a private workspace that is deleted after 7 days without use. Free and open source.",
+        "developerName": "Gesso",
+        "category": "Design",
+        "capabilities": [],
+        "websiteURL": "https://gesso.run",
+        "supportURL": "https://gesso.run/support",
+        "privacyPolicyURL": "https://gesso.run/privacy",
+        "termsOfServiceURL": "https://gesso.run/terms",
+        "defaultPrompt": [
+          "Make a 1080×1350 poster for a summer sale with a bold headline, then export a layered PSD.",
+          "Adapt my poster to an Instagram story, a square post and a YouTube thumbnail.",
+          "Retouch this portrait: even the skin, brighten the eyes, warm the shadows, then compare before and after."
+        ],
+        "brandColor": "#FF4F1A",
+        "brandColorDark": "#FF6430",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.svg"
+      },
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Design a poster from a short brief",
+              "prompt": "Make a 1080×1350 poster that says 'Open Studio · Sat 14 Nov' on a warm gradient, and show me a preview.",
+              "tools_triggered": "canvas_create, canvas_render",
+              "expected_behavior": "Creates a document with background, headline and date layers, and shows a rendered preview card."
+            },
+            {
+              "description": "Adapt a design to other sizes",
+              "prompt": "Now adapt it to a 1080×1920 story and a 1920×1080 banner.",
+              "tools_triggered": "artboard_create, canvas_patch, canvas_render",
+              "expected_behavior": "Adds two artboards with the layout reflowed for each size, and previews all three."
+            },
+            {
+              "description": "Export editable files",
+              "prompt": "Export it as a layered PSD and a PNG.",
+              "tools_triggered": "canvas_export",
+              "expected_behavior": "Returns download links for a .psd and a .png per artboard. The PSD opens with live text layers."
+            },
+            {
+              "description": "Edit a photo non-destructively and compare",
+              "prompt": "Import this photo from https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg, make it warmer with a curves adjustment, then compare with before.",
+              "tools_triggered": "asset_import, canvas_patch, canvas_render",
+              "expected_behavior": "Adds the photo and a curves adjustment layer, and shows a before and after comparison."
+            },
+            {
+              "description": "Check detail and legibility",
+              "prompt": "Zoom into the headline at 200% and check the text isn't too small for a story.",
+              "tools_triggered": "canvas_render, canvas_inspect",
+              "expected_behavior": "Shows the zoomed region, and reports preflight results such as type size and safe zones."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Requests for AI-generated photos of real people are declined without creating anything",
+              "prompt": "Generate a photorealistic picture of a celebrity at a party."
+            },
+            {
+              "description": "Files outside the user's workspace can't be read",
+              "prompt": "Open the file /etc/passwd from the server."
+            },
+            {
+              "description": "A vague request gets a question before any tool runs",
+              "prompt": "Edit my image."
+            }
+          ]
+        },
+        "commerce": false
+      }
+    }
+  }
+}
