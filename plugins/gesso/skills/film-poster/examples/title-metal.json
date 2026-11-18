@@ -1,0 +1,35 @@
+{
+ "description": "The metal title gets a gradient, a bevel and a shadow sized to its type",
+ "doc": {
+  "id": "poster",
+  "revision": 0,
+  "assets": {},
+  "artboards": [
+   {
+    "id": "a",
+    "name": "Title",
+    "frame": { "x": 0, "y": 0, "w": 1000, "h": 600 },
+    "background": "#101418",
+    "layers": [
+     {
+      "id": "title",
+      "name": "Title",
+      "type": "text",
+      "content": "IRONCLAD",
+      "box": { "kind": "area" },
+      "style": { "font": "Inter", "size": 200, "weight": 800, "fill": "#FFFFFF", "align": "center" },
+      "frame": { "x": 50, "y": 180, "w": 900, "h": 260 }
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  { "recipe": "title-metal", "params": { "title": "title" } }
+ ],
+ "checks": [
+  { "what": "a metal gradient over the type", "field": { "target": "#title", "path": "effects.0.kind", "equals": "gradient-overlay" } },
+  { "what": "a bevel sized to the type", "field": { "target": "#title", "path": "effects.1.size", "equals": 8 } },
+  { "what": "a drop shadow under it", "field": { "target": "#title", "path": "effects.2.kind", "equals": "drop-shadow" } }
+ ]
+}

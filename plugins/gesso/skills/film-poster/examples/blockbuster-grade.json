@@ -1,0 +1,13 @@
+{
+ "description": "Orange and teal: the dark background goes teal, the face warmer, with a vignette and grain",
+ "layers": ["portrait"],
+ "steps": [
+  { "recipe": "blockbuster-grade", "params": { "artboard": "a", "above": "portrait" } }
+ ],
+ "checks": [
+  { "what": "the dark background goes teal", "metric": "color.lab.2", "region": [0, 180, 60, 60], "max": -5 },
+  { "what": "the face goes warmer", "metric": "color.lab.2", "region": [180, 120, 120, 60], "more": 1.2 },
+  { "what": "the image gains grain", "metric": "noise", "more": 1.2 },
+  { "what": "the corners darken under the vignette", "metric": "luminance.mean", "region": [0, 0, 60, 60], "less": 0.85 }
+ ]
+}

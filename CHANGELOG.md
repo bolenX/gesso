@@ -2,6 +2,16 @@
 
 Versions of `gesso-mcp`, the npm package and Claude Desktop extension. Each version's notes become its GitHub release.
 
+## Unreleased
+
+- **A film poster skill** (`film-poster`): one-sheets, teasers and key art, the way a studio's designers make them. It covers the formats (US one-sheet, A1, UK quad, streaming box art, social), eight poster types and what each genre's colour, title and composition look like, the layout from the names above the title to the billing block, title treatments, and building the key art. It has checks a studio would make: the thumbnail test, reading order, title contrast and skin that survives the grade. Five recipes:
+  - `one-sheet`: the type over your key art, in proportion: names, tagline, a bottom scrim, a title that shrinks to fit, the release line and a condensed billing block.
+  - `blockbuster-grade`: orange and teal, with teal shadows, warm skin, punch, a vignette and grain.
+  - `thriller-grade`: cold and muted, with a blue cast held to the shadows so faces don't go grey.
+  - `atmosphere`: fog rising from the bottom and a glow behind the subject.
+  - `title-metal`: a polished metal title, with a gradient, a bevel and a shadow sized to the type.
+- **Presets** `one-sheet` (2025×3000) and `quad` (3000×2250).
+
 ## 0.14.0 (2026-10-29)
 
 0.14.0 completes Photoshop's Filter menu, with 47 new filters (the whole Filter Gallery, Adaptive Wide Angle, Vanishing Point, Flame, Picture Frame, Tree, Relight and Color to Alpha), and makes Gesso a plugin for Claude, ChatGPT and Codex, Copilot and Cursor, listed in the official MCP Registry.

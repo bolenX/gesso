@@ -215,7 +215,7 @@ Start `hermes chat`. If Hermes is already running, run `/reload-mcp`. Gesso's to
 
 ## The Gesso plugin
 
-The plugin bundles two things: a connection to Gesso's free hosted server, and Gesso's 31 skills plus a get-started guide, which your agent loads when a task needs them. It's one folder, [`plugins/gesso`](../plugins/gesso), that every agent below reads in its own format.
+The plugin bundles two things: a connection to Gesso's free hosted server, and Gesso's 32 skills plus a get-started guide, which your agent loads when a task needs them. It's one folder, [`plugins/gesso`](../plugins/gesso), that every agent below reads in its own format.
 
 | Agent | Install |
 | --- | --- |

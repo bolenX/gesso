@@ -12,7 +12,7 @@ This brief is for the session that maintains the Gesso landing page. Use it as t
 **0.13.0 update (still applies):** Gesso now has its own masking engine for hard cut-outs, and a cutouts skill. Update:
 - **Features:** the Compositing points (group 3) and the cut-out check under Checking work (group 9).
 - **Workflows:** add the cut-outs skill (group 7).
-- **Numbers:** 31 skills and 56 recipes.
+- **Numbers:** 32 skills and 61 recipes.
 - **What's new:** add a 0.13.0 row.
 - **Claims to avoid:** two new ones, under "What Gesso covers".
 
@@ -36,9 +36,9 @@ Before you start, read the current site and compare it with this brief. Keep the
 
 1. **Hero.** Keep the core promise: agents build layered images as data, and the files open in Photoshop as editable PSDs. Use the subhead to show the breadth (options below).
 2. **Features.** Replace or extend the features section with the nine groups under [Feature groups](#feature-groups). "Checking work" (group 9) is new in 0.11, and groups 3, 5, 7 and 8 have new points.
-3. **Workflows.** The workflows section covers the five photo niches, cut-outs, and design and adaptation skills (31 skills in all).
+3. **Workflows.** The workflows section covers the five photo niches, cut-outs, and design and adaptation skills (32 skills in all).
 4. **"Opens in Photoshop."** Update the live and baked lists (see [What opens live in Photoshop](#what-opens-live-in-photoshop)). Some filters, distortions and warps are now live.
-5. **Numbers.** Use the updated counts under [Numbers you can quote](#numbers-you-can-quote): 21 tools, 31 skills and 56 recipes.
+5. **Numbers.** Use the updated counts under [Numbers you can quote](#numbers-you-can-quote): 21 tools, 32 skills and 61 recipes.
 6. **Install section.** The extension is still about 62 MB. Use `gesso-0.14.0.mcpb` wherever the filename shows a version.
 7. **Claims.** Remove or fix anything listed under [Claims to avoid](#claims-to-avoid). Several 0.10 caveats no longer apply: auto-align and auto-blend, Calculations, and live smart filters.
 
@@ -53,7 +53,7 @@ Before you start, read the current site and compare it with this brief. Keep the
 | claude.ai and ChatGPT | `https://mcp.gesso.run/mcp` as a custom connector (claude.ai) or a developer-mode app with OAuth (ChatGPT). Free, no account, nothing to install. Or `npx -y gesso-mcp --tunnel` to run it on your own computer. |
 | Platforms | macOS (Apple silicon and Intel), Windows, Linux |
 | Agent tools | 21 |
-| Bundled skills | 31, with 56 recipes |
+| Bundled skills | 32, with 61 recipes |
 | Licence | Apache-2.0, open source |
 | Repository | `github.com/bolenX/gesso`, **public**. Link to it from the hero or footer. |
 | Cost | Gesso is free. It never calls or pays for an image model: generative jobs go to the user's own connected tools. |
@@ -159,7 +159,7 @@ Image › Adjustments commands are also included: Shadows/Highlights, Desaturate
 
 **Skills that carry the craft.**
 
-The engine makes an edit possible; the bundled skills make it good. Gesso ships 31 skills that teach the agent how professionals use these tools. Each has checks for the agent to run on its result. Most have **recipes**: proven layer setups (a frequency separation, a flambient stack, a duotone, a contact shadow, see-through glass) that the agent applies in one step and then fine-tunes. All 56 recipes are tested against sample photos, with measurements, on every change to Gesso.
+The engine makes an edit possible; the bundled skills make it good. Gesso ships 32 skills that teach the agent how professionals use these tools. Each has checks for the agent to run on its result. Most have **recipes**: proven layer setups (a frequency separation, a flambient stack, a duotone, a contact shadow, see-through glass) that the agent applies in one step and then fine-tunes. All 61 recipes are tested against sample photos, with measurements, on every change to Gesso.
 
 Five of the skills cover 50 professional workflows, ten per niche:
 
@@ -273,8 +273,8 @@ For a section titled something like "Open it in Photoshop". Suggested copy:
 | 7 | Export formats: PNG, JPEG, WebP, TIFF, PSD, SVG, PDF |
 | 25 | Filters that open in Photoshop as live smart filters |
 | 21 | Agent tools |
-| 31 | Skills |
-| 56 | Recipes, each tested against sample photos |
+| 32 | Skills |
+| 61 | Recipes, each tested against sample photos |
 | 50 + 50 | 50 professional workflows and 50 core techniques |
 | 400% | Deepest region zoom |
 

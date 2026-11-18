@@ -7,7 +7,7 @@ How Gesso gets into each agent's directory or marketplace, what's ready in this 
 | Package | What it is | Where it lives |
 | --- | --- | --- |
 | **Connector** | The hosted server `https://mcp.gesso.run/mcp`, with its result card (an MCP App) | Running on the always-on Mac |
-| **Plugin** | The connector plus Gesso's 31 skills and a get-started skill, in every agent's plugin format | [`plugins/gesso`](../../plugins/gesso) |
+| **Plugin** | The connector plus Gesso's 32 skills and a get-started skill, in every agent's plugin format | [`plugins/gesso`](../../plugins/gesso) |
 | **npm package** | `gesso-mcp`, run on the user's computer with `npx` | npm, and the official MCP Registry from the next release |
 | **Desktop extension** | `gesso.mcpb`, for Claude Desktop | GitHub Releases. Anthropic's directory no longer takes extensions, so it's a download only. |
 

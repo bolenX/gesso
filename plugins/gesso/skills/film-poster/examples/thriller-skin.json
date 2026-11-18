@@ -1,0 +1,12 @@
+{
+ "description": "The thriller grade cools the shadows but keeps skin from going grey or blue: the face keeps some warmth and colour",
+ "layers": ["portrait"],
+ "steps": [
+  { "recipe": "thriller-grade", "params": { "artboard": "a", "above": "portrait" } }
+ ],
+ "checks": [
+  { "what": "the face stays on the warm side", "metric": "color.lab.2", "region": [180, 120, 120, 60], "min": 5 },
+  { "what": "the face keeps some colour", "metric": "color.chroma.mean", "region": [180, 120, 120, 60], "min": 8 },
+  { "what": "the dark background goes cold", "metric": "color.lab.2", "region": [0, 180, 60, 60], "less": 0.5 }
+ ]
+}

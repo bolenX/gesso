@@ -37,6 +37,8 @@ export const PRESETS: Record<string, Preset> = {
   "a5": { name: "A5 at 300 dpi", w: 1748, h: 2480 },
   "letter": { name: "US Letter at 300 dpi", w: 2550, h: 3300 },
   "poster-18x24": { name: "Poster 18×24 in at 150 dpi", w: 2700, h: 3600 },
+  "one-sheet": { name: "Film one-sheet 27×40 in, key art at 75 dpi", w: 2025, h: 3000 },
+  "quad": { name: "UK quad 40×30 in, key art at 75 dpi", w: 3000, h: 2250 },
   "business-card": { name: "Business card 3.5×2 in at 300 dpi", w: 1050, h: 600 },
 };
 
