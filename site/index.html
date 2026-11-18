@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- page:start -->
+<title>Gesso</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Gesso is an open-source image engine for AI agents. Agents edit layered compositions through patches, and every result opens in Photoshop as an editable PSD.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a Photoshop document. Neutral ground, a transparency-grid canvas for the hero, the layers panel as the page's recurring device. */
+:root {
+  --ground: #eef0f3;      /* cool primer grey, biased toward the accent */
+  --surface: #ffffff;
+  --ink: #12141a;
+  --muted: #5b6070;
+  --rule: #d6d9e0;
+  --cobalt: #1f45e6;      /* from the Registan poster */
+  --check-a: #ffffff;
+  --check-b: #dfe2e8;
+  --code-bg: #12141a;
+  --code-ink: #e6e8ee;
+  --code-muted: #8a90a2;
+  --code-key: #9db0ff;
+  --code-str: #f3c98b;
+  --ok: #1d7a4f;
+  --planned: #8a6d1f;
+
+  --display: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --step--1: 0.875rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.75rem;
+  --step-3: clamp(2rem, 1.4rem + 2.4vw, 3rem);
+  --step-4: clamp(2.6rem, 1.6rem + 4.6vw, 5.25rem);
+  --wrap: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0f1116; --surface: #171a21; --ink: #e9ebf1; --muted: #9aa0b2; --rule: #2a2e39;
+    --cobalt: #7d93ff; --check-a: #1b1e26; --check-b: #232731;
+    --code-bg: #0a0b0f; --code-ink: #e6e8ee; --code-muted: #7d8396; --code-key: #9db0ff; --code-str: #f3c98b;
+    --ok: #5fcf98; --planned: #e0bd63;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0f1116; --surface: #171a21; --ink: #e9ebf1; --muted: #9aa0b2; --rule: #2a2e39;
+  --cobalt: #7d93ff; --check-a: #1b1e26; --check-b: #232731;
+  --code-bg: #0a0b0f; --code-ink: #e6e8ee; --code-muted: #7d8396; --code-key: #9db0ff; --code-str: #f3c98b;
+  --ok: #5fcf98; --planned: #e0bd63;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 var(--step-0)/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+.wrap {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+a { color: inherit; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 3px; border-radius: 4px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; margin: 0; }
+p { margin: 0; }
+code { font-family: var(--mono); font-size: 0.9em; }
+.eyebrow { font: 500 var(--step--1)/1.4 var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+
+/* Nav */
+.nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 22px; }
+.mark { display: flex; align-items: center; gap: 10px; font: 700 1.35rem/1 var(--display); letter-spacing: -0.03em; text-decoration: none; }
+.mark-swatch { width: 18px; height: 18px; border: 1.5px solid var(--ink); background: conic-gradient(var(--check-b) 25%, var(--check-a) 0 50%, var(--check-b) 0 75%, var(--check-a) 0) 0 0 / 9px 9px; }
+.nav-links { display: flex; gap: 22px; flex-wrap: wrap; font-size: var(--step--1); }
+.nav-links a { text-decoration: none; color: var(--muted); }
+.nav-links a:hover { color: var(--ink); }
+
+/* Hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 56px; align-items: center; padding-block: 48px 88px; }
+.hero h1 { font-size: var(--step-4); line-height: 0.98; letter-spacing: -0.035em; }
+.hero-copy { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; }
+.lede { font-size: var(--step-1); line-height: 1.5; color: var(--muted); max-width: 34ch; }
+.lede strong { color: var(--ink); font-weight: 500; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 18px; border-radius: 8px; font: 600 var(--step--1)/1 var(--body); text-decoration: none; border: 1.5px solid var(--ink); }
+.btn-primary { background: var(--ink); color: var(--ground); }
+.btn-primary:hover { background: var(--cobalt); border-color: var(--cobalt); color: #fff; }
+.btn-ghost:hover { border-color: var(--cobalt); color: var(--cobalt); }
+.cmd { display: flex; align-items: center; gap: 12px; max-width: 100%; padding: 10px 10px 10px 16px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); font: 400 var(--step--1)/1.4 var(--mono); width: fit-content; }
+.cmd span { overflow-x: auto; white-space: nowrap; min-width: 0; }
+.cmd span::before { content: "$ "; color: var(--muted); }
+.copy { flex: none; border: 1px solid var(--rule); background: transparent; color: var(--muted); border-radius: 6px; padding: 5px 9px; font: 500 0.75rem/1 var(--mono); cursor: pointer; }
+.copy:hover { color: var(--ink); border-color: var(--ink); }
+
+/* The hero canvas: a transparent layer on Photoshop's grid, with its layers panel */
+.canvas { position: relative; min-width: 0; }
+.board {
+  position: relative; aspect-ratio: 3 / 4; max-width: 100%; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden;
+  background: conic-gradient(var(--check-b) 25%, var(--check-a) 0 50%, var(--check-b) 0 75%, var(--check-a) 0) 0 0 / 22px 22px;
+}
+.board img { position: absolute; inset: 4% 6% 0; width: 88%; height: 96%; object-fit: contain; object-position: bottom; }
+.board-label { position: absolute; top: 12px; left: 12px; padding: 4px 8px; border-radius: 4px; background: var(--surface); border: 1px solid var(--rule); font: 500 0.72rem/1.3 var(--mono); color: var(--muted); }
+.layers {
+  position: absolute; right: -28px; bottom: 32px; width: min(300px, 78%);
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 18px 40px -18px rgb(10 14 30 / 0.35);
+  font: 400 0.78rem/1.25 var(--mono); overflow: hidden;
+}
+.layers-head { display: flex; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid var(--rule); color: var(--muted); }
+.layers ol { list-style: none; margin: 0; padding: 4px 0; }
+.layers li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 5px 12px; }
+.layers li .kind { color: var(--muted); }
+.layers li.sel { background: color-mix(in srgb, var(--cobalt) 14%, transparent); }
+.layers li.sel .name { color: var(--cobalt); font-weight: 500; }
+.layers li.clip .name::before { content: "↳ "; color: var(--muted); }
+
+/* Sections */
+section { padding-block: 88px; border-top: 1px solid var(--rule); }
+.section-head { display: grid; gap: 14px; max-width: 46rem; margin-bottom: 44px; }
+.section-head h2 { font-size: var(--step-3); line-height: 1.05; }
+.section-head p { color: var(--muted); font-size: var(--step-1); line-height: 1.5; }
+
+/* How it works */
+.how { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 48px; align-items: start; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 28px; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 2.25rem 1fr; gap: 4px 14px; counter-increment: step; }
+.steps li::before { content: counter(step); grid-row: span 2; width: 2rem; height: 2rem; display: grid; place-items: center; border: 1.5px solid var(--ink); border-radius: 50%; font: 600 0.85rem/1 var(--mono); }
+.steps h3 { font-size: var(--step-1); line-height: 1.3; padding-top: 2px; }
+.steps p { color: var(--muted); max-width: 44ch; }
+.code { margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; padding: 20px 22px; overflow-x: auto; font: 400 0.84rem/1.65 var(--mono); }
+.code .c { color: var(--code-muted); }
+.code .k { color: var(--code-key); }
+.code .s { color: var(--code-str); }
+.code-stack { display: grid; gap: 14px; min-width: 0; }
+.code-label { font: 500 0.75rem/1 var(--mono); color: var(--muted); }
+
+/* Proof */
+.proof { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2.25fr) minmax(0, 3.4fr); gap: 28px; align-items: start; }
+.proof figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
+.proof img { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--rule); }
+figcaption { font: 400 var(--step--1)/1.5 var(--body); color: var(--muted); }
+figcaption b { color: var(--ink); font-weight: 600; }
+.table-wrap { overflow-x: auto; min-width: 0; }
+table { width: 100%; border-collapse: collapse; font-size: var(--step--1); }
+th { text-align: left; font: 500 0.75rem/1.3 var(--mono); color: var(--muted); padding: 0 12px 10px 0; border-bottom: 1px solid var(--ink); }
+td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td:first-child { font-family: var(--mono); font-size: 0.82rem; white-space: nowrap; }
+.live { color: var(--cobalt); font-weight: 600; }
+.proof-note { margin-top: 18px; color: var(--muted); font-size: var(--step--1); }
+
+/* Features */
+.features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 56px; }
+.feature { display: grid; gap: 8px; padding-top: 18px; border-top: 1.5px solid var(--ink); min-width: 0; }
+.feature h3 { font-size: var(--step-1); line-height: 1.3; }
+.feature p { color: var(--muted); max-width: 52ch; }
+
+/* Get started */
+.start { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; }
+.start-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 34px; counter-reset: step; }
+.start-steps > li { display: grid; gap: 12px; counter-increment: step; min-width: 0; }
+.start-steps h3 { font-size: var(--step-1); display: flex; gap: 12px; align-items: baseline; }
+.start-steps h3::before { content: counter(step) "."; font: 600 var(--step-0)/1 var(--mono); color: var(--cobalt); }
+.start-steps p { color: var(--muted); }
+.prompt { margin: 0; padding: 18px 20px; border-left: 3px solid var(--cobalt); background: var(--surface); border-radius: 0 8px 8px 0; font-size: var(--step-0); line-height: 1.55; }
+.req { color: var(--muted); font-size: var(--step--1); margin-top: -16px; margin-bottom: 30px; }
+.status { font: 500 0.75rem/1 var(--mono); white-space: nowrap; }
+.status.ok { color: var(--ok); }
+.status.planned { color: var(--planned); }
+
+/* Roadmap */
+.road { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.road > div { padding: 24px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.road > div + div { border-left: 1px solid var(--rule); }
+.road h3 { font-size: var(--step-1); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.road h3 span { font: 500 0.75rem/1 var(--mono); color: var(--muted); }
+.road ul { margin: 0; padding-left: 1.1em; color: var(--muted); display: grid; gap: 6px; font-size: var(--step--1); }
+.now { color: var(--cobalt) !important; }
+.gaps { margin-top: 28px; color: var(--muted); font-size: var(--step--1); max-width: 70ch; }
+
+footer { border-top: 1px solid var(--rule); padding-block: 36px 48px; }
+.foot { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; color: var(--muted); font-size: var(--step--1); }
+.foot a { color: var(--ink); }
+
+@media (max-width: 900px) {
+  .hero, .how, .start { grid-template-columns: minmax(0, 1fr); }
+  .hero { gap: 40px; padding-block: 24px 64px; }
+  .layers { right: 12px; bottom: 12px; }
+  .proof { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .proof .table-col { grid-column: 1 / -1; }
+  .road { grid-template-columns: minmax(0, 1fr); }
+  .road > div + div { border-left: 0; border-top: 1px solid var(--rule); }
+  section { padding-block: 64px; }
+}
+@media (max-width: 600px) {
+  .features { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .nav-links { gap: 14px; }
+  .nav-links .hide-sm { display: none; }
+  .layers { position: relative; right: auto; bottom: auto; width: 100%; margin-top: 12px; box-shadow: none; }
+}
+</style>
+
+<div class="wrap">
+  <nav class="nav" aria-label="Main">
+    <a class="mark" href="#top"><span class="mark-swatch" aria-hidden="true"></span>Gesso</a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#tools" class="hide-sm">Tools</a>
+      <a href="#start">Get started</a>
+      <a href="https://github.com/bolenX/gesso">GitHub</a>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-copy">
+      <p class="eyebrow">Open source · Apache-2.0 · pre-alpha</p>
+      <h1>Layered images, written as data.</h1>
+      <p class="lede">Gesso is an image engine for AI agents. An agent builds a composition by sending small patches to named layers, and <strong>every result opens in Photoshop as an editable PSD.</strong></p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#start">Get started</a>
+        <a class="btn btn-ghost" href="https://github.com/bolenX/gesso/blob/main/docs/spec-v0.1.md">Read the spec</a>
+      </div>
+      <div class="cmd"><span id="clone-cmd">git clone https://github.com/bolenX/gesso</span><button class="copy" type="button" data-copy="clone-cmd">Copy</button></div>
+    </div>
+
+    <div class="canvas">
+      <div class="board">
+        <span class="board-label">hero-2.png · 1536 × 2048 · transparent</span>
+        <img src="assets/hero-2.webp" width="820" height="1093" alt="A glossy white 3D number 2 wrapped in a blue Registan Camp ribbon, on a transparent background">
+      </div>
+      <div class="layers" aria-label="Layers in the Registan Camp poster">
+        <div class="layers-head"><span>poster-3x4</span><span>rev 1</span></div>
+        <ol>
+          <li><span class="name">grade</span><span class="kind">curves</span></li>
+          <li class="sel"><span class="name">hero</span><span class="kind">image</span></li>
+          <li><span class="name">hero-glow</span><span class="kind">screen</span></li>
+          <li class="clip"><span class="name">headline-fade</span><span class="kind">shape</span></li>
+          <li><span class="name">headline-2</span><span class="kind">text</span></li>
+          <li><span class="name">headline-1</span><span class="kind">text</span></li>
+          <li><span class="name">kicker</span><span class="kind">text</span></li>
+          <li><span class="name">brand</span><span class="kind">text</span></li>
+          <li><span class="name">logo</span><span class="kind">shape</span></li>
+          <li><span class="name">corner-shade</span><span class="kind">multiply</span></li>
+          <li><span class="name">key-light</span><span class="kind">screen</span></li>
+          <li><span class="name">backdrop</span><span class="kind">image</span></li>
+        </ol>
+      </div>
+    </div>
+  </header>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">How it works</p>
+      <h2>The agent edits the document. Gesso draws it.</h2>
+      <p>Agents are bad at pointing and dragging, and good at structured data. So a Gesso document is data, every layer has a name, and changes are written against those names.</p>
+    </div>
+    <div class="how">
+      <ol class="steps">
+        <li><h3>Create</h3><p>The agent sends a document: artboards, layers with stable IDs like <code>headline</code>, and the assets they use.</p></li>
+        <li><h3>Patch</h3><p>Every change is a small operation on those IDs. A patch applies completely or not at all, and each one becomes a revision you can go back to.</p></li>
+        <li><h3>Look</h3><p><code>canvas_render</code> returns a preview image, so the agent can check its own work before it says it is done.</p></li>
+        <li><h3>Export</h3><p>PNG, JPEG or WebP for each artboard, or one PSD that holds every artboard.</p></li>
+      </ol>
+      <div class="code-stack">
+        <span class="code-label">canvas_patch</span>
+<pre class="code"><code>{
+  <span class="k">"doc"</span>: <span class="s">"promo-01"</span>,
+  <span class="k">"baseRevision"</span>: 12,
+  <span class="k">"ops"</span>: [
+    { <span class="k">"op"</span>: <span class="s">"set"</span>, <span class="k">"target"</span>: <span class="s">"#headline"</span>, <span class="k">"path"</span>: <span class="s">"content"</span>, <span class="k">"value"</span>: <span class="s">"Autumn Edit"</span> },
+    { <span class="k">"op"</span>: <span class="s">"set"</span>, <span class="k">"target"</span>: <span class="s">"#card-photo"</span>, <span class="k">"path"</span>: <span class="s">"opacity"</span>, <span class="k">"value"</span>: 0.8 },
+    { <span class="k">"op"</span>: <span class="s">"move"</span>, <span class="k">"target"</span>: <span class="s">"#logo"</span>, <span class="k">"to"</span>: <span class="s">"top"</span> },
+    { <span class="k">"op"</span>: <span class="s">"remove"</span>, <span class="k">"target"</span>: <span class="s">"story-9x16 #old-badge"</span> }
+  ]
+}</code></pre>
+        <span class="code-label">response, then canvas_outline</span>
+<pre class="code"><code>{ <span class="k">"revision"</span>: 13, <span class="k">"changed"</span>: [<span class="s">"headline"</span>, <span class="s">"card-photo"</span>, <span class="s">"logo"</span>, <span class="s">"old-badge"</span>], <span class="k">"warnings"</span>: [] }
+
+promo-01  rev 13
+▣ post-4x5  1080×1350
+  ├ backdrop      shape   role=background
+  ├ card          shape   role=container [clip-base]
+  │ ↳ card-photo  image   clip multiply <span class="s">"Model portrait"</span>
+  ├ headline      text    role=headline <span class="s">"Autumn Edit"</span>
+  └ logo          image   role=logo</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="proof">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Made with Gesso</p>
+      <h2>One document, two sizes, thirteen layers you can still edit.</h2>
+      <p>This poster was rebuilt from a Uzbek-language original and translated to English. Magnific generated two images. Gesso did the type, light, layout and the second size.</p>
+    </div>
+    <div class="proof">
+      <figure>
+        <img src="assets/poster-3x4.jpg" width="900" height="1200" alt="Registan Camp poster, 3:4: the words 2 DAYS LEFT above a glossy 3D number 2 wrapped in a blue ribbon">
+        <figcaption><b>Poster 3:4</b>, 1080 × 1440</figcaption>
+      </figure>
+      <figure>
+        <img src="assets/story-9x16.jpg" width="675" height="1200" alt="The same poster reflowed to a 9:16 story">
+        <figcaption><b>Story 9:16</b>, 1080 × 1920. Same layers and the same two images; the layout moved.</figcaption>
+      </figure>
+      <div class="table-col">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Layer</th><th>Opens in Photoshop as</th></tr></thead>
+            <tbody>
+              <tr><td>Background</td><td><span class="live">Solid color fill</span></td></tr>
+              <tr><td>Backdrop</td><td>Pixel layer (Magnific)</td></tr>
+              <tr><td>Key light</td><td>Pixel layer, Screen</td></tr>
+              <tr><td>Registan Camp</td><td><span class="live">Live text</span>, Inter Bold</td></tr>
+              <tr><td>Kicker</td><td><span class="live">Live text</span>, Inter</td></tr>
+              <tr><td>2 DAYS</td><td><span class="live">Live text</span>, Inter Display Bold</td></tr>
+              <tr><td>LEFT!</td><td><span class="live">Live text</span> with a fade clipped to it</td></tr>
+              <tr><td>Hero 2 + ribbon</td><td>Pixel layer (Magnific), transparent</td></tr>
+              <tr><td>Grade</td><td><span class="live">Curves adjustment</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="proof-note">Magnific: 2 generations, 280 credits. The 9:16 version cost nothing extra; its backdrop is a crop of the 3:4 one.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">What it does</p>
+      <h2>Built for the handoff to a designer.</h2>
+      <p>The file an agent makes with Gesso is the file a designer finishes in Photoshop.</p>
+    </div>
+    <div class="features">
+      <div class="feature">
+        <h3>Patches, not pixels</h3>
+        <p>Agents never draw. They set <code>content</code> on <code>#headline</code> or move <code>#logo</code> to the top. Selectors are <code>#id</code>, <code>@role</code>, <code>.tag</code> and <code>$selection</code>, and can be scoped to one artboard.</p>
+      </div>
+      <div class="feature">
+        <h3>PSDs that stay editable</h3>
+        <p>Text stays live text, adjustments stay adjustment layers, shapes keep their vector masks and artboards stay artboards. Each layer also carries Gesso's own pixels, so the file looks right before Photoshop redraws anything.</p>
+      </div>
+      <div class="feature">
+        <h3>Blending that matches Photoshop</h3>
+        <p>Skia renders in 8-bit sRGB and blends in gamma-encoded space, which is Photoshop's default. That covers the 16 standard blend modes, clipping, masks, groups, curves, levels, hue/saturation and brightness/contrast.</p>
+      </div>
+      <div class="feature">
+        <h3>Layout that reflows</h3>
+        <p>A layer can sit at exact coordinates, or at an anchor with margins and percentage sizes. Add a 9:16 artboard and the anchored layers find their place in it.</p>
+      </div>
+      <div class="feature">
+        <h3>History that protects other people's edits</h3>
+        <p>Every patch names the revision it was written against. If the document changed in the meantime, the agent gets back the changes it missed instead of overwriting them.</p>
+      </div>
+      <div class="feature">
+        <h3>Generation through tools you already pay for</h3>
+        <p>Gesso never calls an image model itself. The agent sends generative work to a connector you have, such as Magnific or Higgsfield, and the result comes back as its own layer with a record of the model and prompt.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Get started</p>
+      <h2>Run it with Claude Code in three steps.</h2>
+    </div>
+    <p class="req">You need Node 22, pnpm 10 and Claude Code. Any agent that speaks MCP works the same way.</p>
+    <div class="start">
+      <ol class="start-steps">
+        <li>
+          <h3>Clone and build</h3>
+<pre class="code"><code>git clone https://github.com/bolenX/gesso
+cd gesso
+pnpm install
+pnpm build</code></pre>
+        </li>
+        <li>
+          <h3>Add Gesso to Claude Code</h3>
+<pre class="code"><code>claude mcp add gesso -- node "$PWD/packages/mcp-server/dist/bin.js"</code></pre>
+          <p>Gesso reads assets and writes exports relative to the folder you start Claude Code in.</p>
+        </li>
+        <li>
+          <h3>Ask for a design</h3>
+          <p class="prompt">Make a 1080 × 1350 poster for a Friday design meetup. Use assets/photo.jpg as the background and put the title bottom-left in Inter Bold. Show me a preview, then export a PSD to out/.</p>
+          <p>Text needs a font file. Gesso finds it through a font asset, and the PostScript name tells Photoshop which font to use when the file opens:</p>
+<pre class="code"><code><span class="k">"inter-bold"</span>: {
+  <span class="k">"uri"</span>: <span class="s">"/usr/share/fonts/opentype/inter/Inter-Bold.otf"</span>,
+  <span class="k">"kind"</span>: <span class="s">"font"</span>,
+  <span class="k">"family"</span>: <span class="s">"Inter Bold"</span>,
+  <span class="k">"postscriptName"</span>: <span class="s">"Inter-Bold"</span>
+}</code></pre>
+        </li>
+      </ol>
+
+      <div id="tools" class="table-wrap">
+        <table>
+          <thead><tr><th>Tool</th><th>What it does</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>canvas_create</td><td>Start a document from a full spec; returns the outline</td><td><span class="status ok">works</span></td></tr>
+            <tr><td>canvas_outline</td><td>Compact tree of artboards and layers</td><td><span class="status ok">works</span></td></tr>
+            <tr><td>canvas_get</td><td>Full JSON for the layers a selector matches</td><td><span class="status ok">works</span></td></tr>
+            <tr><td>canvas_selection</td><td>Read or set the shared selection</td><td><span class="status ok">works</span></td></tr>
+            <tr><td>canvas_patch</td><td>Apply operations against a revision</td><td><span class="status ok">works</span></td></tr>
+            <tr><td>canvas_history</td><td>List revisions and revert</td><td><span class="status ok">works</span></td></tr>
+            <tr><td>canvas_render</td><td>Preview images at any scale</td><td><span class="status ok">works</span></td></tr>
+            <tr><td>canvas_export</td><td>PNG, JPEG, WebP or layered PSD</td><td><span class="status ok">works</span></td></tr>
+            <tr><td>artboard_create</td><td>New artboard from a preset, with reflow</td><td><span class="status planned">planned</span></td></tr>
+            <tr><td>asset_import</td><td>Bring in an image from a URL or path</td><td><span class="status planned">planned</span></td></tr>
+            <tr><td>gen_prepare</td><td>Package an expand or fill job for a generator</td><td><span class="status planned">planned</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Status</p>
+      <h2>Pre-alpha, and specific about it.</h2>
+      <p>Documents, patches, history, rendering and PSD export work today. Each release ships only when its example files pass.</p>
+    </div>
+    <div class="road">
+      <div>
+        <h3>v0.1 <span class="now">in progress</span></h3>
+        <ul>
+          <li>Layers, groups, masks, clipping, text, shapes</li>
+          <li>Main adjustment layers</li>
+          <li>PSD export, then PSD import</li>
+          <li>Generation through your connectors</li>
+          <li>One master image in, a 1:1, 4:5 and 9:16 campaign PSD out</li>
+        </ul>
+      </div>
+      <div>
+        <h3>v0.2 <span>design</span></h3>
+        <ul>
+          <li>Layer styles and smart objects</li>
+          <li>Smart filters that stay live</li>
+          <li>Photoshop-only blend modes, such as linear light</li>
+          <li>Right-to-left localisation</li>
+          <li>Data-driven variants</li>
+        </ul>
+      </div>
+      <div>
+        <h3>v0.3 <span>pixel</span></h3>
+        <ul>
+          <li>Brush, clone and heal, stored as strokes</li>
+          <li>Mesh warp</li>
+          <li>Retouching as a fast first pass</li>
+        </ul>
+      </div>
+    </div>
+    <p class="gaps">Not done yet: reading PSDs back in, gradient and stroked shapes as live layers, right-to-left text in PSDs, a render cache, and the planned tools listed above. 3D, video, Actions and plugins are out of scope.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <span>Gesso · Apache-2.0 · Rendering by Skia (CanvasKit), Sharp and ag-psd</span>
+    <span><a href="https://github.com/bolenX/gesso">GitHub</a> · <a href="https://github.com/bolenX/gesso/blob/main/docs/spec-v0.1.md">Spec v0.1</a></span>
+  </div>
+</footer>
+
+<script>
+document.querySelectorAll("[data-copy]").forEach(function (button) {
+  button.addEventListener("click", function () {
+    var source = document.getElementById(button.getAttribute("data-copy"));
+    var text = source.textContent;
+    var done = function () { button.textContent = "Copied"; setTimeout(function () { button.textContent = "Copy"; }, 1500); };
+    var fallback = function () {
+      var range = document.createRange();
+      range.selectNodeContents(source);
+      var selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      button.textContent = "Selected";
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+    else fallback();
+  });
+});
+</script>
+<!-- page:end -->
+</body>
+</html>
