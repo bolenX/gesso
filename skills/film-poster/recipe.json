@@ -1,0 +1,413 @@
+{
+  "recipes": {
+    "one-sheet": {
+      "description": "A film one-sheet's type over the key art, in proportion to the artboard: names above the title, tagline, a bottom scrim, the title (shrinks to fit), the release line and a condensed billing block.",
+      "params": {
+        "artboard": { "type": "artboard", "description": "The poster artboard (portrait, e.g. the one-sheet preset)" },
+        "above": { "type": "layer", "description": "The top layer of the key art; the type goes above it" },
+        "title": { "type": "string", "description": "The film's title", "default": "THE LAST HARBOR" },
+        "names": { "type": "string", "description": "Stars' names above the title", "default": "JONAH REYES     MAYA OKAFOR     THEO LIND" },
+        "tagline": { "type": "string", "description": "One-line tagline", "default": "SOME TIDES NEVER TURN" },
+        "date": { "type": "string", "description": "Release line", "default": "ONLY IN THEATERS · DECEMBER 18" },
+        "credits": {
+          "type": "string",
+          "description": "The billing block, in one line; it wraps",
+          "default": "NORTHLIGHT PICTURES PRESENTS A HARBOR LINE PRODUCTION A FILM BY ELENA MARSH \"THE LAST HARBOR\" JONAH REYES MAYA OKAFOR THEO LIND MUSIC BY ARI VOSS EDITED BY SAM KAUR DIRECTOR OF PHOTOGRAPHY LENA HOLT PRODUCTION DESIGNER NOOR HASSAN PRODUCED BY ROSA MENDEZ WRITTEN AND DIRECTED BY ELENA MARSH"
+        },
+        "titleFont": { "type": "string", "description": "Title font family (font_list finds installed ones)", "default": "Bebas Neue" },
+        "font": { "type": "string", "description": "Font for names, tagline and date", "default": "Inter" },
+        "billingFont": { "type": "string", "description": "Condensed font for the billing block", "default": "Bebas Neue" },
+        "titleSize": { "type": "number", "description": "Title type size as a fraction of the width (0.12–0.18; 0.3 for a typographic teaser)", "default": 0.15 },
+        "color": { "type": "color", "description": "Type colour", "default": "#FFFFFF" },
+        "accent": { "type": "color", "description": "Release line colour", "default": "#FFFFFF" },
+        "scrim": { "type": "number", "description": "Bottom scrim darkness, 0..1", "default": 0.85 },
+        "margin": { "type": "number", "description": "Side margin as a fraction of the width", "default": 0.06 }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "film-scrim",
+            "name": "Scrim (bottom)",
+            "type": "shape",
+            "shape": { "kind": "rect" },
+            "meta": { "role": "overlay" },
+            "frame": { "x": 0, "y": "{{= artboard.h * 0.5}}", "w": "{{artboard.w}}", "h": "{{= artboard.h * 0.5}}" },
+            "opacity": "{{scrim}}",
+            "fill": { "kind": "linear-gradient", "angle": 90, "stops": [{ "offset": 0, "color": "#000000" }, { "offset": 1, "color": "#00000000" }] }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#film-scrim",
+          "layer": {
+            "id": "film-names",
+            "name": "Names above the title",
+            "type": "text",
+            "content": "{{names}}",
+            "box": { "kind": "area", "shrinkToFit": true },
+            "meta": { "role": "body" },
+            "style": { "font": "{{font}}", "size": "{{= round(artboard.w * 0.024)}}", "weight": 600, "tracking": 200, "fill": "{{color}}", "align": "center" },
+            "frame": { "x": "{{= artboard.w * margin}}", "y": "{{= artboard.h * 0.04}}", "w": "{{= artboard.w * (1 - 2 * margin)}}", "h": "{{= round(artboard.w * 0.024 * 1.8)}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#film-names",
+          "layer": {
+            "id": "film-tagline",
+            "name": "Tagline",
+            "type": "text",
+            "content": "{{tagline}}",
+            "box": { "kind": "area", "shrinkToFit": true },
+            "meta": { "role": "body" },
+            "style": { "font": "{{font}}", "size": "{{= round(artboard.w * 0.021)}}", "weight": 400, "tracking": 150, "fill": "{{color}}", "align": "center" },
+            "frame": { "x": "{{= artboard.w * margin}}", "y": "{{= artboard.h * 0.085}}", "w": "{{= artboard.w * (1 - 2 * margin)}}", "h": "{{= round(artboard.w * 0.021 * 1.8)}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#film-tagline",
+          "layer": {
+            "id": "film-title",
+            "name": "Title",
+            "type": "text",
+            "content": "{{title}}",
+            "box": { "kind": "area", "shrinkToFit": true },
+            "meta": { "role": "headline" },
+            "style": {
+              "font": "{{titleFont}}",
+              "size": "{{= round(artboard.w * titleSize)}}",
+              "weight": 700,
+              "tracking": 20,
+              "leading": "{{= round(artboard.w * titleSize * 0.95)}}",
+              "fill": "{{color}}",
+              "align": "center"
+            },
+            "frame": { "x": "{{= artboard.w * margin}}", "y": "{{= artboard.h * 0.64}}", "w": "{{= artboard.w * (1 - 2 * margin)}}", "h": "{{= round(artboard.w * titleSize * 1.25)}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#film-title",
+          "layer": {
+            "id": "film-date",
+            "name": "Release line",
+            "type": "text",
+            "content": "{{date}}",
+            "box": { "kind": "area", "shrinkToFit": true },
+            "meta": { "role": "cta" },
+            "style": { "font": "{{font}}", "size": "{{= round(artboard.w * 0.03)}}", "weight": 700, "tracking": 250, "fill": "{{accent}}", "align": "center" },
+            "frame": {
+              "x": "{{= artboard.w * margin}}",
+              "y": "{{= round(artboard.h * 0.64 + artboard.w * titleSize * 1.25 + artboard.w * 0.015)}}",
+              "w": "{{= artboard.w * (1 - 2 * margin)}}",
+              "h": "{{= round(artboard.w * 0.03 * 1.8)}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#film-date",
+          "layer": {
+            "id": "film-billing",
+            "name": "Billing block",
+            "type": "text",
+            "content": "{{credits}}",
+            "box": { "kind": "area" },
+            "meta": { "role": "body" },
+            "style": {
+              "font": "{{billingFont}}",
+              "size": "{{= round(artboard.w * 0.02)}}",
+              "weight": 400,
+              "tracking": 30,
+              "leading": "{{= round(artboard.w * 0.02 * 1.08)}}",
+              "fill": "{{color}}",
+              "align": "center"
+            },
+            "frame": { "x": "{{= artboard.w * 0.12}}", "y": "{{= artboard.h * 0.86}}", "w": "{{= artboard.w * 0.76}}", "h": "{{= artboard.h * 0.09}}" }
+          }
+        }
+      ]
+    },
+    "blockbuster-grade": {
+      "description": "The orange-and-teal blockbuster look: teal shadows and warm highlights (skin stays warm), a punchy S-curve, vibrance, a vignette and fine film grain.",
+      "params": {
+        "artboard": { "type": "artboard", "description": "The artboard" },
+        "above": { "type": "layer", "description": "The top layer of the key art; the grade goes above it, under the type" },
+        "shadows": { "type": "json", "description": "Shadows balance [cyan–red, magenta–green, yellow–blue], each −100..100. Teal is cyan plus a little green; pure blue turns dark reds magenta", "default": [-30, 8, 24] },
+        "midtones": { "type": "json", "description": "Mid-tones balance. Keep it near neutral: warm mid-tones cancel the teal, cool ones turn skin grey", "default": [0, 0, 0] },
+        "highlights": { "type": "json", "description": "Highlights balance (where most skin sits)", "default": [20, 0, -24] },
+        "vignette": { "type": "number", "description": "Vignette opacity, 0..1", "default": 0.45 },
+        "grain": { "type": "number", "description": "Grain amount, 0..1 (0.03–0.08 reads as film)", "default": 0.05 }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "blockbuster-tone",
+            "name": "Orange and teal",
+            "type": "adjustment",
+            "meta": { "role": "grade" },
+            "adjustment": { "kind": "color-balance", "shadows": "{{shadows}}", "midtones": "{{midtones}}", "highlights": "{{highlights}}", "preserveLuminosity": true },
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#blockbuster-tone",
+          "layer": {
+            "id": "blockbuster-contrast",
+            "name": "Punch",
+            "type": "adjustment",
+            "meta": { "role": "grade" },
+            "adjustment": { "kind": "curves", "points": [[0, 6], [64, 50], [128, 128], [192, 208], [255, 250]] },
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#blockbuster-contrast",
+          "layer": {
+            "id": "blockbuster-vibrance",
+            "name": "Vibrance",
+            "type": "adjustment",
+            "meta": { "role": "grade" },
+            "adjustment": { "kind": "vibrance", "vibrance": 18 },
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#blockbuster-vibrance",
+          "layer": {
+            "id": "blockbuster-vignette",
+            "name": "Vignette",
+            "type": "shape",
+            "shape": { "kind": "rect" },
+            "meta": { "role": "grade" },
+            "fill": "#000000",
+            "blend": "multiply",
+            "opacity": "{{vignette}}",
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+            "mask": {
+              "kind": "vector",
+              "shape": { "kind": "ellipse" },
+              "invert": true,
+              "frame": { "x": "{{= artboard.w * 0.06}}", "y": "{{= artboard.h * 0.06}}", "w": "{{= artboard.w * 0.88}}", "h": "{{= artboard.h * 0.88}}" },
+              "feather": "{{= min(artboard.w, artboard.h) / 5}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#blockbuster-vignette",
+          "layer": {
+            "id": "blockbuster-grain",
+            "name": "Film grain",
+            "type": "shape",
+            "shape": { "kind": "rect" },
+            "meta": { "role": "grade" },
+            "fill": "#808080",
+            "blend": "overlay",
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+            "filters": [{ "kind": "noise", "amount": "{{grain}}", "monochrome": true, "distribution": "gaussian" }]
+          }
+        }
+      ]
+    },
+    "thriller-grade": {
+      "description": "The cold thriller look: colour muted, a blue cast in the shadows (skin stays a muted neutral), crushed shadows, a heavy vignette and grain.",
+      "params": {
+        "artboard": { "type": "artboard", "description": "The artboard" },
+        "above": { "type": "layer", "description": "The top layer of the key art; the grade goes above it, under the type" },
+        "mute": { "type": "number", "description": "How much colour to take out, 0..100", "default": 35 },
+        "cold": { "type": "color", "description": "The cast's colour, laid on the shadows only", "default": "#2F6FB8" },
+        "coldness": { "type": "number", "description": "Cast density, 0..100", "default": 28 },
+        "vignette": { "type": "number", "description": "Vignette opacity, 0..1", "default": 0.65 },
+        "grain": { "type": "number", "description": "Grain amount, 0..1", "default": 0.06 }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "thriller-mute",
+            "name": "Muted colour",
+            "type": "adjustment",
+            "meta": { "role": "grade" },
+            "adjustment": { "kind": "hue-saturation", "hue": 0, "saturation": "{{= 0 - mute}}", "lightness": 0 },
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#thriller-mute",
+          "layer": {
+            "id": "thriller-cold",
+            "name": "Cold cast",
+            "type": "adjustment",
+            "meta": { "role": "grade" },
+            "adjustment": { "kind": "photo-filter", "color": "{{cold}}", "density": "{{coldness}}", "preserveLuminosity": true },
+            "mask": { "kind": "luminosity", "range": "darks", "feather": 6 },
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#thriller-cold",
+          "layer": {
+            "id": "thriller-crush",
+            "name": "Crushed shadows",
+            "type": "adjustment",
+            "meta": { "role": "grade" },
+            "adjustment": { "kind": "curves", "points": [[0, 4], [48, 30], [128, 120], [210, 214], [255, 246]] },
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#thriller-crush",
+          "layer": {
+            "id": "thriller-vignette",
+            "name": "Vignette",
+            "type": "shape",
+            "shape": { "kind": "rect" },
+            "meta": { "role": "grade" },
+            "fill": "#000000",
+            "blend": "multiply",
+            "opacity": "{{vignette}}",
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+            "mask": {
+              "kind": "vector",
+              "shape": { "kind": "ellipse" },
+              "invert": true,
+              "frame": { "x": "{{= artboard.w * 0.1}}", "y": "{{= artboard.h * 0.1}}", "w": "{{= artboard.w * 0.8}}", "h": "{{= artboard.h * 0.8}}" },
+              "feather": "{{= min(artboard.w, artboard.h) / 4}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#thriller-vignette",
+          "layer": {
+            "id": "thriller-grain",
+            "name": "Film grain",
+            "type": "shape",
+            "shape": { "kind": "rect" },
+            "meta": { "role": "grade" },
+            "fill": "#808080",
+            "blend": "overlay",
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+            "filters": [{ "kind": "noise", "amount": "{{grain}}", "monochrome": true, "distribution": "gaussian" }]
+          }
+        }
+      ]
+    },
+    "atmosphere": {
+      "description": "Atmosphere for key art: fog rising from the bottom (clouds in screen, fading upwards) and a soft glow behind the subject that separates it from the background.",
+      "params": {
+        "artboard": { "type": "artboard", "description": "The artboard" },
+        "above": { "type": "layer", "description": "Put the fog just above this layer (the background plate, or the subject for fog in front)" },
+        "color": { "type": "color", "description": "Fog colour", "default": "#A9B8C9" },
+        "density": { "type": "number", "description": "Fog opacity, 0..1", "default": 0.55 },
+        "coverage": { "type": "number", "description": "How far up the fog reaches, 0..1 of the height", "default": 0.45 },
+        "glowColor": { "type": "color", "description": "The light behind the subject", "default": "#FFB46B" },
+        "glow": { "type": "number", "description": "Glow opacity, 0..1", "default": 0.6 },
+        "glowX": { "type": "number", "description": "Glow centre, fraction across", "default": 0.5 },
+        "glowY": { "type": "number", "description": "Glow centre, fraction down", "default": 0.35 },
+        "glowSize": { "type": "number", "description": "Glow diameter as a fraction of the width", "default": 0.9 }
+      },
+      "ops": [
+        {
+          "op": "insert",
+          "after": "#{{above}}",
+          "layer": {
+            "id": "atmosphere-glow",
+            "name": "Glow",
+            "type": "shape",
+            "shape": { "kind": "ellipse" },
+            "meta": { "role": "decoration" },
+            "blend": "screen",
+            "opacity": "{{glow}}",
+            "fill": { "kind": "radial-gradient", "stops": [{ "offset": 0, "color": "{{glowColor}}" }, { "offset": 1, "color": "{{glowColor}}00" }] },
+            "frame": {
+              "x": "{{= artboard.w * (glowX - glowSize / 2)}}",
+              "y": "{{= artboard.h * glowY - artboard.w * glowSize / 2}}",
+              "w": "{{= artboard.w * glowSize}}",
+              "h": "{{= artboard.w * glowSize}}"
+            }
+          }
+        },
+        {
+          "op": "insert",
+          "after": "#atmosphere-glow",
+          "layer": {
+            "id": "atmosphere-fog",
+            "name": "Fog",
+            "type": "shape",
+            "shape": { "kind": "rect" },
+            "meta": { "role": "decoration" },
+            "fill": "{{color}}",
+            "blend": "screen",
+            "opacity": "{{density}}",
+            "frame": { "x": 0, "y": 0, "w": "{{artboard.w}}", "h": "{{artboard.h}}" },
+            "filters": [{ "kind": "clouds", "colors": ["#000000", "{{color}}"], "scale": "{{= round(artboard.w * 0.3)}}", "seed": 7, "detail": 5 }],
+            "mask": {
+              "kind": "vector",
+              "shape": { "kind": "rect" },
+              "frame": { "x": 0, "y": "{{= artboard.h * (1 - coverage)}}", "w": "{{artboard.w}}", "h": "{{= artboard.h * (coverage + 0.3)}}" },
+              "feather": "{{= artboard.h * coverage * 0.4}}"
+            }
+          }
+        }
+      ]
+    },
+    "title-metal": {
+      "description": "A polished metal title: a metallic gradient overlay, a bevel scaled to the type and a drop shadow. Silver by default; pass gold stops for gold.",
+      "params": {
+        "title": { "type": "layer", "description": "The title text layer" },
+        "metal": {
+          "type": "json",
+          "description": "Gradient stops, dark to bright to dark, bottom to top",
+          "default": [
+            { "offset": 0, "color": "#5E6670" },
+            { "offset": 0.45, "color": "#F2F4F7" },
+            { "offset": 0.55, "color": "#8A929C" },
+            { "offset": 1, "color": "#E6E9EE" }
+          ]
+        },
+        "shadow": { "type": "number", "description": "Drop shadow opacity, 0..1", "default": 0.55 }
+      },
+      "ops": [
+        {
+          "op": "set",
+          "target": "#{{title}}",
+          "path": "effects",
+          "value": [
+            { "kind": "gradient-overlay", "stops": "{{metal}}", "angle": 90, "style": "linear", "blend": "normal" },
+            {
+              "kind": "bevel",
+              "style": "inner-bevel",
+              "size": "{{= max(2, round(title.style.size * 0.04))}}",
+              "depth": 140,
+              "angle": 120,
+              "altitude": 32,
+              "highlightOpacity": 0.8,
+              "shadowOpacity": 0.6
+            },
+            {
+              "kind": "drop-shadow",
+              "angle": 90,
+              "distance": "{{= max(2, round(title.style.size * 0.03))}}",
+              "size": "{{= max(4, round(title.style.size * 0.08))}}",
+              "opacity": "{{shadow}}"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

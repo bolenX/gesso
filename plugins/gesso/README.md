@@ -2,7 +2,7 @@
 
 Gesso is a layered image editor for your agent. It designs posters, social posts and banners, adapts one design to other sizes, retouches and grades photos, makes cut-outs of hair and glass, and exports PSDs that open in Photoshop with their layers still live. It also exports PNG, JPEG, WebP, TIFF, SVG and print PDF.
 
-This plugin connects your agent to Gesso's free hosted server and adds Gesso's skills: 31 professional workflows (retouching, compositing, cut-outs, adapting sizes, duotone, print production and more) and a get-started guide. Nothing to install, and no account needed.
+This plugin connects your agent to Gesso's free hosted server and adds Gesso's skills: 32 professional workflows (retouching, compositing, cut-outs, adapting sizes, duotone, film posters, print production and more) and a get-started guide. Nothing to install, and no account needed.
 
 ## Install
 

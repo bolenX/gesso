@@ -1,0 +1,12 @@
+{
+ "description": "The thriller grade mutes colour, cools it, crushes the shadows and darkens the edges",
+ "layers": ["landscape"],
+ "steps": [
+  { "recipe": "thriller-grade", "params": { "artboard": "a", "above": "landscape" } }
+ ],
+ "checks": [
+  { "what": "colour is muted", "metric": "color.chroma.mean", "less": 0.75 },
+  { "what": "the corners darken under the vignette", "metric": "luminance.mean", "region": [0, 300, 60, 60], "less": 0.7 },
+  { "what": "the image gains grain", "metric": "noise", "more": 1.2 }
+ ]
+}

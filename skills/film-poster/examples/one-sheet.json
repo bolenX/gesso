@@ -1,0 +1,39 @@
+{
+ "description": "The one-sheet layout sets names, tagline, title, release line and billing block in proportion, over a scrim, with nothing too small or off the poster",
+ "doc": {
+  "id": "poster",
+  "revision": 0,
+  "assets": {},
+  "artboards": [
+   {
+    "id": "a",
+    "name": "One-sheet",
+    "frame": { "x": 0, "y": 0, "w": 1000, "h": 1480 },
+    "background": "#0B0F14",
+    "layers": [
+     {
+      "id": "art",
+      "name": "Key art (stand-in)",
+      "type": "shape",
+      "shape": { "kind": "rect" },
+      "fill": { "kind": "linear-gradient", "angle": 90, "stops": [{ "offset": 0, "color": "#C9A27A" }, { "offset": 1, "color": "#3B5068" }] },
+      "frame": { "x": 0, "y": 0, "w": 1000, "h": 1480 }
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  { "recipe": "one-sheet", "params": { "artboard": "a", "above": "art", "title": "THE LAST HARBOR" } }
+ ],
+ "checks": [
+  { "what": "the title is 15% of the width", "field": { "target": "#film-title", "path": "style.size", "equals": 150 } },
+  { "what": "the title shrinks to fit a long name", "field": { "target": "#film-title", "path": "box.shrinkToFit", "equals": true } },
+  { "what": "the billing block is set in the condensed font", "field": { "target": "#film-billing", "path": "style.font", "equals": "Bebas Neue" } },
+  { "what": "names, tagline and billing block are the supporting text", "count": { "selector": "@body", "equals": 3 } },
+  { "what": "one title", "count": { "selector": "@headline", "equals": 1 } },
+  { "what": "the scrim darkens the bottom behind the billing block", "metric": "luminance.mean", "region": [0, 1400, 1000, 80], "less": 0.4 },
+  { "what": "the top of the art is left alone", "sample": [500, 300], "size": 5, "deltaE": { "max": 1 } },
+  { "what": "nothing too small or off the poster", "preflight": { "maxErrors": 0, "maxWarnings": 0 } }
+ ]
+}

@@ -48,7 +48,7 @@ Two separate lists:
 > **Path:** plugins/gesso
 > **Ref:** gesso-mcp-v0.13.1 (the release tag)
 > **License:** Apache-2.0
-> **Description:** Layered design and photo editing with editable PSD export. An Agent Plugins 1.0 plugin: the hosted Gesso MCP server plus 31 workflow skills.
+> **Description:** Layered design and photo editing with editable PSD export. An Agent Plugins 1.0 plugin: the hosted Gesso MCP server plus 32 workflow skills.
 
 **GitHub MCP Registry** (github.com/mcp and VS Code's `@mcp` gallery) is curated, and new versions sync from the official registry. Once Gesso is in the official registry, email partnerships@github.com:
 

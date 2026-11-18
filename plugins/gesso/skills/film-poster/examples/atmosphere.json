@@ -1,0 +1,12 @@
+{
+ "description": "Fog lightens the bottom and softens it; the glow lightens the area behind the subject; the top corners stay clear",
+ "layers": ["landscape"],
+ "steps": [
+  { "recipe": "atmosphere", "params": { "artboard": "a", "above": "landscape" } }
+ ],
+ "checks": [
+  { "what": "the fog lightens the bottom", "metric": "luminance.mean", "region": [0, 300, 480, 60], "more": 1.1 },
+  { "what": "the glow lightens behind the subject", "metric": "luminance.mean", "region": [200, 100, 80, 50], "more": 1.05 },
+  { "what": "the top corner stays as it was", "sample": [10, 10], "size": 5, "deltaE": { "max": 3 } }
+ ]
+}
