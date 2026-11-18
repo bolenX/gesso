@@ -82,7 +82,7 @@ Working on Gesso itself? The repo's `.mcp.json` loads your local checkout as the
 
 ## Publishing gesso-mcp
 
-GitHub publishes it: bump `version` in `packages/gesso-mcp/package.json`, run `node scripts/sync-plugin.mjs` to carry the version (and any skill changes) into the plugin and marketplace files, and merge to `main`. A `gesso-mcp-v*` tag or a manual run from the Actions tab also works. It needs an npm token with publish rights in the `NPM_TOKEN` repository secret, and it skips versions that are already published. Each new version is then listed in the official MCP Registry, with no secret needed.
+GitHub publishes it: bump `version` in `packages/gesso-mcp/package.json`, run `node scripts/sync-plugin.mjs` to carry the version (and any skill changes) into the plugin and marketplace files, and merge to `main`. A `gesso-mcp-v*` tag or a manual run from the Actions tab also works. It signs in to npm with Trusted Publishing, set up once on npmjs.com (the package's **Settings › Trusted publishing**: GitHub Actions, `bolenX`, `gesso`, `publish.yml`), so there's no token to expire; an npm token in the `NPM_TOKEN` secret works as a fallback. It skips versions that are already published. Each new version is then listed in the official MCP Registry, with no secret needed.
 
 The tests fail if the plugin is out of step with `skills/` or the version, so run the sync script after changing a skill too.
 

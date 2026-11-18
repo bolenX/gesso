@@ -3,7 +3,9 @@ name: Publish gesso-mcp
 # Runs when a change to the package (usually a version bump) lands on main,
 # when a gesso-mcp-v* tag is pushed, or by hand from the Actions tab. Versions
 # already on npm are skipped, so merges that don't bump the version do nothing.
-# Needs an npm token with publish rights in the NPM_TOKEN repository secret.
+# It signs in to npm with Trusted Publishing (this workflow's GitHub identity, set
+# up once on npmjs.com under the package's Settings › Trusted publishing), so no
+# token can expire. Without that, it falls back to an npm token in NPM_TOKEN.
 on:
   push:
     branches: [main]
@@ -40,6 +42,10 @@ jobs:
           if npm view "gesso-mcp@$version" version >/dev/null 2>&1; then
             echo "gesso-mcp@$version is already published"; echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
+      # Trusted Publishing needs npm 11.5.1 or later; Node 22 comes with npm 10.
+      - name: Use npm 11
+        if: steps.check.outputs.skip != 'true'
+        run: npm install -g npm@11.6.2
       - name: Publish
         if: steps.check.outputs.skip != 'true'
         working-directory: packages/gesso-mcp
